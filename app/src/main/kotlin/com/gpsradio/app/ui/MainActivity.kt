@@ -5,16 +5,10 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
-import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 class MainActivity : ComponentActivity() {
@@ -54,15 +48,4 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
-}
-
-@Composable
-fun GpsRadioTheme(content: @Composable () -> Unit) {
-    val teal = Color(0xFF1F5E57)
-    val scheme = if (isSystemInDarkTheme()) {
-        darkColorScheme(primary = Color(0xFF7FD1C4), secondary = Color(0xFFF2B880))
-    } else {
-        lightColorScheme(primary = teal, secondary = Color(0xFFB5652B))
-    }
-    MaterialTheme(colorScheme = scheme, content = content)
 }

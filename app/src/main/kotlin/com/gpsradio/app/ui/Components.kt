@@ -166,7 +166,7 @@ fun OnAirBadge() {
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .clip(RoundedCornerShape(50))
-            .background(Color(0xFFD7263D))
+            .background(if (androidx.compose.foundation.isSystemInDarkTheme()) Brand.onAirDark else Brand.onAir)
             .padding(horizontal = 8.dp, vertical = 2.dp),
     ) {
         Box(Modifier.size(8.dp).alpha(pulse).clip(CircleShape).background(Color.White))
