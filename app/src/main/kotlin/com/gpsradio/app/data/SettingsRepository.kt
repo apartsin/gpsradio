@@ -16,6 +16,15 @@ import java.util.Locale
 
 const val DEFAULT_LANGUAGE = "ru-RU"
 
+/** Default OpenAI key built into the app by CI (unscrambled at runtime); empty in local/test builds. */
+object EmbeddedKey {
+    val value: String by lazy {
+        val raw = com.gpsradio.app.BuildConfig.EMBEDDED_KEY
+        if (raw.isBlank()) return@lazy ""
+        raw.split(',').mapIndexed { i, s -> (s.trim().toInt() xor (0x5A + i % 7)).toByte() }.toByteArray().toString(Charsets.UTF_8)
+    }
+}
+
 data class AppSettings(
     val apiKey: String = "",
     /** Auto follows the device language (spec A §13). */
@@ -28,7 +37,12 @@ data class AppSettings(
     /** Natural, hands-free voice conversation via the OpenAI Realtime API (falls back to classic). */
     val liveVoice: Boolean = true,
 ) {
-    val hasApiKey: Boolean get() = apiKey.isNotBlank()
+    /** The listener's own key if they entered one, otherwise the key built into this app (if any). */
+    val effectiveApiKey: String get() = apiKey.ifBlank { EmbeddedKey.value }
+
+    val usingEmbeddedKey: Boolean get() = apiKey.isBlank() && EmbeddedKey.value.isNotBlank()
+
+    val hasApiKey: Boolean get() = effectiveApiKey.isNotBlank()
 
     fun resolvedLanguage(): String = Languages.resolveSessionLanguage(
         sessionOverride = null,

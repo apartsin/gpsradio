@@ -145,7 +145,7 @@ private fun SettingsForm(
             value = apiKey,
             onValueChange = { apiKey = it },
             label = { Text("OpenAI API key") },
-            placeholder = { Text("sk-…") },
+            placeholder = { Text(if (initial.usingEmbeddedKey) "Using the built-in key (optional: enter your own)" else "sk-…") },
             singleLine = true,
             visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
             trailingIcon = {
@@ -205,7 +205,7 @@ private fun SettingsForm(
         Spacer(Modifier.height(4.dp))
         Row {
             Button(
-                enabled = apiKey.isNotBlank(),
+                enabled = apiKey.isNotBlank() || initial.usingEmbeddedKey,
                 modifier = Modifier.fillMaxWidth(),
                 onClick = {
                     onSave(

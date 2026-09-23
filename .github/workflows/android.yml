@@ -13,7 +13,8 @@ permissions:
 # One run per branch at a time; a newer push supersedes an older run.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Queue instead of cancelling, so tagged live-test runs always complete.
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -36,6 +37,9 @@ jobs:
         run: ./gradlew :app:testDebugUnitTest --no-daemon
 
       - name: Build debug APK
+        env:
+          # Owner's choice: ship the repo secret as the app's default key (scrambled in BuildConfig).
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: ./gradlew :app:assembleDebug --no-daemon
 
       - uses: actions/upload-artifact@v4

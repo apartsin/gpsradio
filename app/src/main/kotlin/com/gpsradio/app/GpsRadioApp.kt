@@ -61,7 +61,7 @@ open class GpsRadioApp : Application() {
 
     /** Natural hands-free voice (OpenAI Realtime); tests return null to use the classic pipeline. */
     protected open fun liveFactory(http: OkHttpClient, baseUrl: String): ((LiveHost, CoroutineScope) -> LiveConversation)? {
-        val realtime = RealtimeClient(http, { settings.current.apiKey })
+        val realtime = RealtimeClient(http, { settings.current.effectiveApiKey })
         val pcm = AndroidPcmAudio(this)
         return { host, scope -> LiveConversation({ model -> realtime.connect(model) }, pcm, host, scope) }
     }
@@ -87,7 +87,7 @@ open class GpsRadioApp : Application() {
             .readTimeout(90, TimeUnit.SECONDS)
             .callTimeout(120, TimeUnit.SECONDS)
             .build()
-        val openAi = OpenAiClient(http, apiKey = { settings.current.apiKey }, baseUrl = ep.openAiBaseUrl)
+        val openAi = OpenAiClient(http, apiKey = { settings.current.effectiveApiKey }, baseUrl = ep.openAiBaseUrl)
         val models = { settings.current.models }
 
         session = RadioSession(
