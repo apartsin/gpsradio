@@ -2,9 +2,9 @@
 
 Product Requirements & Concept of Operations
 
-Working specification • Version 0.3 (living document) • 23 September 2026
+Working specification • Version 0.4 (living document) • 23 September 2026
 
-> This Markdown file is the maintained spec. `source/A_Product_Requirements_Concept_of_Operations_v0.2.docx` is the original snapshot. Changes since v0.2: app-only MVP with the user's own key (§17), preference memory (§14), photos and map (§15), activity-aware programming (§16), roadmap (§18), guide personality and humour (§19), refining questions and story offers (§20), natural voice conversation (§21), favourites and sharing (§22), distribution (§23).
+> This Markdown file is the maintained spec. `source/A_Product_Requirements_Concept_of_Operations_v0.2.docx` is the original snapshot. Changes since v0.2: app-only MVP with the user's own key (§17), preference memory (§14), photos and map (§15), activity-aware programming (§16), roadmap (§18), guide personality and humour (§19), refining questions and story offers (§20), natural voice conversation (§21), favourites and sharing (§22), distribution (§23). v0.4: Russian default language (§13), built-in key (§17), pacing dial and non-stop radio (§24), location-synced playback (§25).
 
 ## 1. Product Vision
 
@@ -193,6 +193,8 @@ A user drives through a rural area with the app playing in the background. The s
 
 The narration and conversational language is user-selectable and must not be hard-coded. During onboarding and in Settings, the user can choose a default language or select Auto, which follows the device/application language where supported.
 
+- **Default: Russian (ru-RU).** A fresh install narrates and converses in Russian; Auto and every other language remain one tap away in Settings.
+
 - The selected default language controls generated narration, conversational responses, speech recognition configuration, and localized UI where available.
 
 - The user may temporarily switch language during a session by voice or UI, for example: 'Continue in Russian'. A temporary session change does not alter the stored default unless the user explicitly requests that change.
@@ -249,7 +251,7 @@ Travel mode determines what is worth telling and how far out to look.
 |---|---|---|---|
 | Walking | ~1.5 km, weighted to the nearest few hundred metres | Things you can see or reach on foot: facades, plaques, street history, small sights | Frequent, shorter segments. Direction phrased as "on your left" or "ahead". |
 | Cycling (planned) | ~3–4 km, ahead-weighted | Route-side sights, viewpoints, rest stops | Medium |
-| Driving | ~8 km, shifted ahead along the direction of travel (look-ahead) | **Visible from the road**: mountains, lakes, castles, bridges, landmarks. **Worth a stop on this trip**: sights within a short detour, with an offer to navigate there | Sparse (at least 60–90 s between segments), ≤30 s, no screen interaction |
+| Driving | ~8 km, shifted ahead along the direction of travel (look-ahead) | **Visible from the road**: mountains, lakes, castles, bridges, landmarks. **Worth a stop on this trip**: sights within a short detour, with an offer to navigate there | Sparse (at least 90 s between segments; 12 s in Non-stop, §24), ≤30 s, no screen interaction, silence at junctions |
 | Stationary | ~1.5 km | Deeper stories and recommendations | Longer segments on request |
 
 - Mode is detected from GPS speed with hysteresis today. Android activity recognition (walk, cycle, vehicle, still) will be added to detect mode faster and more reliably, and to save battery while still.
@@ -264,11 +266,12 @@ Travel mode determines what is worth telling and how far out to look.
 
 ## 17. App-Only Operation (MVP decision)
 
-The MVP runs entirely on the phone and has no backend. The listener enters their own OpenAI API key once. It is stored encrypted on the device, never bundled in the app, and never stored in the repository. Nearby places come from Wikipedia and OpenStreetMap, which are free, need no key and give exact coordinates. OpenAI owns the storytelling, conversation, voice, web research and verification. See `C_Decision_App_Only_Architecture.md`.
+The MVP runs entirely on the phone and has no backend. The listener can enter their own OpenAI API key, which is stored encrypted on the device and never stored in the repository. Release builds also carry a built-in default key (PR-29a). Nearby places come from Wikipedia and OpenStreetMap, which are free, need no key and give exact coordinates. OpenAI owns the storytelling, conversation, voice, web research and verification. See `C_Decision_App_Only_Architecture.md`.
 
 | ID | Capability | Requirement |
 |---|---|---|
 | PR-29 | Own key | The user supplies an OpenAI key, which is stored encrypted on the device and can be replaced or removed in Settings. |
+| PR-29a | Built-in key (owner decision, 23 Sep 2026) | Release builds carry a default key from the repository secret `OPENAI_API_KEY`, lightly obfuscated, so the app works out of the box. A key the user enters always overrides it. The key is never committed. **Accepted risk:** the APK is public, so the built-in key can be extracted; the owner should cap its spend limit and rotate it if abused. |
 
 ## 18. Roadmap Candidates (prioritised)
 
@@ -347,3 +350,29 @@ Conversation should feel like talking to a person, as in ChatGPT's voice mode.
 
 - Every push publishes the newest APK at a permanent direct link: `https://github.com/apartsin/gpsradio/releases/download/latest/gpsradio.apk`.
 - All builds share one signing key, so a new build installs as an update over the old one.
+
+## 24. Pacing Dial and Non-stop Radio
+
+The listener chooses how talkative the radio is: **Chatty**, **Balanced** (default), **Rare** or **Non-stop**.
+
+- Between place stories the radio can run short formats: a "did you know" bumper, a quiz (answer out loud or wait for the reveal), "on this day", a station ident with a recap, and stories about the town or region, one angle at a time. All of them stay grounded in sources.
+- **Non-stop** never goes quiet while there is anything left to tell. When no strong story is nearby it falls back, in order, to weaker unheard places, stories about the area, the short formats, and then a wider search radius. Nothing is repeated. It also works while driving: segments stay ≤30 s, with about 12 s between them, and the radio is silent at junctions.
+
+| ID | Capability | Requirement |
+|---|---|---|
+| PR-41 | Pacing dial | Chatty / Balanced / Rare / Non-stop, persisted in Settings. |
+| PR-42 | Short formats | Bumper, quiz, on this day, station ID and area stories fill gaps without repeating content. |
+| PR-43 | Non-stop | Continuous, autonomous programme that fetches more location content when the nearby stock runs out. |
+
+## 25. Location-Synced Playback
+
+Stories must match where the listener actually is, especially at driving speed.
+
+- The app asks for precise location and, while driving, takes a fresh fix about every 2 s with no batching.
+- Before a story plays, the radio projects the position forward by the measured preparation time. It drops a story whose place has already been passed (beyond a tolerance) instead of telling it late.
+- While driving, narration avoids exact distances ("coming up on your left", "in about a minute").
+
+| ID | Capability | Requirement |
+|---|---|---|
+| PR-44 | Precise location | Request fine location; explain in the UI when only approximate location is granted. |
+| PR-45 | Playback sync | Compensate for preparation latency and skip stories that are no longer ahead. |
