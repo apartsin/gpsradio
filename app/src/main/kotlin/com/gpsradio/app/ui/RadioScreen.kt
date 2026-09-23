@@ -63,6 +63,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -79,7 +80,24 @@ import com.gpsradio.core.model.TranscriptEntry
 import com.gpsradio.core.model.TravelMode
 import com.gpsradio.core.session.RadioUiState
 
-@OptIn(ExperimentalMaterial3Api::class)
+/** Every user action on the radio screen; lets the screen be rendered and tested without a ViewModel. */
+data class RadioActions(
+    val onStart: () -> Unit = {},
+    val onStop: () -> Unit = {},
+    val onPause: () -> Unit = {},
+    val onResume: () -> Unit = {},
+    val onSkip: () -> Unit = {},
+    val onRepeat: () -> Unit = {},
+    val onNearby: () -> Unit = {},
+    val onMode: (TravelMode?) -> Unit = {},
+    val onTellAbout: (String) -> Unit = {},
+    val onAsk: (String) -> Unit = {},
+    /** Returns true if recording started (false e.g. while the mic permission is being requested). */
+    val onTalkStart: () -> Boolean = { false },
+    val onTalkEnd: () -> Unit = {},
+    val onOpenSettings: () -> Unit = {},
+)
+
 @Composable
 fun RadioScreen(vm: MainViewModel, onOpenSettings: () -> Unit) {
     val state by vm.radio.collectAsStateWithLifecycle()
@@ -95,16 +113,49 @@ fun RadioScreen(vm: MainViewModel, onOpenSettings: () -> Unit) {
     }
     val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
 
-    fun startRadio() {
-        if (granted(Manifest.permission.ACCESS_FINE_LOCATION) || granted(Manifest.permission.ACCESS_COARSE_LOCATION)) {
-            vm.startRadio()
-        } else {
-            val perms = mutableListOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
-            if (Build.VERSION.SDK_INT >= 33) perms += Manifest.permission.POST_NOTIFICATIONS
-            startPermissions.launch(perms.toTypedArray())
-        }
-    }
+    val actions = RadioActions(
+        onStart = {
+            if (granted(Manifest.permission.ACCESS_FINE_LOCATION) || granted(Manifest.permission.ACCESS_COARSE_LOCATION)) {
+                vm.startRadio()
+            } else {
+                val perms = mutableListOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+                if (Build.VERSION.SDK_INT >= 33) perms += Manifest.permission.POST_NOTIFICATIONS
+                startPermissions.launch(perms.toTypedArray())
+            }
+        },
+        onStop = vm::stopRadio,
+        onPause = vm::pause,
+        onResume = vm::resume,
+        onSkip = vm::skip,
+        onRepeat = vm::repeat,
+        onNearby = vm::whatsNearby,
+        onMode = vm::setMode,
+        onTellAbout = vm::tellAbout,
+        onAsk = vm::ask,
+        onTalkStart = {
+            if (granted(Manifest.permission.RECORD_AUDIO)) {
+                vm.startTalking()
+                true
+            } else {
+                micPermission.launch(Manifest.permission.RECORD_AUDIO)
+                false
+            }
+        },
+        onTalkEnd = vm::stopTalking,
+        onOpenSettings = onOpenSettings,
+    )
+    RadioContent(state, recording, actions)
+}
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun RadioContent(
+    state: RadioUiState,
+    recording: Boolean,
+    actions: RadioActions,
+    /** The photo + map panel; tests replace it because MapView needs a real device. */
+    placePanel: @Composable (RadioUiState) -> Unit = { PlacePanel(it) },
+) {
     Scaffold(
         topBar = {
             TopAppBar(
@@ -115,7 +166,7 @@ fun RadioScreen(vm: MainViewModel, onOpenSettings: () -> Unit) {
                         Text(sub, style = MaterialTheme.typography.labelMedium)
                     }
                 },
-                actions = { IconButton(onClick = onOpenSettings) { Icon(Icons.Default.Settings, "Settings") } },
+                actions = { IconButton(onClick = actions.onOpenSettings) { Icon(Icons.Default.Settings, "Settings") } },
             )
         },
     ) { pad ->
@@ -125,35 +176,16 @@ fun RadioScreen(vm: MainViewModel, onOpenSettings: () -> Unit) {
                 .fillMaxSize()
                 .imePadding()
                 .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            StatusCard(state, onMode = vm::setMode)
+            StatusCard(state, onMode = actions.onMode)
+            if (state.radioState != RadioState.IDLE) placePanel(state)
             NowPlaying(state)
-            Controls(
-                state = state,
-                onStart = ::startRadio,
-                onStop = vm::stopRadio,
-                onPause = vm::pause,
-                onResume = vm::resume,
-                onSkip = vm::skip,
-                onRepeat = vm::repeat,
-                onNearby = vm::whatsNearby,
-            )
+            Controls(state, actions)
             if (state.radioState != RadioState.IDLE) {
-                TalkBar(
-                    recording = recording,
-                    onPressStart = {
-                        if (granted(Manifest.permission.RECORD_AUDIO)) {
-                            vm.startTalking(); true
-                        } else {
-                            micPermission.launch(Manifest.permission.RECORD_AUDIO); false
-                        }
-                    },
-                    onRelease = vm::stopTalking,
-                    onSend = vm::ask,
-                )
+                TalkBar(recording = recording, onPressStart = actions.onTalkStart, onRelease = actions.onTalkEnd, onSend = actions.onAsk)
             }
-            BottomTabs(state, onTellAbout = vm::tellAbout, modifier = Modifier.weight(1f))
+            BottomTabs(state, onTellAbout = actions.onTellAbout, modifier = Modifier.weight(1f))
         }
     }
 }
@@ -207,7 +239,7 @@ private fun NowPlaying(state: RadioUiState) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp)) {
             Text(seg.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-            Text(seg.text, style = MaterialTheme.typography.bodyMedium, maxLines = 6, overflow = TextOverflow.Ellipsis)
+            Text(seg.text, style = MaterialTheme.typography.bodyMedium, maxLines = 4, overflow = TextOverflow.Ellipsis)
             seg.sources.firstOrNull()?.let { src ->
                 Text(
                     "Source: ${src.title}",
@@ -221,29 +253,20 @@ private fun NowPlaying(state: RadioUiState) {
 }
 
 @Composable
-private fun Controls(
-    state: RadioUiState,
-    onStart: () -> Unit,
-    onStop: () -> Unit,
-    onPause: () -> Unit,
-    onResume: () -> Unit,
-    onSkip: () -> Unit,
-    onRepeat: () -> Unit,
-    onNearby: () -> Unit,
-) {
+private fun Controls(state: RadioUiState, a: RadioActions) {
     val running = state.radioState != RadioState.IDLE
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
         BigButton(if (running) Icons.Default.Stop else Icons.Default.PlayArrow, if (running) "Stop radio" else "Start radio") {
-            if (running) onStop() else onStart()
+            if (running) a.onStop() else a.onStart()
         }
         if (running) {
             val paused = state.radioState == RadioState.PAUSED
             BigButton(if (paused) Icons.Default.PlayArrow else Icons.Default.Pause, if (paused) "Resume" else "Pause") {
-                if (paused) onResume() else onPause()
+                if (paused) a.onResume() else a.onPause()
             }
-            BigButton(Icons.Default.SkipNext, "Skip", onSkip)
-            BigButton(Icons.Default.Replay, "Repeat", onRepeat)
-            BigButton(Icons.Default.Explore, "What's nearby?", onNearby)
+            BigButton(Icons.Default.SkipNext, "Skip", a.onSkip)
+            BigButton(Icons.Default.Replay, "Repeat", a.onRepeat)
+            BigButton(Icons.Default.Explore, "Nearby?", a.onNearby)
         }
     }
 }
@@ -285,7 +308,7 @@ private fun TalkBar(recording: Boolean, onPressStart: () -> Boolean, onRelease: 
             onValueChange = { text = it },
             placeholder = { Text(if (recording) "Listening… release to send" else "Hold the mic, or type a question") },
             singleLine = true,
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.weight(1f).testTag("askField"),
             trailingIcon = {
                 IconButton(enabled = text.isNotBlank(), onClick = { onSend(text); text = "" }) {
                     Icon(Icons.AutoMirrored.Filled.Send, "Send")

@@ -66,14 +66,14 @@ class AiAndDiscoveryTest {
                 val body = when {
                     path.startsWith("/overpass") -> """{"elements":[
                         {"type":"node","id":1,"lat":47.611,"lon":13.781,"tags":{"name":"Schloss Ort","historic":"castle","wikidata":"Q1"}},
-                        {"type":"way","id":2,"center":{"lat":47.612,"lon":13.779},"tags":{"name":"Kalvarienberg","natural":"peak","ele":"610"}},
+                        {"type":"way","id":2,"center":{"lat":47.612,"lon":13.779},"tags":{"name":"Kalvarienberg","natural":"peak","ele":"610","wikimedia_commons":"File:Kalvarienberg Gmunden.jpg"}},
                         {"type":"node","id":3,"lat":47.6,"lon":13.7,"tags":{"historic":"memorial"}}]}"""
                     path.contains("list=geosearch") && path.startsWith("/de/") ->
                         """{"query":{"geosearch":[{"pageid":10,"title":"Schloss Ort","lat":47.611,"lon":13.781,"dist":120}]}}"""
                     path.contains("list=geosearch") ->
                         """{"query":{"geosearch":[{"pageid":20,"title":"Ort Castle","lat":47.611,"lon":13.781,"dist":120},{"pageid":21,"title":"Traunsee","lat":47.85,"lon":13.8,"dist":900}]}}"""
                     path.startsWith("/de/") ->
-                        """{"query":{"pages":[{"pageid":10,"title":"Schloss Ort","extract":"Das Schloss Ort ist eine Burg im Traunsee, erbaut im 11. Jahrhundert.","description":"Burg","pageprops":{"wikibase_item":"Q1"}}]}}"""
+                        """{"query":{"pages":[{"pageid":10,"title":"Schloss Ort","extract":"Das Schloss Ort ist eine Burg im Traunsee, erbaut im 11. Jahrhundert.","description":"Burg","pageprops":{"wikibase_item":"Q1"},"thumbnail":{"source":"https://upload.wikimedia.org/ort.jpg","width":640,"height":480}}]}}"""
                     else ->
                         """{"query":{"pages":[{"pageid":20,"title":"Ort Castle","extract":"Ort Castle is a castle on Lake Traun.","pageprops":{"wikibase_item":"Q1"}},{"pageid":21,"title":"Traunsee","extract":"Traunsee is a lake in Upper Austria.","description":"lake in Austria","pageprops":{"wikibase_item":"Q2"}}]}}"""
                 }
@@ -93,10 +93,12 @@ class AiAndDiscoveryTest {
         assertEquals(1, castle.size)
         assertEquals("wikipedia:de", castle.single().source)
         assertTrue(Topic.HISTORY in castle.single().topics)
+        assertEquals("https://upload.wikimedia.org/ort.jpg", castle.single().imageUrl)
         assertTrue(places.any { it.name == "Traunsee" })
         val peak = places.single { it.id == "osm:way/2" }
         assertTrue(Topic.NATURE in peak.topics)
         assertTrue(peak.extract!!.contains("610"))
+        assertEquals("https://commons.wikimedia.org/wiki/Special:FilePath/Kalvarienberg_Gmunden.jpg?width=640", peak.imageUrl)
         // Unnamed OSM features are ignored.
         assertTrue(places.none { it.id == "osm:node/3" })
     }

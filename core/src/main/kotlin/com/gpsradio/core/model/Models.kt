@@ -72,6 +72,8 @@ data class PlaceCandidate(
     val extract: String? = null,
     val url: String? = null,
     val wikidataId: String? = null,
+    /** Real photo of the place (Wikipedia/Wikimedia Commons), when one exists. */
+    val imageUrl: String? = null,
     val researchStatus: ResearchStatus = ResearchStatus.UNRESEARCHED,
 )
 

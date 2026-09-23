@@ -2,13 +2,16 @@ package com.gpsradio.core.ai
 
 import com.gpsradio.core.geo.Geo
 import com.gpsradio.core.lang.Languages
+import com.gpsradio.core.memory.MemoryCategory
 import com.gpsradio.core.model.AreaLabel
+import com.gpsradio.core.model.GeoPoint
 import com.gpsradio.core.model.LocationContext
 import com.gpsradio.core.model.RankedCandidate
 import com.gpsradio.core.model.SourceRef
 import com.gpsradio.core.model.Topic
 import com.gpsradio.core.model.TravelMode
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
@@ -27,7 +30,14 @@ interface Narrator {
     suspend fun converse(req: ConversationRequest): ConversationReply
 }
 
-data class Segment(val text: String, val entityId: String?, val title: String, val sources: List<SourceRef>)
+data class Segment(
+    val text: String,
+    val entityId: String?,
+    val title: String,
+    val sources: List<SourceRef>,
+    val imageUrl: String? = null,
+    val point: GeoPoint? = null,
+)
 
 data class NarrationRequest(
     val candidate: RankedCandidate,
@@ -35,6 +45,8 @@ data class NarrationRequest(
     val language: String,
     val interests: Set<Topic>,
     val recentTitles: List<String>,
+    /** Remembered listener preferences, one line each. */
+    val profile: List<String> = emptyList(),
 )
 
 data class ConversationTurn(val fromUser: Boolean, val text: String)
@@ -49,7 +61,11 @@ data class ConversationRequest(
     val recentTitles: List<String>,
     val history: List<ConversationTurn>,
     val theme: Topic?,
+    val profile: List<String> = emptyList(),
 )
+
+/** A preference the model decided to remember. */
+data class MemoryDraft(val category: MemoryCategory, val text: String, val topic: Topic?)
 
 enum class ConversationAction {
     NONE, RESUME_RADIO, PAUSE, SKIP, CHANGE_LANGUAGE, SET_THEME, CLEAR_THEME, NAVIGATE, REFRESH_NEARBY;
@@ -68,6 +84,8 @@ data class ConversationReply(
     val theme: Topic? = null,
     val entityId: String? = null,
     val sources: List<SourceRef> = emptyList(),
+    val remember: List<MemoryDraft> = emptyList(),
+    val forget: List<String> = emptyList(),
 )
 
 data class ModelConfig(
@@ -95,6 +113,7 @@ class RadioAgent(
             put("facts_source", c.place.source)
             put("facts", c.place.extract ?: c.place.description ?: "")
             put("listener_interests", buildJsonArray { req.interests.forEach { add(JsonPrimitive(it.key)) } })
+            if (req.profile.isNotEmpty()) put("listener_profile", buildJsonArray { req.profile.forEach { add(JsonPrimitive(it)) } })
             put("already_told_this_trip", buildJsonArray { req.recentTitles.takeLast(8).forEach { add(JsonPrimitive(it)) } })
             put("target_length_words", (seconds * 2.3).toInt())
         }
@@ -107,7 +126,7 @@ class RadioAgent(
             ),
         )
         val sources = listOfNotNull(c.place.url?.let { SourceRef(c.place.name, it) })
-        return Segment(cleanForSpeech(res.text), c.place.id, c.place.name, sources)
+        return Segment(cleanForSpeech(res.text), c.place.id, c.place.name, sources, c.place.imageUrl, c.place.point)
     }
 
     override suspend fun converse(req: ConversationRequest): ConversationReply {
@@ -176,6 +195,7 @@ class RadioAgent(
             - If something is a legend, folklore or disputed, say so explicitly.
             - Stay close to target_length_words. If the facts are thin, be shorter rather than padding.
             - Do not repeat anything from already_told_this_trip. No greetings, no sign-offs, no questions to the listener.
+            - Respect listener_profile (remembered preferences): lean into what they like, skip what they avoid, follow their style wishes (e.g. length, pace, detail).
             - Plain spoken text only: no lists, markdown, URLs, or stage directions.
         """.trimIndent()
 
@@ -193,6 +213,7 @@ class RadioAgent(
                     put("area", listOfNotNull(a.city, a.region, a.countryCode).joinToString(", "))
                 }
                 req.theme?.let { put("active_theme", it.key) }
+                if (req.profile.isNotEmpty()) putJsonArray("listener_profile") { req.profile.forEach { add(JsonPrimitive(it)) } }
                 req.active?.let { a ->
                     putJsonObject("active_story") {
                         put("entity_id", a.place.id)
@@ -240,6 +261,14 @@ class RadioAgent(
                 - navigate: listener wants to go to a place; set entity_id from nearby/active_story.
                 - refresh_nearby: listener asks what else is nearby and the list is empty or stale.
                 - none: otherwise.
+
+                Memory (persists across sessions; listener_profile shows what is already remembered):
+                - Add to "remember" only durable preferences or facts the listener states or clearly implies
+                  ("I love castles", "no war stories please", "keep it shorter", "we travel with kids", "remember that I'm vegetarian").
+                  Not one-off requests about the current moment. category: like | avoid | style | about_me;
+                  topic: one of the theme keys when it clearly maps to one, else null. Acknowledge briefly in the reply.
+                - Add to "forget" the text of remembered items the listener asks to drop or contradicts.
+                - Otherwise leave both arrays empty.
             """.trimIndent()
         }
 
@@ -256,9 +285,30 @@ class RadioAgent(
                 putJsonObject("persist_language") { put("type", "boolean") }
                 putJsonObject("theme") { putJsonArray("type") { add(JsonPrimitive("string")); add(JsonPrimitive("null")) } }
                 putJsonObject("entity_id") { putJsonArray("type") { add(JsonPrimitive("string")); add(JsonPrimitive("null")) } }
+                putJsonObject("remember") {
+                    put("type", "array")
+                    putJsonObject("items") {
+                        put("type", "object")
+                        put("additionalProperties", false)
+                        putJsonObject("properties") {
+                            putJsonObject("category") {
+                                put("type", "string")
+                                putJsonArray("enum") { MemoryCategory.entries.forEach { add(JsonPrimitive(it.name.lowercase())) } }
+                            }
+                            putJsonObject("text") { put("type", "string") }
+                            putJsonObject("topic") { putJsonArray("type") { add(JsonPrimitive("string")); add(JsonPrimitive("null")) } }
+                        }
+                        putJsonArray("required") { listOf("category", "text", "topic").forEach { add(JsonPrimitive(it)) } }
+                    }
+                }
+                putJsonObject("forget") {
+                    put("type", "array")
+                    putJsonObject("items") { put("type", "string") }
+                }
             }
             putJsonArray("required") {
-                listOf("reply", "action", "language", "persist_language", "theme", "entity_id").forEach { add(JsonPrimitive(it)) }
+                listOf("reply", "action", "language", "persist_language", "theme", "entity_id", "remember", "forget")
+                    .forEach { add(JsonPrimitive(it)) }
             }
         }
 
@@ -276,6 +326,13 @@ class RadioAgent(
                 persistLanguage = (obj["persist_language"] as? JsonPrimitive)?.booleanOrNull ?: false,
                 theme = str("theme")?.let { Topic.fromKey(it) },
                 entityId = str("entity_id"),
+                remember = (obj["remember"] as? JsonArray).orEmpty().mapNotNull { el ->
+                    val o = el as? JsonObject ?: return@mapNotNull null
+                    val cat = MemoryCategory.parse((o["category"] as? JsonPrimitive)?.contentOrNull) ?: return@mapNotNull null
+                    val t = (o["text"] as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                    MemoryDraft(cat, t, (o["topic"] as? JsonPrimitive)?.contentOrNull?.let { Topic.fromKey(it) })
+                },
+                forget = (obj["forget"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.contentOrNull?.takeIf { s -> s.isNotBlank() } },
             )
         }
     }

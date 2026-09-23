@@ -79,6 +79,7 @@ class DiscoveryService(
                 extract = extract?.take(4000),
                 url = wikipedia.articleUrl(lang, page.title),
                 wikidataId = page.wikidataId,
+                imageUrl = page.thumbnailUrl,
                 researchStatus = if (extract != null) ResearchStatus.READY else ResearchStatus.FAILED,
             )
         }
@@ -101,7 +102,11 @@ class DiscoveryService(
             val linked = out.indexOfFirst { (wd != null && it.wikidataId == wd) || isSamePlace(it, name, e.point) }
             if (linked >= 0) {
                 val c = out[linked]
-                out[linked] = c.copy(topics = c.topics + osmTopics, sourceConfidence = min(1.0, c.sourceConfidence + 0.05))
+                out[linked] = c.copy(
+                    topics = c.topics + osmTopics,
+                    sourceConfidence = min(1.0, c.sourceConfidence + 0.05),
+                    imageUrl = c.imageUrl ?: osmImage(tags),
+                )
                 continue
             }
             val facts = osmFacts(tags)
@@ -118,6 +123,7 @@ class DiscoveryService(
                 extract = facts.ifBlank { null },
                 url = "https://www.openstreetmap.org/${e.osmId.removePrefix("osm:")}",
                 wikidataId = wd,
+                imageUrl = osmImage(tags),
                 researchStatus = ResearchStatus.READY,
             )
         }
@@ -126,6 +132,14 @@ class DiscoveryService(
 
     private fun isSamePlace(c: PlaceCandidate, name: String, p: GeoPoint): Boolean =
         HeardHistory.normalizeName(c.name) == HeardHistory.normalizeName(name) && Geo.distanceM(c.point, p) < 300
+
+    /** OSM `image` (direct URL) or `wikimedia_commons` (File:...) tags → a displayable image URL. */
+    private fun osmImage(tags: Map<String, String>): String? {
+        tags["image"]?.takeIf { it.startsWith("https://") }?.let { return it }
+        val file = tags["wikimedia_commons"]?.takeIf { it.startsWith("File:") } ?: return null
+        return "https://commons.wikimedia.org/wiki/Special:FilePath/" +
+            java.net.URLEncoder.encode(file.removePrefix("File:").replace(' ', '_'), "UTF-8") + "?width=640"
+    }
 
     private fun osmCategory(tags: Map<String, String>): String =
         listOf("historic", "tourism", "natural", "man_made").firstNotNullOfOrNull { k -> tags[k]?.let { "$k: $it" } } ?: "place"

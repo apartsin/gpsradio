@@ -12,6 +12,9 @@ import com.gpsradio.core.editorial.EditorialRanker
 import com.gpsradio.core.editorial.HeardHistory
 import com.gpsradio.core.geo.Geo
 import com.gpsradio.core.lang.Languages
+import com.gpsradio.core.memory.MemoryItem
+import com.gpsradio.core.memory.MemoryStore
+import com.gpsradio.core.memory.UserMemory
 import com.gpsradio.core.location.AreaRefreshPolicy
 import com.gpsradio.core.location.LocationProcessor
 import com.gpsradio.core.model.AreaLabel
@@ -40,6 +43,13 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
+/** The place currently being described; drives the photo + map panel. */
+data class FocusPlace(val id: String, val name: String, val point: GeoPoint, val imageUrl: String?, val url: String?) {
+    companion object {
+        fun of(p: PlaceCandidate) = FocusPlace(p.id, p.name, p.point, p.imageUrl, p.url)
+    }
+}
+
 data class RadioUiState(
     val radioState: RadioState = RadioState.IDLE,
     val location: LocationContext? = null,
@@ -48,6 +58,8 @@ data class RadioUiState(
     val theme: Topic? = null,
     val area: AreaLabel? = null,
     val nowPlaying: Segment? = null,
+    val focus: FocusPlace? = null,
+    val memory: List<MemoryItem> = emptyList(),
     val nearby: List<RankedCandidate> = emptyList(),
     val transcript: List<TranscriptEntry> = emptyList(),
     val discovering: Boolean = false,
@@ -68,6 +80,7 @@ class RadioSession(
     private val historyStore: HistoryStore,
     private val config: () -> SessionConfig,
     private val areaLabeler: AreaLabeler? = null,
+    private val memoryStore: MemoryStore? = null,
     private val onPersistLanguage: (String) -> Unit = {},
     private val onNavigate: (PlaceCandidate) -> Unit = {},
     private val ranker: EditorialRanker = EditorialRanker(),
@@ -90,6 +103,7 @@ class RadioSession(
     private val recentTitles = ArrayList<String>()
     private val history = ArrayList<ConversationTurn>()
     private val topicPenalty = HashMap<Topic, Double>()
+    private val memory = UserMemory()
 
     private var lastRefreshPoint: GeoPoint? = null
     private var lastRefreshMode: TravelMode? = null
@@ -106,6 +120,13 @@ class RadioSession(
     private var speechJob: Job? = null
 
     private val sessionLanguage: String get() = languageOverride ?: config().language
+
+    init {
+        scope.launch {
+            memory.restore(runCatching { memoryStore?.load() }.getOrNull())
+            _state.update { it.copy(memory = memory.all) }
+        }
+    }
 
     // ---- lifecycle ------------------------------------------------------------------------
 
@@ -218,6 +239,16 @@ class RadioSession(
 
     fun whatsNearby() = ask("What else is interesting nearby?")
 
+    fun forgetMemory(id: String) = scope.launch {
+        memory.remove(id)
+        persistMemory()
+    }
+
+    fun clearMemory() = scope.launch {
+        memory.clear()
+        persistMemory()
+    }
+
     fun clearHistory() = scope.launch {
         heard.clear()
         recentTitles.clear()
@@ -282,6 +313,7 @@ class RadioSession(
         val loc = _state.value.location ?: processor.current ?: return
         val now = clock()
         val interests = config().interests.associateWith { 1.0 }.toMutableMap()
+        interests.putAll(memory.topicWeights())
         topicPenalty.forEach { (t, p) -> interests[t] = (interests[t] ?: 0.4) * p }
         ranked = ranker.rank(
             candidates.values.filter { it.id !in failedIds },
@@ -308,7 +340,7 @@ class RadioSession(
             try {
                 val lang = sessionLanguage
                 val segment = narrator.narrate(
-                    NarrationRequest(c, loc, lang, config().interests, recentTitles.toList()),
+                    NarrationRequest(c, loc, lang, config().interests, recentTitles.toList(), memory.promptLines()),
                 )
                 val bytes = speech.synthesize(segment.text, lang)
                 activeId = c.place.id
@@ -317,7 +349,7 @@ class RadioSession(
                 recentTitles += c.place.name
                 lastAudio = bytes
                 addTranscript(TranscriptEntry(Speaker.RADIO, segment.text, clock(), c.place.id, segment.sources))
-                _state.update { it.copy(radioState = RadioState.NARRATING, nowPlaying = segment) }
+                _state.update { it.copy(radioState = RadioState.NARRATING, nowPlaying = segment, focus = FocusPlace.of(c.place)) }
                 audio.play(bytes)
                 lastSpeechEndMs = clock()
                 setRadioState(RadioState.RADIO)
@@ -362,6 +394,7 @@ class RadioSession(
                     recentTitles = recentTitles.toList(),
                     history = history.toList(),
                     theme = _state.value.theme,
+                    profile = memory.promptLines(),
                 ),
             )
         } catch (e: CancellationException) {
@@ -373,9 +406,16 @@ class RadioSession(
         history += ConversationTurn(true, text)
         history += ConversationTurn(false, reply.reply)
         while (history.size > 24) history.removeAt(0)
-        reply.entityId?.takeIf { id -> candidates.containsKey(id) }?.let { id ->
-            activeId = id
-            mentionedIds += id
+        reply.entityId?.let { id -> candidates[id] }?.let { place ->
+            activeId = place.id
+            mentionedIds += place.id
+            _state.update { it.copy(focus = FocusPlace.of(place)) }
+        }
+        if (reply.forget.isNotEmpty() || reply.remember.isNotEmpty()) {
+            reply.forget.forEach { memory.forget(it) }
+            reply.remember.forEach { memory.remember(it.category, it.text, it.topic, clock()) }
+            persistMemory()
+            rerank()
         }
         applyActionBeforeSpeaking(reply)
         addTranscript(TranscriptEntry(Speaker.RADIO, reply.reply, clock(), reply.entityId, reply.sources))
@@ -443,6 +483,11 @@ class RadioSession(
         heard.markHeard(place.id, place.name, clock())
         persistHeard()
         place.topics.forEach { t -> topicPenalty[t] = (topicPenalty[t] ?: 1.0) * 0.6 }
+    }
+
+    private fun persistMemory() {
+        runCatching { memoryStore?.save(memory.serialize()) }
+        _state.update { it.copy(memory = memory.all) }
     }
 
     private fun persistHeard() {

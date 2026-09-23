@@ -16,6 +16,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -42,6 +43,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.gpsradio.app.data.AppSettings
 import com.gpsradio.core.lang.Languages
+import com.gpsradio.core.memory.MemoryItem
 import com.gpsradio.core.model.Topic
 
 private const val AUTO = "auto"
@@ -65,7 +67,15 @@ fun SetupScreen(settings: AppSettings, onSave: (AppSettings) -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(settings: AppSettings, onSave: (AppSettings) -> Unit, onClearHistory: () -> Unit, onBack: () -> Unit) {
+fun SettingsScreen(
+    settings: AppSettings,
+    onSave: (AppSettings) -> Unit,
+    onClearHistory: () -> Unit,
+    onBack: () -> Unit,
+    memory: List<MemoryItem> = emptyList(),
+    onForgetMemory: (String) -> Unit = {},
+    onForgetAllMemory: () -> Unit = {},
+) {
     Scaffold(
         topBar = {
             TopAppBar(
@@ -82,6 +92,7 @@ fun SettingsScreen(settings: AppSettings, onSave: (AppSettings) -> Unit, onClear
             showAdvanced = true,
             onSave = onSave,
             extra = {
+                MemorySection(memory, onForgetMemory, onForgetAllMemory)
                 OutlinedButton(onClick = onClearHistory, modifier = Modifier.fillMaxWidth()) {
                     Text("Forget stories I've already heard")
                 }
@@ -179,6 +190,30 @@ private fun SettingsForm(
             ) { Text(saveLabel) }
         }
     }
+}
+
+/** What the radio has learned about the listener; each item can be removed. */
+@Composable
+private fun MemorySection(memory: List<MemoryItem>, onForget: (String) -> Unit, onForgetAll: () -> Unit) {
+    Text("What I remember about you", style = MaterialTheme.typography.titleSmall)
+    if (memory.isEmpty()) {
+        Text(
+            "Nothing yet. Tell the radio what you like, e.g. \"I love castles\" or \"keep stories short\", and it will remember.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+        return
+    }
+    memory.forEach { m ->
+        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+            Text(
+                "${m.category.name.lowercase().replace('_', ' ')}: ${m.text}",
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.weight(1f),
+            )
+            IconButton(onClick = { onForget(m.id) }) { Icon(Icons.Default.Close, "Forget ${m.text}") }
+        }
+    }
+    OutlinedButton(onClick = onForgetAll, modifier = Modifier.fillMaxWidth()) { Text("Forget everything about me") }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

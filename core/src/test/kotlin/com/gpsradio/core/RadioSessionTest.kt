@@ -15,6 +15,9 @@ import com.gpsradio.core.model.RadioState
 import com.gpsradio.core.model.Speaker
 import com.gpsradio.core.model.Topic
 import com.gpsradio.core.session.AudioOutput
+import com.gpsradio.core.ai.MemoryDraft
+import com.gpsradio.core.memory.MemoryCategory
+import com.gpsradio.core.memory.MemoryStore
 import com.gpsradio.core.session.HistoryStore
 import com.gpsradio.core.session.RadioSession
 import com.gpsradio.core.session.SessionConfig
@@ -50,8 +53,14 @@ class RadioSessionTest {
         override fun save(serialized: String) { stored = serialized }
     }
 
-    private fun TestScope.session(f: Fakes): RadioSession = RadioSession(
-        places = f, narrator = f, speech = f, audio = f, historyStore = f,
+    private class MemFile : MemoryStore {
+        var data: String? = null
+        override fun load() = data
+        override fun save(serialized: String) { data = serialized }
+    }
+
+    private fun TestScope.session(f: Fakes, mem: MemoryStore? = null): RadioSession = RadioSession(
+        places = f, narrator = f, speech = f, audio = f, historyStore = f, memoryStore = mem,
         config = { SessionConfig("en-US", setOf(Topic.HISTORY)) },
         clock = { testScheduler.currentTime + 1_000_000 },
         dispatcher = StandardTestDispatcher(testScheduler),
@@ -116,5 +125,27 @@ class RadioSessionTest {
         advanceTimeBy(300_000); runCurrent()
         assertEquals(1, f.narrated.size)
         }
+    }
+
+    @Test
+    fun learnedPreferencesPersistAndFeedLaterSessions() = runTest {
+        val file = MemFile()
+        val f = Fakes(listOf(place("castle", Geo.destination(here, 0.0, 150.0))))
+        f.reply = ConversationReply("Noted, I'll keep it short.", remember = listOf(MemoryDraft(MemoryCategory.STYLE, "Keep stories short", null)))
+        val s1 = session(f, file)
+        s1.start(); runCurrent()
+        s1.ask("Please always keep the stories short"); runCurrent()
+        advanceTimeBy(25_000); runCurrent()
+        s1.stop(); runCurrent()
+        assertTrue(file.data!!.contains("Keep stories short"))
+
+        // A brand-new session restores the memory and passes it to the model.
+        val f2 = Fakes(listOf(place("castle", Geo.destination(here, 0.0, 150.0))))
+        val s2 = session(f2, file)
+        s2.start(); runCurrent()
+        assertEquals(1, s2.state.value.memory.size)
+        s2.ask("what's here?"); runCurrent()
+        assertEquals(listOf("style: Keep stories short"), f2.asked.single().profile)
+        s2.stop(); runCurrent()
     }
 }

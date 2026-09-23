@@ -17,7 +17,14 @@ class WikipediaClient(
     private val baseUrl: (String) -> HttpUrl = { lang -> "https://$lang.wikipedia.org/w/api.php".toHttpUrl() },
 ) {
     data class GeoHit(val pageId: Long, val title: String, val point: GeoPoint, val distM: Double)
-    data class Page(val pageId: Long, val title: String, val extract: String?, val description: String?, val wikidataId: String?)
+    data class Page(
+        val pageId: Long,
+        val title: String,
+        val extract: String?,
+        val description: String?,
+        val wikidataId: String?,
+        val thumbnailUrl: String? = null,
+    )
 
     @Serializable private data class GeoResponse(val query: GeoQuery? = null)
     @Serializable private data class GeoQuery(val geosearch: List<GeoItem> = emptyList())
@@ -31,8 +38,10 @@ class WikipediaClient(
         val extract: String? = null,
         val description: String? = null,
         val pageprops: Map<String, String>? = null,
+        val thumbnail: Thumb? = null,
         val missing: Boolean = false,
     )
+    @Serializable private data class Thumb(val source: String)
 
     suspend fun geosearch(lang: String, center: GeoPoint, radiusM: Int, limit: Int = 50): List<GeoHit> {
         val url = baseUrl(lang).newBuilder()
@@ -55,11 +64,14 @@ class WikipediaClient(
         return pageIds.chunked(20).flatMap { chunk ->
             val url = baseUrl(lang).newBuilder()
                 .addQueryParameter("action", "query")
-                .addQueryParameter("prop", "extracts|description|pageprops")
+                .addQueryParameter("prop", "extracts|description|pageprops|pageimages")
                 .addQueryParameter("exintro", "1")
                 .addQueryParameter("explaintext", "1")
                 .addQueryParameter("exlimit", "20")
                 .addQueryParameter("ppprop", "wikibase_item")
+                .addQueryParameter("piprop", "thumbnail")
+                .addQueryParameter("pithumbsize", "640")
+                .addQueryParameter("pilimit", "20")
                 .addQueryParameter("pageids", chunk.joinToString("|"))
                 .addQueryParameter("format", "json")
                 .addQueryParameter("formatversion", "2")
@@ -67,7 +79,12 @@ class WikipediaClient(
             val body = http.fetchString(request(url))
             json.decodeFromString(PagesResponse.serializer(), body).query?.pages.orEmpty()
                 .filterNot { it.missing }
-                .map { Page(it.pageid, it.title, it.extract?.trim()?.ifBlank { null }, it.description, it.pageprops?.get("wikibase_item")) }
+                .map {
+                    Page(
+                        it.pageid, it.title, it.extract?.trim()?.ifBlank { null }, it.description,
+                        it.pageprops?.get("wikibase_item"), it.thumbnail?.source,
+                    )
+                }
         }
     }
 

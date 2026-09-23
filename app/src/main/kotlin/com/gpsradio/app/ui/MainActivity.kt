@@ -26,6 +26,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             GpsRadioTheme {
                 val settings by vm.settings.collectAsStateWithLifecycle()
+                val radio by vm.radio.collectAsStateWithLifecycle()
                 var showSettings by remember { mutableStateOf(false) }
                 when {
                     !settings.hasApiKey -> SetupScreen(settings, onSave = { next -> vm.saveSettings { next } })
@@ -33,6 +34,9 @@ class MainActivity : ComponentActivity() {
                         settings = settings,
                         onSave = { next -> vm.saveSettings { next }; showSettings = false },
                         onClearHistory = vm::clearHistory,
+                        memory = radio.memory,
+                        onForgetMemory = vm::forgetMemory,
+                        onForgetAllMemory = vm::clearMemory,
                         onBack = { showSettings = false },
                     )
                     else -> RadioScreen(vm, onOpenSettings = { showSettings = true })

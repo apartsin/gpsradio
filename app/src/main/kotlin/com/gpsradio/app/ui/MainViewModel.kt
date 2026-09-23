@@ -72,6 +72,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         session.clearHistory()
     }
 
+    fun forgetMemory(id: String) {
+        session.forgetMemory(id)
+    }
+
+    fun clearMemory() {
+        session.clearMemory()
+    }
+
     /** Push-to-talk: start capturing and interrupt narration (barge-in). */
     fun startTalking() {
         if (recorder.isRecording) return
