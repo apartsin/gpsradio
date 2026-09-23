@@ -176,6 +176,9 @@ class AndroidPcmAudio(private val context: Context) : PcmAudio {
         }
     }
 
+    /** The live host holds audio focus right now (so a focus loss elsewhere in the app was caused by us). */
+    val holdsFocus: Boolean get() = focus != null
+
     /** Ducks or pauses other audio (music, podcasts) while the conversation is open. */
     @Synchronized
     private fun requestFocus() {

@@ -66,3 +66,16 @@ Overall grade from the reviewer: "B: careful about grounding and failure modes; 
 | — | P2 | The widened non-stop radius never shrank | Fixed: reset once a refresh finds ≥ 8 places |
 | — | P3 | `stop()` left a stale offer; events from a previous town could be announced; "401" substring matching; overnight `openAt`; stale comments (GPS rates now match: walking 10 s / 15 m); photo-tip interval untested | Fixed (+ tests) |
 | — | refactor | Split `RadioSession` (2.2k lines) into visit/events/tour/live coordinators; shared `onStoryHeard()`/`conversationRequest()`; static Realtime instructions with context as messages; typed error codes; named magic numbers | Open: next round |
+
+## Round 4 — 23 Sep 2026 (bug hunt, working tree on 15910a4 plus round 3 fixes): NOT CLEAN → fixed
+
+| # | Sev | Finding | Status |
+|---|---|---|---|
+| 1 | P1 | Offline or during an outage, due local events blocked every on-device story: the EVENTS filler was chosen every tick and skipped every tick (it has no on-device version) | Fixed: events count as due only while OpenAI is usable |
+| 2 | P1 | A mic tap, teaser or detour offer that opened a new live connection in always-listening mode (e.g. during the standby backoff) started in "standby", so the idle timeout never returned the radio from CONVERSING: silence until a tap | Fixed: `start(…, converse = true)` for listener-initiated connections; test |
+| 3 | P1 | A typed question during a story in always-listening mode was answered over the story; the host's audio-focus request then paused the radio and cut the answer | Fixed: typed questions start an exchange (story stops); a focus loss caused by our own live host doesn't pause; test |
+| 4 | P1 | After a voice radio command ("back to the radio", skip, pause) the host still got a follow-up `response.create` and talked over the resumed story | Fixed: no follow-up once `quiet()` ran; test |
+| 5 | P2 | Speech while paused (e.g. to a passenger) un-paused the radio when the exchange went quiet | Fixed: the exchange returns to the state it interrupted; test |
+| 6 | P2 | Out of credit on the background connection wasn't noted and reconnects kept going | Fixed: quota errors note the credit state, which stops standby; test |
+| 7 | P2 | Self-update: `USER_ACTION_NOT_REQUIRED` needs `UPDATE_PACKAGES_WITHOUT_USER_ACTION`; the confirm screen couldn't open from the background (stuck at "Installing…") | Fixed: permission declared; a pending confirmation is shown on the next resume |
+| 8 | P2 | (found by the new test) A background handshake that failed synchronously bypassed the backoff (the session didn't see the connection yet) and showed a conversation error | Fixed: the connection is registered before `start()` |

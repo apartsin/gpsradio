@@ -87,7 +87,13 @@ open class GpsRadioApp : Application() {
 
     protected open fun endpoints(): Endpoints = Endpoints()
 
-    protected open fun audioOutput(): AudioOutput = MediaAudioOutput(this, onFocusLost = { session.pause() })
+    /**
+     * A focus loss pauses the radio (phone call, another app), except when our own live host took focus to
+     * answer: the story has already stopped for the exchange, and pausing would cut the answer.
+     */
+    protected open fun audioOutput(): AudioOutput = MediaAudioOutput(this, onFocusLost = {
+        if (livePcm?.holdsFocus != true) session.pause()
+    })
 
     protected open fun areaLabeler(): AreaLabeler? = GeocoderAreaLabeler(this)
 

@@ -440,6 +440,85 @@ class LiveVoiceTest {
     }
 
     @Test
+    fun alwaysListeningRound4TypedQuestionPauseAndRadioCommands() = runTest {
+        val r = Radio(listOf(place("a", Geo.destination(here, 0.0, 100.0)), place("b", Geo.destination(here, 90.0, 120.0))))
+        val conns = mutableListOf<FakeConnection>()
+        val pcm = FakePcm()
+        val s = session(r, conns, pcm, handsFree = { true })
+        running(s) {
+            s.onLocation(LocationSample(here.lat, here.lon, 5f, 1_000_000, 0f)); runCurrent()
+            advanceTimeBy(3_000); runCurrent()
+            val c = conns.single()
+            c.server.trySend(RealtimeEvent.SessionReady); runCurrent()
+            advanceTimeBy(1_000); runCurrent()
+            assertEquals(RadioState.NARRATING, s.state.value.radioState)
+
+            // A typed question stops the story before the host answers (no talking over it).
+            s.ask("How old is it?"); runCurrent()
+            assertEquals(RadioState.CONVERSING, s.state.value.radioState)
+            assertTrue("conversation.item.create" in c.types())
+
+            // "Back to the radio" by voice: the radio resumes and the host doesn't add a follow-up over it.
+            c.server.trySend(RealtimeEvent.FunctionCall("call9", "radio_control", """{"action":"resume_radio"}""")); runCurrent()
+            val creates = c.types().count { it == "response.create" }
+            c.server.trySend(RealtimeEvent.ResponseDone); runCurrent()
+            assertEquals(creates, c.types().count { it == "response.create" }, "no follow-up after going back to the radio")
+            assertTrue(s.state.value.radioState != RadioState.CONVERSING)
+
+            // Paused, the listener talks to a passenger: afterwards the radio stays paused.
+            s.pause(); runCurrent()
+            assertEquals(RadioState.PAUSED, s.state.value.radioState)
+            c.server.trySend(RealtimeEvent.SpeechStarted); runCurrent()
+            c.server.trySend(RealtimeEvent.SpeechStopped); runCurrent()
+            advanceTimeBy(25_000); runCurrent()
+            assertEquals(RadioState.PAUSED, s.state.value.radioState)
+            assertFalse(c.closed)
+
+            // Out of credit on the background connection: noted, and no reconnect loop.
+            c.server.trySend(RealtimeEvent.Error("${com.gpsradio.core.ai.QuotaErrors.MESSAGE} (insufficient_quota)")); runCurrent()
+            assertTrue(s.state.value.quotaExhausted)
+            advanceTimeBy(700_000); runCurrent()
+            assertEquals(1, conns.size, "no reconnects while out of credit")
+        }
+    }
+
+    @Test
+    fun micTapWhileStandbyIsBackingOffStillReturnsToTheRadio() = runTest {
+        val r = Radio(listOf(place("a", Geo.destination(here, 0.0, 100.0))))
+        val conns = mutableListOf<FakeConnection>()
+        val pcm = FakePcm()
+        var attempts = 0
+        val s = RadioSession(
+            places = r, narrator = r, speech = r, audio = AudioOutput { delay(5_000) }, historyStore = r,
+            config = { SessionConfig("en-US", setOf(Topic.HISTORY), liveVoice = true, voice = "coral", handsFree = true) },
+            liveFactory = { host, scope ->
+                LiveConversation({
+                    // The first (background) handshake fails; later ones work.
+                    if (attempts++ == 0) throw java.io.IOException("handshake failed")
+                    FakeConnection().also { conns += it }
+                }, pcm, host, scope, idleTimeoutMs = 20_000, clock = { testScheduler.currentTime })
+            },
+            clock = { testScheduler.currentTime + 1_000_000 },
+            dispatcher = StandardTestDispatcher(testScheduler),
+            teaserGapMs = 0,
+        )
+        running(s) {
+            s.onLocation(LocationSample(here.lat, here.lon, 5f, 1_000_000, 0f)); runCurrent()
+            advanceTimeBy(3_000); runCurrent()
+            assertTrue(attempts >= 1)
+            assertTrue(conns.isEmpty(), "background connection failed and is backing off")
+            // The listener taps the mic, then says nothing: after the idle timeout the radio carries on.
+            s.toggleLive(); runCurrent()
+            val c = conns.single()
+            c.server.trySend(RealtimeEvent.SessionReady); runCurrent()
+            assertEquals(RadioState.CONVERSING, s.state.value.radioState)
+            advanceTimeBy(25_000); runCurrent()
+            assertTrue(s.state.value.radioState != RadioState.CONVERSING, "not stuck in conversation: ${s.state.value.radioState}")
+            assertFalse(c.closed, "the mic stays open (always listening)")
+        }
+    }
+
+    @Test
     fun speechGateSendsOnlySpeechWithPrerollAndNeedsToBeLouderThanTheRadio() {
         val gate = SpeechGate(prerollMs = 100, onsetMs = 40, hangoverMs = 200)
         fun chunk(amplitude: Int, ms: Int = 20): ByteArray {

@@ -99,11 +99,13 @@ class LiveConversation(
      * Opens the conversation; [opening] makes the host speak first (e.g. to ask a question). With
      * [persistent] the connection stays open between exchanges (always-listening mode).
      */
-    fun start(opening: String? = null, persistent: Boolean = false) {
+    fun start(opening: String? = null, persistent: Boolean = false, converse: Boolean = opening != null || !persistent) {
         if (isOpen) return
         isOpen = true
         this.persistent = persistent
-        inConversation = opening != null || !persistent
+        // [converse]: the listener asked for this (mic tap, an offer's answer window), so an idle spell ends it
+        // (the radio resumes) instead of the connection waiting silently in standby.
+        inConversation = converse
         pendingOpening = opening
         lastActivityMs = clock()
         host.onLiveState(LiveState.CONNECTING)
@@ -186,6 +188,7 @@ class LiveConversation(
         }
         audio.stopPlayback()
         inConversation = false
+        followUpDue = false
     }
 
     /** Refresh the host's context (a new story started, the listener moved) without reconnecting. */
@@ -271,8 +274,9 @@ class LiveConversation(
                 if (isOpen) {
                     conn.send(RealtimeProtocol.functionOutput(e.callId, output))
                     // Only one response may be active: the one that called the tool ends with response.done,
-                    // then the host continues with the tool's result.
-                    followUpDue = true
+                    // then the host continues with the tool's result. Not when the tool went back to the radio
+                    // (quiet()): the host would talk over the resumed story.
+                    followUpDue = inConversation
                 }
             }
             RealtimeEvent.ResponseDone -> {

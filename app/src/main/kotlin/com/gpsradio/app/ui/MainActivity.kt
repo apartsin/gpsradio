@@ -79,6 +79,8 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         // Rate-limited to every 6 h; also re-evaluates after returning from the "install unknown apps" page.
         vm.checkForUpdate(manual = false)
+        // An update confirmation that arrived while the app was in the background.
+        (application as com.gpsradio.app.GpsRadioApp).updater.showPendingConfirm(this)
     }
 
     override fun onNewIntent(intent: Intent) {

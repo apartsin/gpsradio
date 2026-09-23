@@ -467,6 +467,8 @@ class RadioSession(
         if (text.isBlank()) return@launch
         live?.takeIf { it.isOpen }?.let { l ->
             addTranscript(TranscriptEntry(Speaker.USER, text.trim(), clock()))
+            // Always listening: a typed question stops the story first, so the host doesn't talk over it.
+            if (_state.value.radioState != RadioState.CONVERSING) startExchange(l)
             l.sendText(text.trim())
             return@launch
         }
@@ -523,7 +525,11 @@ class RadioSession(
         }
         if (l?.isOpen == true || now < standbyRetryAtMs) return
         val factory = liveFactory ?: return
-        live = factory(liveHost, scope).also { it.start(opening = null, persistent = true) }
+        // Assigned before start(): a failing handshake reports back through liveHost, which must see this
+        // connection to back off quietly instead of treating it as a failed conversation.
+        val l2 = factory(liveHost, scope)
+        live = l2
+        l2.start(opening = null, persistent = true)
     }
 
     /** Opens a hands-free voice conversation (tap the mic), or closes it if already open. */
@@ -1124,11 +1130,19 @@ class RadioSession(
         pendingId = null
         engagedUntilMs = Long.MAX_VALUE
         setRadioState(RadioState.CONVERSING)
-        live = factory(liveHost, scope).also { it.start(opening, persistent = handsFreeActive) }
+        // converse: the listener is expected to talk now; if they don't, the idle timeout returns to the radio.
+        val l = factory(liveHost, scope)
+        live = l
+        l.start(opening, persistent = handsFreeActive, converse = true)
     }
+
+    /** Where an always-listening exchange returns when it goes quiet. */
+    private var afterExchange = RadioState.RADIO
 
     /** The listener starts talking (or taps the mic) during the radio: stop the story and listen. */
     private fun startExchange(l: LiveConversation) {
+        // Talking while paused (e.g. to a passenger) must not un-pause the radio when the exchange ends.
+        afterExchange = if (_state.value.radioState == RadioState.PAUSED) RadioState.PAUSED else RadioState.RADIO
         speechJob?.cancel()
         pendingId = null
         storyPlayback = null
@@ -1220,12 +1234,15 @@ class RadioSession(
             if (_state.value.radioState == RadioState.CONVERSING) {
                 clearOffer()
                 engagedUntilMs = 0
-                setRadioState(RadioState.RADIO)
+                setRadioState(afterExchange)
             }
+            afterExchange = RadioState.RADIO
         }
 
         override fun onLiveError(message: String) {
             val l = live
+            // Out of credit: say so (the credit notice), and stop background reconnects until it's fixed.
+            if (QuotaErrors.matches(message)) noteQuota()
             if (l != null && l.persistent && !l.inConversation) {
                 // Background listening failed: retry later, quietly (1, 2, 4… up to 10 minutes).
                 standbyFailures++
@@ -1882,7 +1899,8 @@ class RadioSession(
             speakThreshold = ranker.thresholdFor(cfg.pacing),
             areaFacets = areaFacets,
             photoSpot = ranked.firstOrNull { it.breakdown.novelty > 0.0 && it.place.id !in mentionedIds && PhotoSpots.suitable(it, loc) },
-            eventsDue = eventsToAnnounce(now).isNotEmpty(),
+            // Events have no on-device version: while OpenAI is out they'd be skipped every tick and block stories.
+            eventsDue = !onDeviceNow() && eventsToAnnounce(now).isNotEmpty(),
         )
         return when (val plan = programme.next(situation)) {
             Programme.Plan.None -> false

@@ -133,8 +133,20 @@ class AppUpdater(
         }
     }
 
+    /** Android's "install this update?" screen, when it couldn't be shown yet (the app was in the background). */
+    @Volatile internal var pendingConfirm: Intent? = null
+
+    /** Shows a waiting install confirmation from the foreground activity. */
+    fun showPendingConfirm(activity: android.app.Activity) {
+        val confirm = pendingConfirm ?: return
+        pendingConfirm = null
+        if (state.value !is UpdateState.Installing) return
+        runCatching { activity.startActivity(confirm) }
+    }
+
     /** Result from PackageInstaller (on success the app is replaced and restarted, so this rarely runs). */
     internal fun onInstallResult(status: Int, message: String?) {
+        pendingConfirm = null
         val info = (state.value as? UpdateState.Installing)?.info
         when (status) {
             PackageInstaller.STATUS_SUCCESS -> _state.value = UpdateState.UpToDate
@@ -165,7 +177,9 @@ class InstallResultReceiver : BroadcastReceiver() {
             @Suppress("DEPRECATION")
             val confirm = (if (Build.VERSION.SDK_INT >= 33) intent.getParcelableExtra(Intent.EXTRA_INTENT, Intent::class.java)
             else intent.getParcelableExtra(Intent.EXTRA_INTENT)) ?: return
-            context.startActivity(confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            // From the background Android blocks this launch; the app then shows it on its next resume.
+            (context.applicationContext as? GpsRadioApp)?.updater?.pendingConfirm = confirm
+            runCatching { context.startActivity(confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
             return
         }
         val app = context.applicationContext as? GpsRadioApp ?: return

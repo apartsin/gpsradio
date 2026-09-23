@@ -21,6 +21,8 @@
 
     <!-- Self-update: the app is not distributed through a store (spec B §36). -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Android 12+: lets later self-updates install without a confirmation tap (spec B §36). -->
+    <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" />
 
     <!-- Android 11+ package visibility: lets TextToSpeech find the installed speech engine. -->
     <queries>
