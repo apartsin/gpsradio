@@ -13,6 +13,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -400,11 +402,15 @@ private fun ContentTabs(
             Tab(selected = tab == 3, onClick = { tab = 3 }, text = { Text("Saved") })
         }
         when (tab) {
-            0 -> Column(Modifier.fillMaxSize().padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                // The panel is not inside a scroll container, so the map can be panned freely.
-                placePanel(state, Modifier)
-                FocusActions(state, starredIds, a)
-                Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) { NowPlaying(state) }
+            0 -> BoxWithConstraints(Modifier.fillMaxSize().padding(top = 8.dp)) {
+                // Photo/map height adapts to the screen so the title, actions and story stay visible on small phones.
+                val panelHeight = (maxHeight * 0.45f).coerceIn(110.dp, 240.dp)
+                Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FocusActions(state, starredIds, a)
+                    // The panel is not inside a scroll container, so the map can be panned freely.
+                    placePanel(state, Modifier.height(panelHeight))
+                    Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) { NowPlaying(state) }
+                }
             }
             1 -> Transcript(state.transcript)
             2 -> Nearby(state, starredIds, a)

@@ -57,7 +57,7 @@ fun PlacePanel(state: RadioUiState, modifier: Modifier = Modifier) {
     val focus = state.focus
     val photos = focus?.gallery.orEmpty()
     var mapExpanded by remember(focus?.id) { mutableStateOf(false) }
-    Card(modifier.fillMaxWidth().height(230.dp)) {
+    Card(modifier.fillMaxWidth()) {
         Box(Modifier.fillMaxSize()) {
             if (photos.isEmpty() || mapExpanded) {
                 OsmMap(state, Modifier.fillMaxSize())

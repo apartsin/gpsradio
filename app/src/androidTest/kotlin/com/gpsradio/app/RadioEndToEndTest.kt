@@ -12,6 +12,8 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.printToString
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.GrantPermissionRule
@@ -43,6 +45,16 @@ class RadioEndToEndTest {
 
     private val app get() = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as GpsRadioApp
 
+    /** Waits for a node; on timeout fails with the whole UI tree so CI logs show what was on screen. */
+    private fun waitFor(matcher: androidx.compose.ui.test.SemanticsMatcher, timeoutMs: Long) {
+        try {
+            compose.waitUntilAtLeastOneExists(matcher, timeoutMs)
+        } catch (e: Throwable) {
+            val tree = runCatching { compose.onRoot(useUnmergedTree = false).printToString(maxDepth = 30) }.getOrDefault("<no tree>")
+            throw AssertionError("Timed out waiting for ${matcher.description}. Screen:\n$tree", e)
+        }
+    }
+
     private fun fix() = app.session.onLocation(LocationSample(47.9180, 13.7990, 5f, System.currentTimeMillis(), 0f))
 
     @Test
@@ -52,17 +64,17 @@ class RadioEndToEndTest {
         compose.onNodeWithText("Save and start listening").performScrollTo().performClick()
 
         // Saving starts the radio right away (location already granted); feed GPS fixes.
-        compose.waitUntilAtLeastOneExists(hasText("Stop"), 10_000)
+        waitFor(hasText("Stop"), 10_000)
         repeat(3) { fix(); Thread.sleep(300) }
 
         // A grounded story about the nearby castle is narrated and shown.
-        compose.waitUntilAtLeastOneExists(hasText("FAKE-STORY", substring = true), 30_000)
+        waitFor(hasText("FAKE-STORY", substring = true), 30_000)
         assertTrue(FakeServices.played.any { it.startsWith("AUDIO:") })
 
         // Ask a follow-up by typing; the answer arrives in the transcript.
         compose.onNodeWithTag("askField").performTextInput("How long is the bridge?")
         compose.onNodeWithContentDescription("Send").performClick()
-        compose.waitUntilAtLeastOneExists(hasText("FAKE-ANSWER", substring = true), 30_000)
+        waitFor(hasText("FAKE-ANSWER", substring = true), 30_000)
         compose.onNodeWithText("Transcript").performClick()
         compose.onNodeWithTag("transcript").performScrollToNode(hasText("How long is the bridge?"))
         compose.onNodeWithText("Now").performClick()
@@ -70,15 +82,15 @@ class RadioEndToEndTest {
         // Star the place in focus; it appears in the Saved tab.
         compose.onNodeWithContentDescription("Save place").performClick()
         compose.onNodeWithText("Saved").performClick()
-        compose.waitUntilAtLeastOneExists(hasText("Schloss Ort"), 5_000)
+        waitFor(hasText("Schloss Ort"), 5_000)
         compose.onNodeWithText("Now").performClick()
 
         // The preference the model extracted is remembered and visible in Settings.
         compose.onNodeWithContentDescription("Settings").performClick()
-        compose.waitUntilAtLeastOneExists(hasText("style: Keep stories short"), 10_000)
+        waitFor(hasText("style: Keep stories short"), 10_000)
         compose.onNodeWithContentDescription("Back").performClick()
 
         compose.onNodeWithText("Stop").performClick()
-        compose.waitUntilAtLeastOneExists(hasText("Off air"), 10_000)
+        waitFor(hasText("Off air"), 10_000)
     }
 }
