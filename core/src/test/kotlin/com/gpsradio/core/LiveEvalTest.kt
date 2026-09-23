@@ -389,7 +389,9 @@ class LiveEvalTest {
             suspend {
                 val driving = walking.copy(speedMps = 25.0, headingDeg = 10.0, travelMode = TravelMode.DRIVING)
                 val s = agent.narrate(NarrationRequest(ranked(castle, 1_800.0), driving, "en-US", setOf(Topic.HISTORY), emptyList()))
-                val exact = Regex("\\b\\d[\\d,.]*\\s*(m|metres|meters|km|kilometres|kilometers)\\b", RegexOption.IGNORE_CASE).containsMatchIn(s.text.substringBefore("123-metre"))
+                // A distance *to the place* ("1.8 km ahead") goes stale at speed; a size fact ("a bridge 123 metres long") doesn't.
+                val exact = Regex("\\b\\d[\\d,.]*[\\s-]*(m|metres|meters|metre|meter|km|kilometres|kilometers)\\b(.{0,12})", RegexOption.IGNORE_CASE)
+                    .findAll(s.text).any { m -> !Regex("long|high|wide|tall|deep|in length|in height", RegexOption.IGNORE_CASE).containsMatchIn(m.groupValues[2]) }
                 Result("driving: no stale exact distances (uses 'coming up'/time)", !exact, s.text.take(200))
             },
             suspend {

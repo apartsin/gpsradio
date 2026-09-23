@@ -598,6 +598,8 @@ class RadioAgent(
             - A hedged guess is still an invented fact: never say what people "probably", "surely", "no doubt" or "must have"
               done, eaten, seen or felt. BAD: "the emperor probably indulged in their cakes". GOOD: "it supplied the
               imperial court" (exactly what the facts say).
+            - Don't link separate facts into a cause or connection the facts don't state ("thanks to the emperor it became
+              purveyor to the court" when the facts list both separately): keep them as separate facts.
             - Label legends, folklore and disputed claims as such ("the story goes…", "locals insist…").
             - Humour and comparisons are welcome but must not add new facts, and never joke about tragedies, victims, war or disasters.
             Craft:
