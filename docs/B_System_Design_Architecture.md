@@ -739,3 +739,17 @@ The app is not in a store, so it manages its own releases and updates.
 - **Live evals:**
   - A must-pass list (language, safety at the wheel, legend labelling, tragedy/dignity, no invented facts, hours or prices) fails the run on any miss.
   - The judge-graded style cases need ≥ 85%.
+
+## 42. Natural Live Voice
+
+Sources: OpenAI's realtime prompting guide and voice-agent metaprompt, and the realtime VAD docs.
+- **Turn-taking:** `semantic_vad` (eagerness `auto`) replaces silence-based `server_vad`. It judges the end of a turn from what was said, so it waits through "um… and the castle…" and answers promptly after a complete question. `noise_reduction: far_field` handles a phone in a car or on a loudspeaker.
+- **Barge-in:**
+  - When the listener starts speaking (also while the finished answer is still queued for the speaker) or types mid-answer, the client stops playback, drops leftover audio, and sends `conversation.item.truncate`.
+  - `audio_end_ms` is the audio received for that item minus what is still queued, so the conversation history holds only what was actually heard.
+  - `AudioDelta.itemId` tracks the message being played.
+- **Voice:** the live host defaults to `marin` (`SessionConfig.realtimeVoice`); marin and cedar are the most natural gpt-realtime voices.
+- **Prompt structure** (guide-style bullets with key words in caps):
+  - Role & Objective; Personality & Tone (identity, demeanor, tone, enthusiasm, formality, emotion, occasional filler words); Pacing & Length (1–3 sentences, then yield).
+  - Variety (never repeat a sentence or opener; sample phrases are not scripts); Language (stay in the listener's language, say local names the local way).
+  - Unclear audio (ignore road noise, music and the radio; ask to repeat instead of guessing); Tools (a short, varied preamble before slow tools); Conversation Flow (offers, goodbyes); then the context.

@@ -1092,7 +1092,7 @@ class RadioSession(
 
     private val liveHost = object : LiveHost {
         override fun liveInstructions() = RadioAgent.liveInstructions(conversationRequest(""))
-        override fun liveVoice() = com.gpsradio.core.ai.RealtimeProtocol.liveVoice(config().voice)
+        override fun liveVoice() = com.gpsradio.core.ai.RealtimeProtocol.liveVoice(config().realtimeVoice)
         override fun liveModel() = config().liveModel
         override fun transcriptionModel() = config().transcriptionModel
 

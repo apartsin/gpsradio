@@ -40,6 +40,8 @@ data class SessionConfig(
     /** Use the natural, hands-free Realtime voice for conversations. */
     val liveVoice: Boolean = false,
     val voice: String = "alloy",
+    /** Voice of the live (Realtime) host; marin and cedar are the most natural gpt-realtime voices. */
+    val realtimeVoice: String = "marin",
     val liveModel: String = "gpt-realtime",
     val transcriptionModel: String = "gpt-4o-mini-transcribe",
     /** Ask drivers once per session where they're heading. */

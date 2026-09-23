@@ -66,6 +66,9 @@ class LiveConversation(
     /** After a barge-in, drop leftover audio from the interrupted response until it is done. */
     private var dropStaleAudio = false
     private var toolRunning = false
+    /** The assistant message being played and how much of its audio arrived (24 kHz 16-bit mono = 48 bytes/ms). */
+    private var currentItemId: String? = null
+    private var receivedBytes = 0L
 
     @Volatile
     var isOpen: Boolean = false
@@ -115,6 +118,7 @@ class LiveConversation(
         if (speaking) {
             // Only one response can be active: interrupt the current one first.
             conn.send(RealtimeProtocol.cancelResponse())
+            truncateHeard(conn)
             audio.stopPlayback()
             speaking = false
             dropStaleAudio = true
@@ -151,8 +155,10 @@ class LiveConversation(
                 pendingOpening = null
             }
             RealtimeEvent.SpeechStarted -> {
-                // Barge-in: the listener talks over the host, so stop the host immediately.
+                // Barge-in: the listener talks over the host, so stop the host immediately (also when the
+                // response is complete but its audio is still queued for the speaker).
                 lastActivityMs = clock()
+                if (speaking || audio.pendingPlaybackMs() > 0) truncateHeard(conn)
                 if (speaking) dropStaleAudio = true
                 speaking = false
                 audio.stopPlayback()
@@ -165,6 +171,11 @@ class LiveConversation(
             is RealtimeEvent.UserTranscript -> host.onUserSaid(e.text)
             is RealtimeEvent.AudioDelta -> {
                 if (dropStaleAudio) return
+                if (e.itemId != null && e.itemId != currentItemId) {
+                    currentItemId = e.itemId
+                    receivedBytes = 0
+                }
+                receivedBytes += e.pcm.size
                 gotFirstAudio = true
                 lastActivityMs = clock()
                 if (!speaking) host.onLiveState(LiveState.ASSISTANT_SPEAKING)
@@ -210,6 +221,15 @@ class LiveConversation(
         }
     }
 
+    /** Tell the server what was actually heard of the interrupted message (sent audio minus what's still queued). */
+    private fun truncateHeard(conn: RealtimeConnection) {
+        val item = currentItemId ?: return
+        val heardMs = receivedBytes / BYTES_PER_MS - audio.pendingPlaybackMs()
+        conn.send(RealtimeProtocol.truncate(item, heardMs))
+        currentItemId = null
+        receivedBytes = 0
+    }
+
     private fun fail(message: String) {
         host.onLiveError(message)
         end()
@@ -217,6 +237,7 @@ class LiveConversation(
 
     private companion object {
         val json = Json { ignoreUnknownKeys = true }
+        const val BYTES_PER_MS = 48L
     }
 }
 

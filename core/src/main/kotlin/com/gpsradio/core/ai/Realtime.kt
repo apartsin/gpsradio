@@ -26,7 +26,8 @@ sealed interface RealtimeEvent {
     data object SpeechStarted : RealtimeEvent
     data object SpeechStopped : RealtimeEvent
     data class UserTranscript(val text: String) : RealtimeEvent
-    data class AudioDelta(val pcm: ByteArray) : RealtimeEvent
+    /** [itemId] identifies the assistant message, for truncating it after a barge-in. */
+    data class AudioDelta(val pcm: ByteArray, val itemId: String? = null) : RealtimeEvent
     data class AssistantTranscript(val text: String) : RealtimeEvent
     data class FunctionCall(val callId: String, val name: String, val arguments: String) : RealtimeEvent
     data object ResponseDone : RealtimeEvent
@@ -52,12 +53,17 @@ object RealtimeProtocol {
                     putJsonObject("input") {
                         putJsonObject("format") { put("type", "audio/pcm"); put("rate", SAMPLE_RATE) }
                         putJsonObject("transcription") { put("model", transcriptionModel) }
+                        // Semantic VAD decides the end of a turn from what was said, not just silence: it waits
+                        // through "um… and the castle…" instead of cutting in, and answers quickly when a
+                        // question is clearly complete (closer to how people take turns).
                         putJsonObject("turn_detection") {
-                            put("type", "server_vad")
-                            put("silence_duration_ms", 650)
+                            put("type", "semantic_vad")
+                            put("eagerness", "auto")
                             put("create_response", true)
                             put("interrupt_response", true)
                         }
+                        // A phone in a car or on a loudspeaker: filter room/road noise before VAD and the model.
+                        putJsonObject("noise_reduction") { put("type", "far_field") }
                     }
                     putJsonObject("output") {
                         putJsonObject("format") { put("type", "audio/pcm"); put("rate", SAMPLE_RATE) }
@@ -109,6 +115,17 @@ object RealtimeProtocol {
 
     fun cancelResponse(): JsonObject = buildJsonObject { put("type", "response.cancel") }
 
+    /**
+     * After a barge-in, tells the server how much of the assistant's audio the listener actually heard,
+     * so the conversation history (and the model's follow-ups) match reality.
+     */
+    fun truncate(itemId: String, audioEndMs: Long): JsonObject = buildJsonObject {
+        put("type", "conversation.item.truncate")
+        put("item_id", itemId)
+        put("content_index", 0)
+        put("audio_end_ms", audioEndMs.coerceAtLeast(0))
+    }
+
     fun parse(text: String): RealtimeEvent? {
         val o = runCatching { json.parseToJsonElement(text).jsonObject }.getOrNull() ?: return null
         fun str(k: String) = (o[k] as? JsonPrimitive)?.contentOrNull
@@ -119,7 +136,7 @@ object RealtimeProtocol {
             "conversation.item.input_audio_transcription.completed" ->
                 str("transcript")?.trim()?.takeIf { it.isNotEmpty() }?.let { RealtimeEvent.UserTranscript(it) }
             "response.output_audio.delta", "response.audio.delta" ->
-                str("delta")?.let { RealtimeEvent.AudioDelta(Base64.getDecoder().decode(it)) }
+                str("delta")?.let { RealtimeEvent.AudioDelta(Base64.getDecoder().decode(it), str("item_id")) }
             "response.output_audio_transcript.done", "response.audio_transcript.done" ->
                 str("transcript")?.trim()?.takeIf { it.isNotEmpty() }?.let { RealtimeEvent.AssistantTranscript(it) }
             "response.function_call_arguments.done" -> {
@@ -149,7 +166,7 @@ object RealtimeProtocol {
 
     /** Voices the Realtime model accepts; others (TTS-only) fall back to [DEFAULT_VOICE]. */
     val voices = setOf("alloy", "ash", "ballad", "coral", "echo", "sage", "shimmer", "verse", "marin", "cedar")
-    const val DEFAULT_VOICE = "coral"
+    const val DEFAULT_VOICE = "marin"
 
     fun liveVoice(requested: String): String = requested.lowercase().takeIf { it in voices } ?: DEFAULT_VOICE
 

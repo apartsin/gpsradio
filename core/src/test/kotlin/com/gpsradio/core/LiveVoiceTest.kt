@@ -78,6 +78,9 @@ class LiveVoiceTest {
         var played = 0
         var flushed = 0
         var onChunk: ((ByteArray) -> Unit)? = null
+        /** Audio still queued for the speaker, in ms (tests set it to simulate playback lag). */
+        var pending = 0L
+        override fun pendingPlaybackMs() = pending
         override fun startCapture(onChunk: (ByteArray) -> Unit): Boolean { capturing = true; this.onChunk = onChunk; return true }
         override fun stopCapture() { capturing = false }
         override fun play(pcm: ByteArray) { played += pcm.size }
@@ -89,6 +92,10 @@ class LiveVoiceTest {
         val audio = Base64.getEncoder().encodeToString(byteArrayOf(1, 2, 3))
         assertIs<RealtimeEvent.SessionReady>(RealtimeProtocol.parse("""{"type":"session.created","session":{}}"""))
         assertEquals(3, (RealtimeProtocol.parse("""{"type":"response.output_audio.delta","delta":"$audio"}""") as RealtimeEvent.AudioDelta).pcm.size)
+        assertEquals("it1", (RealtimeProtocol.parse("""{"type":"response.output_audio.delta","item_id":"it1","delta":"$audio"}""") as RealtimeEvent.AudioDelta).itemId)
+        val t = RealtimeProtocol.truncate("it1", -5)
+        assertEquals("conversation.item.truncate", t["type"]!!.jsonPrimitive.content)
+        assertEquals(0, t["audio_end_ms"]!!.jsonPrimitive.content.toInt())
         assertEquals(3, (RealtimeProtocol.parse("""{"type":"response.audio.delta","delta":"$audio"}""") as RealtimeEvent.AudioDelta).pcm.size)
         assertEquals("Hi there", (RealtimeProtocol.parse("""{"type":"response.output_audio_transcript.done","transcript":" Hi there "}""") as RealtimeEvent.AssistantTranscript).text)
         assertEquals("tell me more", (RealtimeProtocol.parse("""{"type":"conversation.item.input_audio_transcription.completed","transcript":"tell me more"}""") as RealtimeEvent.UserTranscript).text)
@@ -106,7 +113,10 @@ class LiveVoiceTest {
         assertEquals("realtime", session["type"]!!.jsonPrimitive.content)
         val audio = session["audio"]!!.jsonObject
         assertEquals("coral", audio["output"]!!.jsonObject["voice"]!!.jsonPrimitive.content)
-        assertEquals("server_vad", audio["input"]!!.jsonObject["turn_detection"]!!.jsonObject["type"]!!.jsonPrimitive.content)
+        val turn = audio["input"]!!.jsonObject["turn_detection"]!!.jsonObject
+        assertEquals("semantic_vad", turn["type"]!!.jsonPrimitive.content)
+        assertEquals("auto", turn["eagerness"]!!.jsonPrimitive.content)
+        assertEquals("far_field", audio["input"]!!.jsonObject["noise_reduction"]!!.jsonObject["type"]!!.jsonPrimitive.content)
         assertEquals(24000, audio["input"]!!.jsonObject["format"]!!.jsonObject["rate"]!!.jsonPrimitive.content.toInt())
         val toolNames = RealtimeProtocol.tools.map { it.name }
         assertEquals(listOf("web_search", "radio_control", "remember", "set_trip"), toolNames)
@@ -205,11 +215,18 @@ class LiveVoiceTest {
             assertEquals("response.create", c.types().last())
 
             // The host answers in audio; the listener interrupts (barge-in) and playback is flushed.
-            c.server.trySend(RealtimeEvent.AudioDelta(ByteArray(960)))
+            // 2 s of audio arrived (48 bytes/ms), 1.5 s still queued: the listener heard 500 ms.
+            c.server.trySend(RealtimeEvent.AudioDelta(ByteArray(96_000), itemId = "item_7"))
             c.server.trySend(RealtimeEvent.AssistantTranscript("It opens at nine.")); runCurrent()
             assertEquals(LiveState.ASSISTANT_SPEAKING, s.state.value.live)
+            pcm.pending = 1_500
             c.server.trySend(RealtimeEvent.SpeechStarted); runCurrent()
+            pcm.pending = 0
             assertTrue(pcm.flushed >= 1)
+            // The server learns what was actually heard, so follow-ups match the conversation.
+            val trunc = c.sent.last { it["type"]!!.jsonPrimitive.content == "conversation.item.truncate" }
+            assertEquals("item_7", trunc["item_id"]!!.jsonPrimitive.content)
+            assertEquals(500, trunc["audio_end_ms"]!!.jsonPrimitive.content.toInt())
             assertTrue(s.state.value.transcript.any { it.speaker == Speaker.USER && it.text == "Is the castle open now?" })
             assertTrue(s.state.value.transcript.any { it.speaker == Speaker.RADIO && it.text == "It opens at nine." })
 
@@ -334,7 +351,7 @@ class LiveVoiceTest {
 
     @Test
     fun ttsOnlyVoicesFallBackForTheLiveModel() {
-        assertEquals("coral", RealtimeProtocol.liveVoice("onyx"))
+        assertEquals("marin", RealtimeProtocol.liveVoice("onyx"))
         assertEquals("marin", RealtimeProtocol.liveVoice("Marin"))
     }
 
