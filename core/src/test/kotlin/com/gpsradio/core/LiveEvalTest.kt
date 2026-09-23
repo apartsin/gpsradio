@@ -273,8 +273,11 @@ class LiveEvalTest {
                 val s = agent.narrate(NarrationRequest(ranked(castle), walking, "ru-RU", setOf(Topic.HISTORY), emptyList(), visit = v))
                 val cyr = s.text.count { it in 'А'..'я' }
                 val g = judge.check(
-                    "TEXT mentions today's opening hours (10:30 to 16:00) and the admission (5 euros for adults) and adds no other prices or hours.",
-                    s.text,
+                    "TEXT mentions today's opening hours (10:30 to 16:00) and the admission (5 euros for adults), and every " +
+                        "price, hour or visit detail it states is in VISIT (details from VISIT, like free entry for children " +
+                        "or tower tours being extra, are fine; anything not in VISIT fails).",
+                    "VISIT: hours today 10:30–16:00; admission: adults €5, children under 14 free; visit about 40 min, easy, " +
+                        "short walk over the wooden bridge; expect: courtyard and chapel, tower tours extra.\nTEXT: ${s.text}",
                 )
                 Result("language: English visit data → Russian, hours & fee reported, no invented prices", cyr > s.text.length / 3 && g.pass, "cyrillic=$cyr/${s.text.length}; ${g.reason}; ${s.text.take(200)}")
             },
