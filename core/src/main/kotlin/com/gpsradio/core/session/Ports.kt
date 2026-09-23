@@ -1,5 +1,6 @@
 package com.gpsradio.core.session
 
+import com.gpsradio.core.ai.HostStyle
 import com.gpsradio.core.ai.ModelConfig
 import com.gpsradio.core.ai.OpenAiClient
 import com.gpsradio.core.lang.Languages
@@ -13,7 +14,7 @@ fun interface AudioOutput {
 }
 
 interface SpeechService {
-    suspend fun synthesize(text: String, language: String): ByteArray
+    suspend fun synthesize(text: String, language: String, style: HostStyle = HostStyle.ENTERTAINING): ByteArray
     /** [prompt] can carry nearby place names to help with proper nouns. */
     suspend fun transcribe(audio: ByteArray, fileName: String, mimeType: String, prompt: String? = null): String
 }
@@ -34,6 +35,7 @@ data class SessionConfig(
     /** Resolved default narration language (BCP-47). */
     val language: String,
     val interests: Set<Topic>,
+    val style: HostStyle = HostStyle.ENTERTAINING,
 )
 
 class OpenAiSpeech(
@@ -45,16 +47,15 @@ class OpenAiSpeech(
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ByteArray>?) = size > 12
     }
 
-    override suspend fun synthesize(text: String, language: String): ByteArray {
+    override suspend fun synthesize(text: String, language: String, style: HostStyle): ByteArray {
         val m = models()
-        val key = "${m.ttsModel}|${m.ttsVoice}|$language|$text"
+        val key = "${m.ttsModel}|${m.ttsVoice}|$language|${style.key}|$text"
         synchronized(cache) { cache[key] }?.let { return it }
         val bytes = openAi.speech(
             text = text,
             model = m.ttsModel,
             voice = m.ttsVoice,
-            instructions = "Warm, engaging radio host telling a story to one listener. " +
-                "Natural pace. Language: ${Languages.displayName(language)}.",
+            instructions = style.voiceDirection + " Language: ${Languages.displayName(language)}.",
         )
         synchronized(cache) { cache[key] = bytes }
         return bytes

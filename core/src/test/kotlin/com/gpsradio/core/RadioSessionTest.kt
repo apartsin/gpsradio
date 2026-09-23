@@ -46,7 +46,7 @@ class RadioSessionTest {
             return Segment("Story about ${req.candidate.place.name}", req.candidate.place.id, req.candidate.place.name, emptyList())
         }
         override suspend fun converse(req: ConversationRequest, onSearching: suspend () -> Unit): ConversationReply { asked += req; return reply }
-        override suspend fun synthesize(text: String, language: String) = text.toByteArray()
+        override suspend fun synthesize(text: String, language: String, style: com.gpsradio.core.ai.HostStyle) = text.toByteArray()
         override suspend fun transcribe(audio: ByteArray, fileName: String, mimeType: String, prompt: String?) = String(audio)
         override suspend fun play(audio: ByteArray) = delay(20_000)
         override fun load() = stored

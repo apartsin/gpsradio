@@ -12,6 +12,9 @@ import kotlin.math.min
 /** Something that can list grounded nearby entities. A future backend can implement this too. */
 interface PlacesProvider {
     suspend fun discover(center: GeoPoint, radiusM: Int, languageBase: String): List<PlaceCandidate>
+
+    /** Real photos of a place for the gallery; by default just its main image. */
+    suspend fun gallery(place: PlaceCandidate): List<String> = listOfNotNull(place.imageUrl)
 }
 
 /**
@@ -88,6 +91,13 @@ class DiscoveryService(
                 researchStatus = if (extract != null) ResearchStatus.READY else ResearchStatus.FAILED,
             )
         }
+    }
+
+    override suspend fun gallery(place: PlaceCandidate): List<String> {
+        val lang = place.source.removePrefix("wikipedia:").takeIf { place.source.startsWith("wikipedia:") }
+            ?: return listOfNotNull(place.imageUrl)
+        val more = runCatching { wikipedia.articleImages(lang, place.name) }.getOrDefault(emptyList())
+        return (listOfNotNull(place.imageUrl) + more).distinctBy { it.substringAfterLast('/').substringAfter("px-") }.take(8)
     }
 
     internal fun merge(wiki: List<PlaceCandidate>, osm: List<OverpassClient.Element>, languageBase: String): List<PlaceCandidate> {

@@ -287,6 +287,7 @@ private fun BigButton(icon: androidx.compose.ui.graphics.vector.ImageVector, lab
 @Composable
 private fun TalkBar(recording: Boolean, onPressStart: () -> Boolean, onRelease: () -> Unit, onSend: (String) -> Unit) {
     var text by remember { mutableStateOf("") }
+    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     val pressStart by rememberUpdatedState(onPressStart)
     val release by rememberUpdatedState(onRelease)
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -315,7 +316,7 @@ private fun TalkBar(recording: Boolean, onPressStart: () -> Boolean, onRelease: 
             singleLine = true,
             modifier = Modifier.weight(1f).testTag("askField"),
             trailingIcon = {
-                IconButton(enabled = text.isNotBlank(), onClick = { onSend(text); text = "" }) {
+                IconButton(enabled = text.isNotBlank(), onClick = { onSend(text); text = ""; keyboard?.hide() }) {
                     Icon(Icons.AutoMirrored.Filled.Send, "Send")
                 }
             },
@@ -362,7 +363,11 @@ private fun Transcript(entries: List<TranscriptEntry>) {
         Text("Stories and answers will appear here.", Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall)
         return
     }
-    LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
+    LazyColumn(
+        state = listState,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.padding(top = 8.dp).testTag("transcript"),
+    ) {
         items(entries) { e ->
             val color = when (e.speaker) {
                 Speaker.USER -> MaterialTheme.colorScheme.secondary

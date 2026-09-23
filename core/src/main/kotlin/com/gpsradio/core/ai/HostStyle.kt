@@ -1,0 +1,45 @@
+package com.gpsradio.core.ai
+
+/** Who is talking: the host's personality shapes narration, answers and the voice's delivery. */
+enum class HostStyle(val key: String, val label: String, val persona: String, val voiceDirection: String) {
+    ENTERTAINING(
+        "entertaining",
+        "Witty guide",
+        "a warm, witty and genuinely knowledgeable local guide: part favourite history teacher, part born storyteller. " +
+            "You love a surprising fun fact, you give the historical and cultural context that makes a place matter, " +
+            "and you slip in light, content-related humour (a wry aside, a playful comparison, a gentle pun) when it fits.",
+        "Warm, lively and smiling, like a favourite guide telling a great story to a friend. Natural rhythm, " +
+            "small pauses before the punchline or the surprising fact, never rushed.",
+    ),
+    DOCUMENTARY(
+        "documentary",
+        "Documentary",
+        "a calm, authoritative documentary narrator with a gift for vivid detail and context; humour is rare and dry.",
+        "Measured, rich and calm documentary narration with clear articulation.",
+    ),
+    KIDS(
+        "kids",
+        "Family & kids",
+        "a playful guide for a family with children aged about 6–12: simple words, wow-facts, silly comparisons, " +
+            "and now and then a quick question for the kids to think about.",
+        "Bright, playful and expressive, like a children's museum guide; clear and not too fast.",
+    ),
+    CHILL(
+        "chill",
+        "Late-night chill",
+        "a relaxed late-night radio host: unhurried, thoughtful, with gentle humour and a sense of wonder.",
+        "Soft, relaxed, intimate late-night radio voice; slow and warm.",
+    );
+
+    companion object {
+        fun fromKey(key: String?): HostStyle = entries.firstOrNull { it.key == key } ?: ENTERTAINING
+    }
+}
+
+/** What kind of segment to produce. */
+enum class SegmentFormat {
+    /** A complete short story. */
+    STORY,
+    /** A one or two sentence hook that ends by asking whether the listener wants the full story. */
+    TEASER,
+}

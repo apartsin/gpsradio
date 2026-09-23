@@ -88,12 +88,51 @@ class WikipediaClient(
         }
     }
 
+    @Serializable private data class ImagesResponse(val query: ImagesQuery? = null)
+    @Serializable private data class ImagesQuery(val pages: List<ImagePage> = emptyList())
+    @Serializable private data class ImagePage(val title: String = "", val imageinfo: List<ImageInfo> = emptyList())
+    @Serializable private data class ImageInfo(val thumburl: String? = null, val url: String? = null)
+
+    /**
+     * Photos used in an article (via Wikimedia Commons), best first. Icons, maps, flags, logos and
+     * diagrams are filtered out so the gallery shows the place itself.
+     */
+    suspend fun articleImages(lang: String, title: String, limit: Int = 8): List<String> {
+        val url = baseUrl(lang).newBuilder()
+            .addQueryParameter("action", "query")
+            .addQueryParameter("generator", "images")
+            .addQueryParameter("titles", title)
+            .addQueryParameter("gimlimit", "30")
+            .addQueryParameter("prop", "imageinfo")
+            .addQueryParameter("iiprop", "url")
+            .addQueryParameter("iiurlwidth", "800")
+            .addQueryParameter("format", "json")
+            .addQueryParameter("formatversion", "2")
+            .build()
+        val body = http.fetchString(request(url))
+        return json.decodeFromString(ImagesResponse.serializer(), body).query?.pages.orEmpty()
+            .filter { isPhoto(it.title) }
+            .mapNotNull { p -> p.imageinfo.firstOrNull()?.let { it.thumburl ?: it.url } }
+            .distinct()
+            .take(limit)
+    }
+
     fun articleUrl(lang: String, title: String): String =
         "https://$lang.wikipedia.org/wiki/" + title.replace(' ', '_')
 
     private fun request(url: HttpUrl) = Request.Builder().url(url).header("User-Agent", userAgent).build()
 
-    private companion object {
-        val json = Json { ignoreUnknownKeys = true }
+    companion object {
+        private val json = Json { ignoreUnknownKeys = true }
+        private val nonPhoto = Regex(
+            "(icon|logo|flag|coat[ _]of[ _]arms|wappen|map|karte|locator|symbol|signature|diagram|plan|commons-|wiki|edit|question|stub|pictogram)",
+            RegexOption.IGNORE_CASE,
+        )
+
+        fun isPhoto(fileTitle: String): Boolean {
+            val t = fileTitle.lowercase()
+            val ext = t.endsWith(".jpg") || t.endsWith(".jpeg") || t.endsWith(".png") || t.endsWith(".webp")
+            return ext && !nonPhoto.containsMatchIn(t.substringAfter(':'))
+        }
     }
 }

@@ -57,7 +57,7 @@ class ReviewFixesTest {
             return Segment("Story", req.candidate.place.id, req.candidate.place.name, emptyList())
         }
         override suspend fun converse(req: ConversationRequest, onSearching: suspend () -> Unit) = ConversationReply("ok")
-        override suspend fun synthesize(text: String, language: String) = text.toByteArray()
+        override suspend fun synthesize(text: String, language: String, style: com.gpsradio.core.ai.HostStyle) = text.toByteArray()
         override suspend fun transcribe(audio: ByteArray, fileName: String, mimeType: String, prompt: String?) = ""
         override fun load() = stored
         override fun save(serialized: String) { stored = serialized }

@@ -10,6 +10,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -64,7 +65,7 @@ class RadioEndToEndTest {
         compose.onNodeWithContentDescription("Send").performClick()
         compose.waitUntilAtLeastOneExists(hasText("FAKE-ANSWER", substring = true), 30_000)
         compose.onNodeWithText("Transcript").performClick()
-        compose.waitUntilAtLeastOneExists(hasText("How long is the bridge?"), 5_000)
+        compose.onNodeWithTag("transcript").performScrollToNode(hasText("How long is the bridge?"))
         compose.onNodeWithText("Now").performClick()
 
         // The preference the model extracted is remembered and visible in Settings.

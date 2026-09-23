@@ -29,6 +29,17 @@ interface Narrator {
     suspend fun narrate(req: NarrationRequest): Segment
     /** [onSearching] is invoked when the model decides it must search the web before answering. */
     suspend fun converse(req: ConversationRequest, onSearching: suspend () -> Unit = {}): ConversationReply
+
+    /** A short host line such as the road-trip question, in the listener's language and the host's style. */
+    suspend fun hostLine(kind: HostLine, language: String, style: HostStyle): String = kind.fallback
+}
+
+enum class HostLine(val instruction: String, val fallback: String) {
+    TRIP_QUESTION(
+        "The listener just started driving. In ONE short, friendly sentence, ask where they are heading today " +
+            "(and optionally what they are in the mood for), so you can pick stories along the way.",
+        "Looks like we're on the road! Where are we heading today? I'll pick stories along the way.",
+    ),
 }
 
 data class Segment(
@@ -48,6 +59,10 @@ data class NarrationRequest(
     val recentTitles: List<String>,
     /** Remembered listener preferences, one line each. */
     val profile: List<String> = emptyList(),
+    val style: HostStyle = HostStyle.ENTERTAINING,
+    val format: SegmentFormat = SegmentFormat.STORY,
+    /** What the listener told us about this trip, e.g. "driving to Salzburg for a concert". */
+    val tripContext: String? = null,
 )
 
 data class ConversationTurn(val fromUser: Boolean, val text: String)
@@ -63,13 +78,18 @@ data class ConversationRequest(
     val history: List<ConversationTurn>,
     val theme: Topic?,
     val profile: List<String> = emptyList(),
+    val style: HostStyle = HostStyle.ENTERTAINING,
+    val tripContext: String? = null,
+    /** A story the radio just offered ("want to hear it?"), awaiting the listener's answer. */
+    val pendingOffer: String? = null,
 )
 
 /** A preference the model decided to remember. */
 data class MemoryDraft(val category: MemoryCategory, val text: String, val topic: Topic?)
 
 enum class ConversationAction {
-    NONE, RESUME_RADIO, PAUSE, SKIP, CHANGE_LANGUAGE, SET_THEME, CLEAR_THEME, NAVIGATE, REFRESH_NEARBY;
+    NONE, RESUME_RADIO, PAUSE, SKIP, CHANGE_LANGUAGE, SET_THEME, CLEAR_THEME, NAVIGATE, REFRESH_NEARBY,
+    ACCEPT_OFFER, DECLINE_OFFER, STAR_PLACE;
 
     companion object {
         fun parse(s: String?): ConversationAction =
@@ -88,6 +108,7 @@ data class ConversationReply(
     val remember: List<MemoryDraft> = emptyList(),
     val forget: List<String> = emptyList(),
     val needsSearch: Boolean = false,
+    val tripContext: String? = null,
 )
 
 data class ModelConfig(
@@ -118,11 +139,13 @@ class RadioAgent(
             if (req.profile.isNotEmpty()) put("listener_profile", buildJsonArray { req.profile.forEach { add(JsonPrimitive(it)) } })
             put("already_told_this_trip", buildJsonArray { req.recentTitles.takeLast(8).forEach { add(JsonPrimitive(it)) } })
             put("target_length_words", (seconds * 2.3).toInt())
+            put("format", req.format.name.lowercase())
+            req.tripContext?.let { put("trip", it) }
         }
         val res = openAi.respond(
             OpenAiClient.ResponseRequest(
                 model = models().narrationModel,
-                instructions = narrationInstructions(req.language),
+                instructions = narrationInstructions(req.language, req.style),
                 input = listOf(OpenAiClient.Message("user", context.toString())),
                 maxOutputTokens = 900,
             ),
@@ -139,7 +162,7 @@ class RadioAgent(
             OpenAiClient.Message("user", req.utterance)
         val base = OpenAiClient.ResponseRequest(
             model = models().conversationModel,
-            instructions = conversationInstructions(req.language, searchAvailable = false),
+            instructions = conversationInstructions(req.language, searchAvailable = false, style = req.style),
             input = input,
             webSearch = false,
             userArea = req.area,
@@ -153,10 +176,22 @@ class RadioAgent(
 
         onSearching()
         val searched = respondStructured(
-            base.copy(instructions = conversationInstructions(req.language, searchAvailable = true), webSearch = true),
+            base.copy(instructions = conversationInstructions(req.language, searchAvailable = true, style = req.style), webSearch = true),
         )
         return parseReply(searched.text).copy(needsSearch = false, sources = searched.citations)
     }
+
+    override suspend fun hostLine(kind: HostLine, language: String, style: HostStyle): String = runCatching {
+        openAi.respond(
+            OpenAiClient.ResponseRequest(
+                model = models().narrationModel,
+                instructions = "You are ${style.persona} Speak ${Languages.displayName(language)} ($language). " +
+                    "Output only the spoken line, plain text.",
+                input = listOf(OpenAiClient.Message("user", kind.instruction)),
+                maxOutputTokens = 120,
+            ),
+        ).text.let(::cleanForSpeech)
+    }.getOrElse { kind.fallback }
 
     private suspend fun respondStructured(req: OpenAiClient.ResponseRequest): OpenAiClient.ResponseResult = try {
         openAi.respond(req)
@@ -200,21 +235,28 @@ class RadioAgent(
             .replace(Regex("\\n{2,}"), "\n")
             .trim()
 
-        fun narrationInstructions(language: String): String = """
-            You are the host of a personal, location-aware radio station. The listener is moving through
-            the real world and hears you through headphones or a car speaker.
+        fun narrationInstructions(language: String, style: HostStyle = HostStyle.ENTERTAINING): String = """
+            You host a personal, location-aware radio show. The listener is out in the real world (walking or driving)
+            and hears you through headphones or the car speakers. You are ${style.persona}
 
-            Write ONE short spoken segment about the place described in the JSON input.
-            Rules:
-            - Speak in ${Languages.displayName(language)} (BCP-47: $language). Keep the original place name, with a short translation if it helps.
-            - Use ONLY the facts provided. Do not add dates, numbers, names or claims that are not in the facts.
-            - Lead with the single most interesting, specific story or fact, not a generic description.
-            - Mention where it is using the given distance and direction, once, naturally.
-            - If something is a legend, folklore or disputed, say so explicitly.
-            - Stay close to target_length_words. If the facts are thin, be shorter rather than padding.
-            - Do not repeat anything from already_told_this_trip. No greetings, no sign-offs, no questions to the listener.
-            - Respect listener_profile (remembered preferences): lean into what they like, skip what they avoid, follow their style wishes (e.g. length, pace, detail).
-            - Plain spoken text only: no lists, markdown, URLs, or stage directions.
+            Write ONE spoken segment about the place in the JSON input.
+            Facts:
+            - Every factual claim (dates, numbers, names, events) must come from "facts". Never invent or embellish facts.
+            - Label legends, folklore and disputed claims as such ("the story goes…", "locals insist…").
+            - Humour and comparisons are welcome but must not add new facts, and never joke about tragedies, victims, war or disasters.
+            Craft:
+            - Open with a hook: the most surprising, specific or human detail. Never start with "Welcome", "Did you know" every time, or the place's name followed by "is a".
+            - Blend story, one memorable fun fact, and the context that makes it matter (who, why, what changed).
+            - Say where it is once, naturally, using the given distance and direction ("just ahead on your left, about 200 metres").
+            - Sound like speech, not an encyclopedia: short sentences, contractions, vivid verbs, the occasional rhetorical question.
+            - Stay close to target_length_words; with thin facts, be shorter rather than padding.
+            - Do not repeat anything from already_told_this_trip. No greetings or sign-offs.
+            - If "trip" is given, you may connect the place to where the listener is heading, briefly.
+            - Respect listener_profile: lean into what they like, avoid what they avoid, follow their style wishes.
+            - format "teaser": instead of the full story, give a one or two sentence irresistible hook and end by asking
+              whether they want to hear the story (for example "Want the full story?"). Do not tell the story itself yet.
+            - Speak ${Languages.displayName(language)} ($language). Keep original place names, adding a short translation when useful.
+            - Output plain spoken text only: no lists, markdown, URLs, emojis or stage directions.
         """.trimIndent()
 
         fun conversationContext(req: ConversationRequest): String {
@@ -231,6 +273,8 @@ class RadioAgent(
                     put("area", listOfNotNull(a.city, a.region, a.countryCode).joinToString(", "))
                 }
                 req.theme?.let { put("active_theme", it.key) }
+                req.tripContext?.let { put("trip", it) }
+                req.pendingOffer?.let { put("pending_offer", it) }
                 if (req.profile.isNotEmpty()) putJsonArray("listener_profile") { req.profile.forEach { add(JsonPrimitive(it)) } }
                 req.active?.let { a ->
                     putJsonObject("active_story") {
@@ -259,7 +303,7 @@ class RadioAgent(
             return ctx.toString()
         }
 
-        fun conversationInstructions(language: String, searchAvailable: Boolean): String {
+        fun conversationInstructions(language: String, searchAvailable: Boolean, style: HostStyle = HostStyle.ENTERTAINING): String {
             val search = if (searchAvailable) {
                 "Web search is available now: use it to answer, and set needs_search to false."
             } else {
@@ -268,7 +312,9 @@ class RadioAgent(
                     "and reply with only a very short holding line such as 'Let me check that.' You will be called again with web search."
             }
             return """
-                You are the voice of a location-aware radio station, now in a spoken conversation with the listener.
+                You are the host of a location-aware radio show, now talking with the listener. You are ${style.persona}
+                Talk like a real person on the radio: natural, warm, concise, with personality. Facts must come from the
+                context or from web search; humour must never add facts, and never joke about tragedies.
                 Answer in ${Languages.displayName(language)} ($language) unless the listener asks to switch.
                 The latest developer message holds the current context (location, active story, nearby places, listener profile).
 
@@ -278,6 +324,12 @@ class RadioAgent(
                 - For "is that true?" verify: separate documented fact, disputed interpretation, and legend.
                 - $search
                 - Never invent places. If nothing suitable is known, say so briefly.
+                - You may ask ONE short clarifying or refining question when it genuinely helps (for example which place
+                  they mean, or where they are heading), but never quiz the listener repeatedly.
+                - If pending_offer is set, the listener is answering "do you want to hear that story?": yes → accept_offer
+                  (reply with at most a few words like "Here we go."), no → decline_offer (acknowledge lightly).
+                - If they tell you about their trip (destination, purpose, time available, who is with them), put a short
+                  summary in "trip_context"; otherwise null.
                 - Replies are spoken aloud: concise (usually 2–5 sentences), plain text, no lists, no markdown, no URLs.
                 - If the listener is driving, never ask them to look at the screen.
 
@@ -289,6 +341,8 @@ class RadioAgent(
                 - set_theme: listener wants a theme (theme one of: ${Topic.entries.joinToString { it.key }}); clear_theme to remove it.
                 - navigate: listener wants to go to a place; set entity_id from nearby/active_story.
                 - refresh_nearby: listener asks what else is nearby and the list is empty or stale.
+                - accept_offer / decline_offer: answer to pending_offer (see above).
+                - star_place: listener wants to save/star/favourite a place for later; set entity_id (active story if unclear).
                 - none: otherwise.
 
                 Memory (persists across sessions; listener_profile shows what is already remembered):
@@ -335,9 +389,10 @@ class RadioAgent(
                     putJsonObject("items") { put("type", "string") }
                 }
                 putJsonObject("needs_search") { put("type", "boolean") }
+                putJsonObject("trip_context") { putJsonArray("type") { add(JsonPrimitive("string")); add(JsonPrimitive("null")) } }
             }
             putJsonArray("required") {
-                listOf("reply", "action", "language", "persist_language", "theme", "entity_id", "remember", "forget", "needs_search")
+                listOf("reply", "action", "language", "persist_language", "theme", "entity_id", "remember", "forget", "needs_search", "trip_context")
                     .forEach { add(JsonPrimitive(it)) }
             }
         }
@@ -363,6 +418,7 @@ class RadioAgent(
                     MemoryDraft(cat, t, (o["topic"] as? JsonPrimitive)?.contentOrNull?.let { Topic.fromKey(it) })
                 },
                 needsSearch = (obj["needs_search"] as? JsonPrimitive)?.booleanOrNull ?: false,
+                tripContext = str("trip_context"),
                 forget = (obj["forget"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.contentOrNull?.takeIf { s -> s.isNotBlank() } },
             )
         }
