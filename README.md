@@ -22,7 +22,9 @@ The `.docx` files are the source of truth; the Markdown versions are converted c
 
 ## Getting the app
 
-Every push builds a debug APK on GitHub Actions (**Actions → Android build → Artifacts → `gpsradio-debug-apk`**). Install it on an Android 8.0+ phone (allow installing from unknown sources).
+**📱 Download: [gpsradio.apk (latest build)](https://github.com/apartsin/gpsradio/releases/download/latest/gpsradio.apk)**
+
+Open that link on an Android 8.0+ phone, allow installing from your browser when asked, and install. Newer builds install over older ones (same signing key). Every push to the main or development branch refreshes this link. The [releases page](https://github.com/apartsin/gpsradio/releases/tag/latest) shows which commit it was built from.
 
 On first launch, paste your own OpenAI API key. It is stored encrypted on the phone only and is never part of this repository. A dedicated key with a monthly spending limit is recommended.
 

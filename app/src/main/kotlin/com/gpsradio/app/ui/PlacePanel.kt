@@ -3,6 +3,17 @@ package com.gpsradio.app.ui
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -37,60 +48,106 @@ import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Polygon
 
 /**
- * Visual companion to the audio: a map of the place being described (or of the user's
- * surroundings when nothing is on air), with a real photo of the place when one exists.
+ * Visual companion to the audio: real photos of the place being described (swipe for more) with a
+ * small map inset; tap the inset to swap to a full map. Without photos, the map fills the panel.
  */
 @Composable
 fun PlacePanel(state: RadioUiState, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val focus = state.focus
-    Card(modifier.fillMaxWidth().height(220.dp)) {
+    val photos = focus?.gallery.orEmpty()
+    var mapExpanded by remember(focus?.id) { mutableStateOf(false) }
+    Card(modifier.fillMaxWidth().height(230.dp)) {
         Box(Modifier.fillMaxSize()) {
-            OsmMap(state, Modifier.fillMaxSize())
-            if (focus?.imageUrl != null) {
-                Column(
-                    Modifier
-                        .align(Alignment.TopStart)
-                        .padding(8.dp)
-                        .width(150.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .clickable(enabled = focus.url != null) {
-                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(focus.url)))
-                        },
-                ) {
+            if (photos.isEmpty() || mapExpanded) {
+                OsmMap(state, Modifier.fillMaxSize())
+                if (photos.isNotEmpty()) {
                     AsyncImage(
-                        model = focus.imageUrl,
-                        contentDescription = "Photo of ${focus.name}",
+                        model = photos.first(),
+                        contentDescription = "Show photos",
                         contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxWidth().height(110.dp),
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(8.dp)
+                            .size(96.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable { mapExpanded = false },
                     )
+                }
+            } else {
+                val pager = rememberPagerState(pageCount = { photos.size })
+                HorizontalPager(state = pager, modifier = Modifier.fillMaxSize()) { page ->
+                    AsyncImage(
+                        model = photos[page],
+                        contentDescription = "Photo ${page + 1} of ${photos.size}: ${focus?.name}",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+                if (photos.size > 1) {
+                    Row(
+                        Modifier.align(Alignment.BottomCenter).padding(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        repeat(photos.size) { i ->
+                            Box(
+                                Modifier
+                                    .size(if (i == pager.currentPage) 8.dp else 6.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.White.copy(alpha = if (i == pager.currentPage) 1f else 0.6f)),
+                            )
+                        }
+                    }
+                }
+                // Map inset: tap to expand.
+                Box(
+                    Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(8.dp)
+                        .size(96.dp)
+                        .clip(RoundedCornerShape(12.dp)),
+                ) {
+                    OsmMap(state, Modifier.fillMaxSize(), interactive = false)
+                    // Transparent layer on top so a tap expands the map instead of panning it.
+                    Box(Modifier.matchParentSize().clickable(onClickLabel = "Show map") { mapExpanded = true })
+                }
+                focus?.url?.let { url ->
                     Text(
-                        focus.name,
+                        "Wikipedia ↗",
+                        color = Color.White,
                         style = MaterialTheme.typography.labelSmall,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(8.dp)
+                            .clip(RoundedCornerShape(50))
+                            .background(Color.Black.copy(alpha = 0.45f))
+                            .clickable { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
                     )
                 }
             }
-            Text(
-                "© OpenStreetMap contributors",
-                style = MaterialTheme.typography.labelSmall,
-                modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp),
-            )
+            if (photos.isEmpty() || mapExpanded) {
+                Text(
+                    "© OpenStreetMap contributors",
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.align(Alignment.BottomStart).padding(4.dp),
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun OsmMap(state: RadioUiState, modifier: Modifier) {
+private fun OsmMap(state: RadioUiState, modifier: Modifier, interactive: Boolean = true) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val map = remember {
         MapView(context).apply {
             setTileSource(TileSourceFactory.MAPNIK)
-            setMultiTouchControls(true)
-            controller.setZoom(15.0)
+            setMultiTouchControls(interactive)
+            isClickable = interactive
+            controller.setZoom(if (interactive) 15.0 else 14.0)
+            zoomController.setVisibility(org.osmdroid.views.CustomZoomButtonsController.Visibility.NEVER)
         }
     }
     DisposableEffect(lifecycle) {
@@ -107,7 +164,11 @@ private fun OsmMap(state: RadioUiState, modifier: Modifier) {
             map.onDetach()
         }
     }
-    AndroidView(factory = { map }, modifier = modifier, update = { view -> render(view, state) })
+    AndroidView(
+        factory = { map },
+        modifier = modifier,
+        update = { view -> render(view, state) },
+    )
 }
 
 private fun render(map: MapView, state: RadioUiState) {

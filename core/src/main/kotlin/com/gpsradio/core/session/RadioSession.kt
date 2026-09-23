@@ -67,6 +67,11 @@ data class FocusPlace(
     }
 }
 
+enum class StatusLevel { INFO, WORKING, ERROR }
+
+/** A user-facing status line. [needsKey] marks errors fixed by entering a valid API key. */
+data class Status(val text: String, val level: StatusLevel, val needsKey: Boolean = false)
+
 data class RadioUiState(
     val radioState: RadioState = RadioState.IDLE,
     val location: LocationContext? = null,
@@ -84,7 +89,7 @@ data class RadioUiState(
     val nearby: List<RankedCandidate> = emptyList(),
     val transcript: List<TranscriptEntry> = emptyList(),
     val discovering: Boolean = false,
-    val status: String? = null,
+    val status: Status? = null,
 )
 
 /**
@@ -294,7 +299,7 @@ class RadioSession(
         val hint = ranked.take(15).joinToString(", ") { it.place.name }
         speechJob = scope.launch {
             val text = try {
-                setStatus("Listening…")
+                setStatus("Transcribing…", StatusLevel.WORKING)
                 timed(timeouts.transcriptionMs, "Transcription") { speech.transcribe(audioBytes, fileName, mimeType, hint) }
             } catch (e: CancellationException) {
                 throw e
@@ -314,6 +319,13 @@ class RadioSession(
     }
 
     fun whatsNearby() = ask("What else is interesting nearby?")
+
+    /** Answer to "want the full story?" from the on-screen buttons. */
+    fun answerOffer(yes: Boolean) = scope.launch {
+        val offer = pendingOffer ?: return@launch
+        speechJob?.cancel()
+        if (yes) acceptOffer(offer) else declineOffer(offer)
+    }
 
     fun clearHistory() = scope.launch {
         heard.clear()
@@ -399,12 +411,12 @@ class RadioSession(
                 lastRefreshMode = ctx.travelMode
                 lastRefreshMs = clock()
                 lastRefreshLang = lang
-                if (_state.value.status?.startsWith("Couldn't load") == true) setStatus(null)
+                if (_state.value.status?.text?.startsWith("Couldn't load") == true) setStatus(null)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 // Keep whatever is cached; never invent places to fill the gap. Retry in about a minute.
-                setStatus("Couldn't load nearby places: ${e.message}")
+                setStatus("Couldn't load nearby places. Retrying shortly…", StatusLevel.ERROR)
                 lastRefreshMs = clock() - 14 * 60_000L
                 lastRefreshPoint = lastRefreshPoint ?: ctx.point
                 lastRefreshMode = lastRefreshMode ?: ctx.travelMode
@@ -594,7 +606,7 @@ class RadioSession(
                         tripContext = tripContext,
                         pendingOffer = pendingOffer?.name,
                     ),
-                    onSearching = { setStatus("Checking online…") },
+                    onSearching = { setStatus("Checking online…", StatusLevel.WORKING) },
                 )
             }
         } catch (e: CancellationException) {
@@ -604,7 +616,7 @@ class RadioSession(
             endConversation()
             return
         } finally {
-            if (_state.value.status == "Checking online…") setStatus(null)
+            if (_state.value.status?.text == "Checking online…") setStatus(null)
         }
         history += ConversationTurn(true, text)
         history += ConversationTurn(false, reply.reply)
@@ -803,11 +815,14 @@ class RadioSession(
 
     private fun setRadioState(s: RadioState) = _state.update { it.copy(radioState = s) }
 
-    private fun setStatus(msg: String?) = _state.update { it.copy(status = msg) }
+    private fun setStatus(msg: String?, level: StatusLevel = StatusLevel.INFO) =
+        _state.update { it.copy(status = msg?.let { m -> Status(m, level) }) }
 
     private fun fail(msg: String) {
-        setStatus(msg)
-        addTranscript(TranscriptEntry(Speaker.SYSTEM, msg, clock()))
+        val keyProblem = "API key" in msg || "401" in msg
+        val friendly = if (keyProblem) "OpenAI didn't accept the API key. Check it in Settings." else msg
+        _state.update { it.copy(status = Status(friendly, StatusLevel.ERROR, needsKey = keyProblem)) }
+        addTranscript(TranscriptEntry(Speaker.SYSTEM, friendly, clock()))
     }
 
     private fun addTranscript(e: TranscriptEntry) =

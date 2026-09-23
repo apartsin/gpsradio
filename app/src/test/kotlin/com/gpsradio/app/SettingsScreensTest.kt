@@ -32,13 +32,15 @@ class SettingsScreensTest {
     fun setupRequiresKeyAndSavesInterests() {
         var saved: AppSettings? = null
         compose.setContent { GpsRadioTheme { SetupScreen(AppSettings(), onSave = { saved = it }) } }
-        compose.onNodeWithText("Start").assertIsNotEnabled()
+        compose.onNodeWithText("Save and start listening").performScrollTo().assertIsNotEnabled()
         compose.onNodeWithText("OpenAI API key").performTextInput("  sk-test-123  ")
         compose.onNodeWithText("Food").performScrollTo().performClick()
-        compose.onNodeWithText("Start").performScrollTo().assertIsEnabled().performClick()
+        compose.onNodeWithText("Late-night chill").performScrollTo().performClick()
+        compose.onNodeWithText("Save and start listening").performScrollTo().assertIsEnabled().performClick()
         assertEquals("sk-test-123", saved!!.apiKey)
         assertTrue(Topic.FOOD in saved!!.interests)
         assertTrue(saved!!.languageAuto)
+        assertEquals(com.gpsradio.core.ai.HostStyle.CHILL, saved!!.hostStyle)
     }
 
     @Test

@@ -1,7 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Location pin whose head is an amber "on air" light, broadcasting waves up and to the right. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
-    <group android:translateX="30" android:translateY="28" android:scaleX="2" android:scaleY="2">
-        <path android:fillColor="#FFFFFFFF"
-            android:pathData="M12,2C8.13,2 5,5.13 5,9c0,5.25 7,13 7,13s7,-7.75 7,-13c0,-3.87 -3.13,-7 -7,-7zM12,11.5c-1.38,0 -2.5,-1.12 -2.5,-2.5s1.12,-2.5 2.5,-2.5 2.5,1.12 2.5,2.5 -1.12,2.5 -2.5,2.5z" />
-    </group>
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <!-- Pin body -->
+    <path android:fillColor="#FFFFFFFF"
+        android:pathData="M46,29C37.2,29 30,36.2 30,45C30,57 46,77 46,77C46,77 62,57 62,45C62,36.2 54.8,29 46,29Z" />
+    <!-- Amber on-air light -->
+    <path android:fillColor="#FFF2A65A"
+        android:pathData="M46,45m-7,0a7,7 0,1 1,14 0a7,7 0,1 1,-14 0" />
+    <!-- Broadcast waves -->
+    <path android:strokeColor="#FFFFFFFF" android:strokeWidth="4" android:strokeLineCap="round"
+        android:fillColor="#00000000"
+        android:pathData="M59,31A13,13 0,0 1,64 43" />
+    <path android:strokeColor="#FFFFFFFF" android:strokeWidth="4" android:strokeLineCap="round"
+        android:fillColor="#00000000"
+        android:pathData="M62,23A22,22 0,0 1,71 42" />
 </vector>

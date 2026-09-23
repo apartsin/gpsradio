@@ -21,6 +21,17 @@ android {
         unitTests.isIncludeAndroidResources = true
     }
 
+    signingConfigs {
+        // A fixed, committed debug key (not a secret) so every CI build installs as an update
+        // of the previous one instead of requiring an uninstall.
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -65,6 +76,7 @@ dependencies {
     implementation("com.google.android.gms:play-services-location:21.3.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("io.coil-kt:coil-compose:2.7.0")
+    implementation("androidx.media:media:1.7.0")
     implementation("org.osmdroid:osmdroid-android:6.1.20")
 
     // JVM tests with a simulated Android (Robolectric) + Compose UI tests.

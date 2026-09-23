@@ -7,6 +7,9 @@ on:
   schedule:
     - cron: "0 6 * * 1" # weekly live smoke test (runs only if the OPENAI_API_KEY secret exists)
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -34,6 +37,19 @@ jobs:
         with:
           name: gpsradio-debug-apk
           path: app/build/outputs/apk/debug/*.apk
+
+      # Rolling "latest" release so the README can link straight to the newest APK.
+      - name: Publish latest APK
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/claude/android-app-mvp')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk gpsradio.apk
+          gh release delete latest --yes --cleanup-tag || true
+          gh release create latest gpsradio.apk \
+            --title "GPS Radio – latest build" \
+            --notes "Built from ${GITHUB_REF_NAME} @ ${GITHUB_SHA::7}. Install on Android 8.0+ (allow installs from your browser). Enter your own OpenAI API key on first launch." \
+            --target "$GITHUB_SHA"
 
       - uses: actions/upload-artifact@v4
         if: failure()

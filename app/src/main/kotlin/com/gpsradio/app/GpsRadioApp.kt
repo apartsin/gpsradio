@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import com.gpsradio.app.data.SettingsRepository
 import com.gpsradio.app.platform.FileHistoryStore
+import com.gpsradio.app.platform.FileFavoritesStore
 import com.gpsradio.app.platform.FileMemoryStore
 import com.gpsradio.app.platform.GeocoderAreaLabeler
 import com.gpsradio.app.platform.MediaAudioOutput
@@ -79,9 +80,10 @@ open class GpsRadioApp : Application() {
             speech = OpenAiSpeech(openAi, models),
             audio = audioOutput(),
             historyStore = FileHistoryStore(this),
-            config = { settings.current.let { SessionConfig(it.resolvedLanguage(), it.interests) } },
+            config = { settings.current.let { SessionConfig(it.resolvedLanguage(), it.interests, it.hostStyle) } },
             areaLabeler = areaLabeler(),
             memoryStore = FileMemoryStore(this),
+            favoritesStore = FileFavoritesStore(this),
             onPersistLanguage = { tag -> settings.update { it.copy(languageAuto = false, preferredLanguage = tag) } },
             onNavigate = ::openInMaps,
         )

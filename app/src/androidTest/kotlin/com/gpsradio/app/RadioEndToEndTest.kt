@@ -49,11 +49,10 @@ class RadioEndToEndTest {
     fun narratesNearbyStoryAnswersQuestionAndRemembersPreference() {
         // First launch: enter a (fake) key.
         compose.onNodeWithText("OpenAI API key").performTextInput("sk-test")
-        compose.onNodeWithText("Start").performScrollTo().performClick()
+        compose.onNodeWithText("Save and start listening").performScrollTo().performClick()
 
-        // Start the radio and feed GPS fixes.
-        compose.onNodeWithContentDescription("Start radio").performClick()
-        compose.waitUntilAtLeastOneExists(hasContentDescription("Stop radio"), 10_000)
+        // Saving starts the radio right away (location already granted); feed GPS fixes.
+        compose.waitUntilAtLeastOneExists(hasText("Stop"), 10_000)
         repeat(3) { fix(); Thread.sleep(300) }
 
         // A grounded story about the nearby castle is narrated and shown.
@@ -68,12 +67,18 @@ class RadioEndToEndTest {
         compose.onNodeWithTag("transcript").performScrollToNode(hasText("How long is the bridge?"))
         compose.onNodeWithText("Now").performClick()
 
+        // Star the place in focus; it appears in the Saved tab.
+        compose.onNodeWithContentDescription("Save place").performClick()
+        compose.onNodeWithText("Saved").performClick()
+        compose.waitUntilAtLeastOneExists(hasText("Schloss Ort"), 5_000)
+        compose.onNodeWithText("Now").performClick()
+
         // The preference the model extracted is remembered and visible in Settings.
         compose.onNodeWithContentDescription("Settings").performClick()
         compose.waitUntilAtLeastOneExists(hasText("style: Keep stories short"), 10_000)
         compose.onNodeWithContentDescription("Back").performClick()
 
-        compose.onNodeWithContentDescription("Stop radio").performClick()
-        compose.waitUntilAtLeastOneExists(hasText("Radio off"), 10_000)
+        compose.onNodeWithText("Stop").performClick()
+        compose.waitUntilAtLeastOneExists(hasText("Off air"), 10_000)
     }
 }

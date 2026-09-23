@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -17,7 +18,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -26,31 +27,40 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Directions
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.SkipNext
-import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledTonalIconButton
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -63,17 +73,27 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil.compose.AsyncImage
 import com.gpsradio.core.ai.RadioAgent
+import com.gpsradio.core.favorites.FavoritePlace
 import com.gpsradio.core.lang.Languages
 import com.gpsradio.core.model.RadioState
 import com.gpsradio.core.model.RankedCandidate
@@ -98,33 +118,52 @@ data class RadioActions(
     val onTalkStart: () -> Boolean = { false },
     val onTalkEnd: () -> Unit = {},
     val onOpenSettings: () -> Unit = {},
+    val onToggleStar: (String) -> Unit = {},
+    val onShare: (String) -> Unit = {},
+    val onNavigate: (String) -> Unit = {},
+    val onRemoveFavorite: (String) -> Unit = {},
+    val onAnswerOffer: (Boolean) -> Unit = {},
 )
 
 @Composable
-fun RadioScreen(vm: MainViewModel, onOpenSettings: () -> Unit) {
+fun RadioScreen(vm: MainViewModel, onOpenSettings: () -> Unit, autoStart: Boolean = false, onAutoStarted: () -> Unit = {}) {
     val state by vm.radio.collectAsStateWithLifecycle()
     val recording by vm.recording.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    var locationDenied by remember { mutableStateOf(false) }
 
     fun granted(p: String) = ContextCompat.checkSelfPermission(context, p) == PackageManager.PERMISSION_GRANTED
 
+    val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
     val startPermissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
         if (result[Manifest.permission.ACCESS_FINE_LOCATION] == true || result[Manifest.permission.ACCESS_COARSE_LOCATION] == true) {
+            locationDenied = false
             vm.startRadio()
+            if (Build.VERSION.SDK_INT >= 33 && !granted(Manifest.permission.POST_NOTIFICATIONS)) {
+                notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        } else {
+            locationDenied = true
         }
     }
     val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
 
+    val start = {
+        if (granted(Manifest.permission.ACCESS_FINE_LOCATION) || granted(Manifest.permission.ACCESS_COARSE_LOCATION)) {
+            vm.startRadio()
+        } else {
+            startPermissions.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+        }
+    }
+    LaunchedEffect(autoStart) {
+        if (autoStart) {
+            onAutoStarted()
+            start()
+        }
+    }
+
     val actions = RadioActions(
-        onStart = {
-            if (granted(Manifest.permission.ACCESS_FINE_LOCATION) || granted(Manifest.permission.ACCESS_COARSE_LOCATION)) {
-                vm.startRadio()
-            } else {
-                val perms = mutableListOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
-                if (Build.VERSION.SDK_INT >= 33) perms += Manifest.permission.POST_NOTIFICATIONS
-                startPermissions.launch(perms.toTypedArray())
-            }
-        },
+        onStart = start,
         onStop = vm::stopRadio,
         onPause = vm::pause,
         onResume = vm::resume,
@@ -145,8 +184,21 @@ fun RadioScreen(vm: MainViewModel, onOpenSettings: () -> Unit) {
         },
         onTalkEnd = vm::stopTalking,
         onOpenSettings = onOpenSettings,
+        onToggleStar = vm::toggleFavorite,
+        onShare = { id -> vm.shareIntent(id)?.let { context.startActivity(it) } },
+        onNavigate = { id -> vm.navigateIntent(id)?.let { runCatching { context.startActivity(it) } } },
+        onRemoveFavorite = vm::removeFavorite,
+        onAnswerOffer = vm::answerOffer,
     )
-    RadioContent(state, recording, actions)
+    RadioContent(
+        state = state,
+        recording = recording,
+        actions = actions,
+        locationDenied = locationDenied,
+        onOpenAppSettings = {
+            context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null)))
+        },
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -156,19 +208,27 @@ fun RadioContent(
     recording: Boolean,
     actions: RadioActions,
     /** The photo + map panel; tests replace it because MapView needs a real device. */
-    placePanel: @Composable (RadioUiState) -> Unit = { PlacePanel(it) },
+    placePanel: @Composable (RadioUiState, Modifier) -> Unit = { s, m -> PlacePanel(s, m) },
+    locationDenied: Boolean = false,
+    onOpenAppSettings: () -> Unit = {},
 ) {
+    val running = state.radioState != RadioState.IDLE
+    val driving = (state.modeOverride ?: state.location?.travelMode) == TravelMode.DRIVING
+    val starredIds = remember(state.favorites) { state.favorites.map { it.id }.toSet() }
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
                     Column {
-                        Text("GPS Radio")
+                        Text("GPS Radio", fontWeight = FontWeight.Bold)
                         val sub = listOfNotNull(state.area?.city, Languages.displayName(state.sessionLanguage)).joinToString(" · ")
                         Text(sub, style = MaterialTheme.typography.labelMedium)
                     }
                 },
-                actions = { IconButton(onClick = actions.onOpenSettings) { Icon(Icons.Default.Settings, "Settings") } },
+                actions = {
+                    if (running) TextButton(onClick = actions.onStop) { Text("Stop") }
+                    IconButton(onClick = actions.onOpenSettings) { Icon(Icons.Default.Settings, "Settings") }
+                },
             )
         },
     ) { pad ->
@@ -180,56 +240,185 @@ fun RadioContent(
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            StatusCard(state, onMode = actions.onMode)
-            // Tabs take the flexible middle; controls and the mic stay pinned at the bottom on any screen size.
-            ContentTabs(state, placePanel, onTellAbout = actions.onTellAbout, modifier = Modifier.weight(1f))
-            Controls(state, actions)
-            if (state.radioState != RadioState.IDLE) {
-                TalkBar(recording = recording, onPressStart = actions.onTalkStart, onRelease = actions.onTalkEnd, onSend = actions.onAsk)
+            StatusCard(state, onMode = actions.onMode, onFixKey = actions.onOpenSettings)
+            if (locationDenied) PermissionCard(onOpenAppSettings)
+            state.pendingOffer?.let { OfferCard(it, actions.onAnswerOffer) }
+            if (!running) {
+                IdleContent(state, actions, starredIds, Modifier.weight(1f))
+            } else if (driving) {
+                DrivingContent(state, recording, actions, starredIds, Modifier.weight(1f))
+            } else {
+                ContentTabs(state, starredIds, actions, placePanel, Modifier.weight(1f))
+                Controls(state, actions)
+                TalkBar(recording, actions)
             }
         }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+// ---- idle ----------------------------------------------------------------------------------
+
 @Composable
-private fun StatusCard(state: RadioUiState, onMode: (TravelMode?) -> Unit) {
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(stateLabel(state), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            val loc = state.location
-            val detail = when {
-                loc == null && state.radioState != RadioState.IDLE -> "Waiting for GPS…"
-                loc == null -> "Press play to start listening"
-                else -> buildString {
-                    append(loc.travelMode.name.lowercase().replaceFirstChar { it.uppercase() })
-                    append(" · ±${loc.accuracyM.toInt()} m")
-                    if (loc.speedMps > 0.5) append(" · ${(loc.speedMps * 3.6).toInt()} km/h")
-                    state.theme?.let { append(" · theme: ${it.key}") }
-                }
+private fun IdleContent(state: RadioUiState, actions: RadioActions, starredIds: Set<String>, modifier: Modifier) {
+    var tab by remember { mutableIntStateOf(0) }
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        if (state.favorites.isNotEmpty()) {
+            TabRow(selectedTabIndex = tab) {
+                Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Listen") })
+                Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Saved (${state.favorites.size})") })
             }
-            Text(detail, style = MaterialTheme.typography.bodySmall)
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                val modes = listOf(null to "Auto", TravelMode.WALKING to "Walk", TravelMode.DRIVING to "Drive", TravelMode.STATIONARY to "Still")
-                modes.forEach { (mode, label) ->
-                    FilterChip(selected = state.modeOverride == mode, onClick = { onMode(mode) }, label = { Text(label) })
-                }
-            }
-            if (state.discovering || state.radioState == RadioState.RESEARCHING) {
-                LinearProgressIndicator(Modifier.fillMaxWidth())
-            }
-            state.status?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+        }
+        if (tab == 1 && state.favorites.isNotEmpty()) {
+            Saved(state.favorites, actions)
+            return@Column
+        }
+        Spacer(Modifier.weight(1f))
+        FilledIconButton(
+            onClick = actions.onStart,
+            modifier = Modifier.size(112.dp),
+            shape = CircleShape,
+        ) { Icon(Icons.Default.PlayArrow, "Start radio", Modifier.size(64.dp)) }
+        Spacer(Modifier.size(12.dp))
+        Text("Start listening", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Stories about the places around you, told as you go.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),
+        )
+        Spacer(Modifier.weight(1f))
+        if (starredIds.isEmpty()) {
+            Text(
+                "Tip: tap ☆ on any story to save it for later.",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 16.dp),
+            )
         }
     }
 }
 
-private fun stateLabel(s: RadioUiState): String = when (s.radioState) {
-    RadioState.IDLE -> "Radio off"
-    RadioState.RADIO -> if (s.discovering) "Looking around…" else "Listening for something worth telling"
-    RadioState.RESEARCHING -> "Preparing a story…"
-    RadioState.NARRATING -> "On air"
-    RadioState.CONVERSING -> "Talking with you"
-    RadioState.PAUSED -> "Paused"
+@Composable
+private fun PermissionCard(onOpenAppSettings: () -> Unit) {
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp)) {
+            Text("GPS Radio needs your location to find stories around you.", style = MaterialTheme.typography.bodyMedium)
+            TextButton(onClick = onOpenAppSettings) { Text("Allow location") }
+        }
+    }
+}
+
+@Composable
+private fun OfferCard(placeName: String, onAnswer: (Boolean) -> Unit) {
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp)) {
+            Text("Want the full story about $placeName?", style = MaterialTheme.typography.titleSmall)
+            Text("Just say \"yes\" or \"not now\" — or tap.", style = MaterialTheme.typography.labelMedium)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
+                Button(onClick = { onAnswer(true) }) { Text("Yes, tell it") }
+                OutlinedButton(onClick = { onAnswer(false) }) { Text("Not now") }
+            }
+        }
+    }
+}
+
+// ---- driving -------------------------------------------------------------------------------
+
+/** Big, glanceable, voice-first layout: photo, place name, a large mic, pause and skip. */
+@Composable
+private fun DrivingContent(state: RadioUiState, recording: Boolean, a: RadioActions, starredIds: Set<String>, modifier: Modifier) {
+    val focus = state.focus
+    Column(modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        if (focus?.imageUrl != null) {
+            AsyncImage(
+                model = focus.imageUrl,
+                contentDescription = "Photo of ${focus.name}",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxWidth().heightIn(max = 200.dp).clip(MaterialTheme.shapes.large),
+            )
+        }
+        Text(
+            focus?.name ?: stateLabel(state),
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+        if (focus != null) {
+            Row {
+                IconButton(onClick = { a.onToggleStar(focus.id) }, modifier = Modifier.size(64.dp)) {
+                    Icon(if (focus.id in starredIds) Icons.Default.Star else Icons.Default.StarBorder, "Save place", Modifier.size(36.dp))
+                }
+                IconButton(onClick = { a.onNavigate(focus.id) }, modifier = Modifier.size(64.dp)) {
+                    Icon(Icons.Default.Directions, "Navigate there", Modifier.size(36.dp))
+                }
+            }
+        }
+        Spacer(Modifier.weight(1f))
+        MicButton(recording, a, size = 104)
+        Text(if (recording) "Listening… release to send" else "Hold to talk", style = MaterialTheme.typography.labelLarge)
+        Row(horizontalArrangement = Arrangement.spacedBy(32.dp), modifier = Modifier.padding(bottom = 12.dp)) {
+            PauseOrBack(state, a, size = 72)
+            BigButton(Icons.Default.SkipNext, "Skip", a.onSkip, size = 72)
+        }
+    }
+}
+
+// ---- tabs ----------------------------------------------------------------------------------
+
+@Composable
+private fun ContentTabs(
+    state: RadioUiState,
+    starredIds: Set<String>,
+    a: RadioActions,
+    placePanel: @Composable (RadioUiState, Modifier) -> Unit,
+    modifier: Modifier,
+) {
+    var tab by remember { mutableIntStateOf(0) }
+    Column(modifier) {
+        TabRow(selectedTabIndex = tab) {
+            Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Now") })
+            Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Transcript") })
+            Tab(selected = tab == 2, onClick = { tab = 2 }, text = { Text("Nearby") })
+            Tab(selected = tab == 3, onClick = { tab = 3 }, text = { Text("Saved") })
+        }
+        when (tab) {
+            0 -> Column(Modifier.fillMaxSize().padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                // The panel is not inside a scroll container, so the map can be panned freely.
+                placePanel(state, Modifier)
+                FocusActions(state, starredIds, a)
+                Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) { NowPlaying(state) }
+            }
+            1 -> Transcript(state.transcript)
+            2 -> Nearby(state, starredIds, a)
+            else -> Saved(state.favorites, a)
+        }
+    }
+}
+
+@Composable
+private fun FocusActions(state: RadioUiState, starredIds: Set<String>, a: RadioActions) {
+    val focus = state.focus ?: return
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            focus.name,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        val starred = focus.id in starredIds
+        IconButton(onClick = { a.onToggleStar(focus.id) }) {
+            Icon(
+                if (starred) Icons.Default.Star else Icons.Default.StarBorder,
+                if (starred) "Remove from saved" else "Save place",
+                tint = if (starred) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        IconButton(onClick = { a.onShare(focus.id) }) { Icon(Icons.Default.Share, "Share place") }
+        IconButton(onClick = { a.onNavigate(focus.id) }) { Icon(Icons.Default.Directions, "Navigate there") }
+    }
 }
 
 /** What is being said right now: the story on air, or the latest answer during a conversation. */
@@ -238,85 +427,135 @@ private fun NowPlaying(state: RadioUiState) {
     val context = LocalContext.current
     val seg = state.nowPlaying?.takeIf { state.radioState == RadioState.NARRATING }
     val reply = state.transcript.lastOrNull()?.takeIf { state.radioState == RadioState.CONVERSING && it.speaker == Speaker.RADIO }
-    val title = seg?.title ?: reply?.let { "Answer" } ?: return
+    val title = seg?.let { "On air" } ?: reply?.let { "Answer" }
+    if (title == null) {
+        Text(
+            when (state.radioState) {
+                RadioState.RESEARCHING -> "Tuning in to the next story…"
+                RadioState.PAUSED -> "Paused. Press play to continue."
+                else -> "Scanning for stories around you. Ask anything with the mic."
+            },
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(4.dp),
+        )
+        return
+    }
     val text = seg?.text ?: reply?.text.orEmpty()
-    val source = seg?.sources?.firstOrNull() ?: reply?.sources?.firstOrNull()
+    val sources = seg?.sources ?: reply?.sources.orEmpty()
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp)) {
-            Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-            Text(text, style = MaterialTheme.typography.bodyMedium)
-            source?.let { src ->
+            Text(title, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+            Text(text, style = MaterialTheme.typography.bodyLarge)
+            sources.take(3).forEach { src ->
                 Text(
                     "Source: ${src.title}",
-                    style = MaterialTheme.typography.labelSmall,
+                    style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.clickable { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(src.url))) },
+                    modifier = Modifier
+                        .padding(top = 6.dp)
+                        .clickable { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(src.url))) },
                 )
             }
         }
     }
 }
 
+// ---- controls ------------------------------------------------------------------------------
+
 @Composable
 private fun Controls(state: RadioUiState, a: RadioActions) {
-    val running = state.radioState != RadioState.IDLE
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-        BigButton(if (running) Icons.Default.Stop else Icons.Default.PlayArrow, if (running) "Stop radio" else "Start radio") {
-            if (running) a.onStop() else a.onStart()
-        }
-        if (running) {
-            val paused = state.radioState == RadioState.PAUSED
-            BigButton(if (paused) Icons.Default.PlayArrow else Icons.Default.Pause, if (paused) "Resume" else "Pause") {
-                if (paused) a.onResume() else a.onPause()
-            }
-            BigButton(Icons.Default.SkipNext, "Skip", a.onSkip)
-            BigButton(Icons.Default.Replay, "Repeat", a.onRepeat)
-            BigButton(Icons.Default.Explore, "Nearby?", a.onNearby)
-        }
+        BigButton(Icons.Default.Replay, "Repeat", a.onRepeat)
+        PauseOrBack(state, a, size = 64)
+        BigButton(Icons.Default.SkipNext, "Skip", a.onSkip)
+        BigButton(Icons.Default.Explore, "Nearby?", a.onNearby)
+    }
+}
+
+/** Primary control: pause/resume, or "Back to radio" while in a conversation. */
+@Composable
+private fun PauseOrBack(state: RadioUiState, a: RadioActions, size: Int) {
+    when (state.radioState) {
+        RadioState.PAUSED -> BigButton(Icons.Default.PlayArrow, "Resume", a.onResume, size = size, primary = true)
+        RadioState.CONVERSING -> BigButton(Icons.Default.Radio, "Back to radio", a.onResume, size = size, primary = true)
+        else -> BigButton(Icons.Default.Pause, "Pause", a.onPause, size = size, primary = true)
     }
 }
 
 @Composable
-private fun BigButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
+private fun BigButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    onClick: () -> Unit,
+    size: Int = 56,
+    primary: Boolean = false,
+) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        FilledTonalIconButton(onClick = onClick, modifier = Modifier.size(56.dp)) { Icon(icon, label) }
-        Text(label, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+        if (primary) {
+            FilledIconButton(onClick = onClick, modifier = Modifier.size(size.dp)) { Icon(icon, label, Modifier.size((size / 2).dp)) }
+        } else {
+            FilledTonalIconButton(onClick = onClick, modifier = Modifier.size(size.dp)) { Icon(icon, label) }
+        }
+        Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1)
     }
 }
 
 @Composable
-private fun TalkBar(recording: Boolean, onPressStart: () -> Boolean, onRelease: () -> Unit, onSend: (String) -> Unit) {
+private fun MicButton(recording: Boolean, a: RadioActions, size: Int) {
+    val haptics = LocalHapticFeedback.current
+    val pressStart by rememberUpdatedState(a.onTalkStart)
+    val release by rememberUpdatedState(a.onTalkEnd)
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .size(size.dp)
+            .clip(CircleShape)
+            .background(if (recording) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
+            .semantics {
+                contentDescription = "Hold to ask a question"
+                role = Role.Button
+                stateDescription = if (recording) "Recording" else "Idle"
+            }
+            .pointerInput(Unit) {
+                detectTapGestures(onPress = {
+                    if (pressStart()) {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        tryAwaitRelease()
+                        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        release()
+                    }
+                })
+            },
+    ) {
+        if (recording) Equalizer(Modifier.size((size / 2).dp), color = MaterialTheme.colorScheme.onError)
+        else Icon(Icons.Default.Mic, null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size((size / 2).dp))
+    }
+}
+
+@Composable
+private fun TalkBar(recording: Boolean, a: RadioActions) {
     var text by remember { mutableStateOf("") }
-    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
-    val pressStart by rememberUpdatedState(onPressStart)
-    val release by rememberUpdatedState(onRelease)
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier
-                .size(64.dp)
-                .clip(CircleShape)
-                .background(if (recording) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
-                .semantics { contentDescription = "Hold to ask a question" }
-                .pointerInput(Unit) {
-                    detectTapGestures(onPress = {
-                        if (pressStart()) {
-                            tryAwaitRelease()
-                            release()
-                        }
-                    })
-                },
-        ) {
-            Icon(Icons.Default.Mic, null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(32.dp))
+    val keyboard = LocalSoftwareKeyboardController.current
+    val send = {
+        if (text.isNotBlank()) {
+            a.onAsk(text)
+            text = ""
+            keyboard?.hide()
         }
+    }
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 8.dp)) {
+        MicButton(recording, a, size = 64)
         OutlinedTextField(
             value = text,
             onValueChange = { text = it },
-            placeholder = { Text(if (recording) "Listening… release to send" else "Hold the mic, or type a question") },
+            placeholder = { Text(if (recording) "Listening… release to send" else "Ask anything…") },
             singleLine = true,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+            keyboardActions = KeyboardActions(onSend = { send() }),
             modifier = Modifier.weight(1f).testTag("askField"),
             trailingIcon = {
-                IconButton(enabled = text.isNotBlank(), onClick = { onSend(text); text = ""; keyboard?.hide() }) {
+                IconButton(enabled = text.isNotBlank(), onClick = send) {
                     Icon(Icons.AutoMirrored.Filled.Send, "Send")
                 }
             },
@@ -324,43 +563,14 @@ private fun TalkBar(recording: Boolean, onPressStart: () -> Boolean, onRelease: 
     }
 }
 
-@Composable
-private fun ContentTabs(
-    state: RadioUiState,
-    placePanel: @Composable (RadioUiState) -> Unit,
-    onTellAbout: (String) -> Unit,
-    modifier: Modifier,
-) {
-    var tab by remember { mutableIntStateOf(0) }
-    Column(modifier) {
-        TabRow(selectedTabIndex = tab) {
-            Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Now") })
-            Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Transcript") })
-            Tab(selected = tab == 2, onClick = { tab = 2 }, text = { Text("Nearby (${state.nearby.size})") })
-        }
-        when (tab) {
-            0 -> Column(
-                Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(top = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                if (state.radioState != RadioState.IDLE) placePanel(state)
-                NowPlaying(state)
-            }
-            1 -> Transcript(state.transcript)
-            else -> Nearby(state, onTellAbout)
-        }
-    }
-}
+// ---- lists ---------------------------------------------------------------------------------
 
 @Composable
 private fun Transcript(entries: List<TranscriptEntry>) {
     val listState = rememberLazyListState()
     LaunchedEffect(entries.size) { if (entries.isNotEmpty()) listState.animateScrollToItem(entries.size - 1) }
     if (entries.isEmpty()) {
-        Text("Stories and answers will appear here.", Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall)
+        Text("Your stories and questions will show up here as captions.", Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall)
         return
     }
     LazyColumn(
@@ -369,17 +579,13 @@ private fun Transcript(entries: List<TranscriptEntry>) {
         modifier = Modifier.padding(top = 8.dp).testTag("transcript"),
     ) {
         items(entries) { e ->
-            val color = when (e.speaker) {
-                Speaker.USER -> MaterialTheme.colorScheme.secondary
-                Speaker.SYSTEM -> MaterialTheme.colorScheme.error
-                Speaker.RADIO -> MaterialTheme.colorScheme.onSurface
+            val (who, color) = when (e.speaker) {
+                Speaker.USER -> "You" to MaterialTheme.colorScheme.secondary
+                Speaker.SYSTEM -> "Note" to MaterialTheme.colorScheme.error
+                Speaker.RADIO -> "Radio" to MaterialTheme.colorScheme.primary
             }
-            Column {
-                Text(
-                    when (e.speaker) { Speaker.USER -> "You"; Speaker.RADIO -> "Radio"; Speaker.SYSTEM -> "Note" },
-                    style = MaterialTheme.typography.labelSmall,
-                    color = color,
-                )
+            Column(Modifier.semantics(mergeDescendants = true) {}) {
+                Text(who, style = MaterialTheme.typography.labelSmall, color = color)
                 Text(e.text, style = MaterialTheme.typography.bodyMedium)
             }
         }
@@ -387,44 +593,75 @@ private fun Transcript(entries: List<TranscriptEntry>) {
 }
 
 @Composable
-private fun Nearby(state: RadioUiState, onTellAbout: (String) -> Unit) {
+private fun Nearby(state: RadioUiState, starredIds: Set<String>, a: RadioActions) {
     val loc = state.location
     if (state.nearby.isEmpty() || loc == null) {
-        Text(
-            if (state.radioState == RadioState.IDLE) "Start the radio to discover what's around you." else "Nothing found yet.",
-            Modifier.padding(12.dp),
-            style = MaterialTheme.typography.bodySmall,
-        )
+        Text("Scanning around you…", Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall)
         return
     }
     LazyColumn(modifier = Modifier.padding(top = 8.dp)) {
         items(state.nearby, key = { it.place.id }) { c ->
-            NearbyRow(c, direction = RadioAgent.describeDirection(c, loc), onClick = { onTellAbout(c.place.id) })
+            NearbyRow(c, RadioAgent.describeDirection(c, loc), c.place.id in starredIds, a)
         }
     }
 }
 
 @Composable
-private fun NearbyRow(c: RankedCandidate, direction: String, onClick: () -> Unit) {
+private fun NearbyRow(c: RankedCandidate, direction: String, starred: Boolean, a: RadioActions) {
     Row(
         Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(vertical = 8.dp),
+            .heightIn(min = 56.dp)
+            .clickable(onClickLabel = "Tell me about ${c.place.name}") { a.onTellAbout(c.place.id) }
+            .padding(vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
             Text(c.place.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(
-                "${RadioAgent.describeDistance(c.distanceM)} $direction · ${c.place.category}",
+                "${RadioAgent.describeDistance(c.distanceM)} $direction",
                 style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        Spacer(Modifier.width(8.dp))
-        Text("%.1f".format(c.score), style = MaterialTheme.typography.labelSmall)
+        IconButton(onClick = { a.onToggleStar(c.place.id) }) {
+            Icon(if (starred) Icons.Default.Star else Icons.Default.StarBorder, if (starred) "Remove ${c.place.name} from saved" else "Save ${c.place.name}")
+        }
     }
-    Spacer(Modifier.height(1.dp).fillMaxWidth().background(MaterialTheme.colorScheme.outlineVariant))
 }
 
+@Composable
+private fun Saved(favorites: List<FavoritePlace>, a: RadioActions) {
+    if (favorites.isEmpty()) {
+        Text("Tap ☆ on a story or a nearby place to save it here.", Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall)
+        return
+    }
+    LazyColumn(modifier = Modifier.padding(top = 8.dp).testTag("saved"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        items(favorites, key = { it.id }) { f ->
+            Card(Modifier.fillMaxWidth()) {
+                Row(Modifier.padding(8.dp)) {
+                    if (f.imageUrl != null) {
+                        AsyncImage(
+                            model = f.imageUrl,
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.size(64.dp).clip(MaterialTheme.shapes.small),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                    }
+                    Column(Modifier.weight(1f)) {
+                        Text(f.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        f.summary?.let { Text(it, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis) }
+                        Row {
+                            IconButton(onClick = { a.onShare(f.id) }) { Icon(Icons.Default.Share, "Share ${f.name}") }
+                            IconButton(onClick = { a.onNavigate(f.id) }) { Icon(Icons.Default.Directions, "Navigate to ${f.name}") }
+                            IconButton(onClick = { a.onRemoveFavorite(f.id) }) { Icon(Icons.Default.Delete, "Remove ${f.name}") }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

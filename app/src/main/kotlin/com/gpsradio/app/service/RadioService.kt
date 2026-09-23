@@ -12,7 +12,14 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.os.Looper
+import android.support.v4.media.MediaMetadataCompat
+import android.support.v4.media.session.MediaSessionCompat
+import android.support.v4.media.session.PlaybackStateCompat
 import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
+import androidx.media.app.NotificationCompat.MediaStyle
+import com.gpsradio.core.model.RadioState
+import com.gpsradio.core.session.RadioUiState
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import com.gpsradio.app.GpsRadioApp
@@ -43,6 +50,8 @@ class RadioService : Service() {
     private lateinit var fused: FusedLocationProviderClient
     private var currentMode: TravelMode? = null
     private var modeWatcher: kotlinx.coroutines.Job? = null
+    private var stateWatcher: kotlinx.coroutines.Job? = null
+    private lateinit var mediaSession: MediaSessionCompat
 
     private val session get() = (application as GpsRadioApp).session
 
@@ -69,19 +78,33 @@ class RadioService : Service() {
     override fun onCreate() {
         super.onCreate()
         fused = LocationServices.getFusedLocationProviderClient(this)
+        // Lock screen, headset buttons and car Bluetooth controls.
+        mediaSession = MediaSessionCompat(this, "GpsRadio").apply {
+            setCallback(object : MediaSessionCompat.Callback() {
+                override fun onPlay() { session.resume() }
+                override fun onPause() { session.pause() }
+                override fun onSkipToNext() { session.skip() }
+                override fun onStop() { stopRadio() }
+            })
+            isActive = true
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_STOP) {
-            session.stop()
-            stopSelf()
-            return START_NOT_STICKY
+        when (intent?.action) {
+            ACTION_STOP -> {
+                stopRadio()
+                return START_NOT_STICKY
+            }
+            ACTION_PAUSE -> { session.pause(); return START_STICKY }
+            ACTION_RESUME -> { session.resume(); return START_STICKY }
+            ACTION_SKIP -> { session.skip(); return START_STICKY }
         }
         val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
         } else 0
         try {
-            ServiceCompat.startForeground(this, NOTIFICATION_ID, buildNotification(), type)
+            ServiceCompat.startForeground(this, NOTIFICATION_ID, buildNotification(session.state.value), type)
         } catch (e: Exception) {
             // Android 14+: a sticky restart after location permission was revoked cannot use the
             // location type. Stop cleanly instead of crashing; the user restarts from the app.
@@ -92,6 +115,11 @@ class RadioService : Service() {
         session.start()
         requestUpdates(currentMode ?: TravelMode.UNKNOWN)
         seedLastKnownLocation()
+        if (stateWatcher == null) stateWatcher = scope.launch {
+            session.state.map { Triple(it.radioState, it.nowPlaying?.title ?: it.focus?.name, it.area?.city) }
+                .distinctUntilChanged()
+                .collect { updateMediaUi(session.state.value) }
+        }
         if (modeWatcher == null) modeWatcher = scope.launch {
             session.state.map { it.location?.travelMode ?: TravelMode.UNKNOWN }
                 .distinctUntilChanged()
@@ -133,33 +161,78 @@ class RadioService : Service() {
         }
     }
 
+    private fun stopRadio() {
+        session.stop()
+        stopSelf()
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun updateMediaUi(s: RadioUiState) {
+        val playing = s.radioState != RadioState.PAUSED && s.radioState != RadioState.IDLE
+        mediaSession.setPlaybackState(
+            PlaybackStateCompat.Builder()
+                .setActions(
+                    PlaybackStateCompat.ACTION_PLAY or PlaybackStateCompat.ACTION_PAUSE or
+                        PlaybackStateCompat.ACTION_PLAY_PAUSE or PlaybackStateCompat.ACTION_SKIP_TO_NEXT or
+                        PlaybackStateCompat.ACTION_STOP,
+                )
+                .setState(if (playing) PlaybackStateCompat.STATE_PLAYING else PlaybackStateCompat.STATE_PAUSED, 0L, 1f)
+                .build(),
+        )
+        mediaSession.setMetadata(
+            MediaMetadataCompat.Builder()
+                .putString(MediaMetadataCompat.METADATA_KEY_TITLE, title(s))
+                .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, s.area?.city ?: getString(R.string.app_name))
+                .build(),
+        )
+        runCatching { NotificationManagerCompat.from(this).notify(NOTIFICATION_ID, buildNotification(s)) }
+    }
+
+    private fun title(s: RadioUiState): String = s.nowPlaying?.title?.takeIf { s.radioState == RadioState.NARRATING }
+        ?: when (s.radioState) {
+            RadioState.PAUSED -> "Paused"
+            RadioState.CONVERSING -> "Talking with you"
+            RadioState.RESEARCHING -> "Tuning in…"
+            else -> getString(R.string.notification_text)
+        }
+
     override fun onDestroy() {
+        runCatching { mediaSession.release() }
         runCatching { fused.removeLocationUpdates(callback) }
         scope.cancel()
         session.stop()
         super.onDestroy()
     }
 
-    private fun buildNotification(): Notification {
+    private fun buildNotification(s: RadioUiState): Notification {
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(
             NotificationChannel(CHANNEL_ID, getString(R.string.notification_channel), NotificationManager.IMPORTANCE_LOW),
+        )
+        fun action(action: String, code: Int) = PendingIntent.getService(
+            this, code, Intent(this, RadioService::class.java).setAction(action), PendingIntent.FLAG_IMMUTABLE,
         )
         val open = PendingIntent.getActivity(
             this, 0, Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_IMMUTABLE,
         )
-        val stop = PendingIntent.getService(
-            this, 1, Intent(this, RadioService::class.java).setAction(ACTION_STOP),
-            PendingIntent.FLAG_IMMUTABLE,
-        )
+        val paused = s.radioState == RadioState.PAUSED
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_radio)
-            .setContentTitle(getString(R.string.app_name))
-            .setContentText(getString(R.string.notification_text))
+            .setContentTitle(title(s))
+            .setContentText(s.area?.city?.let { "$it · tap to open" } ?: getString(R.string.app_name))
             .setContentIntent(open)
             .setOngoing(true)
-            .addAction(0, getString(R.string.stop), stop)
+            .setSilent(true)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .addAction(
+                if (paused) android.R.drawable.ic_media_play else android.R.drawable.ic_media_pause,
+                if (paused) "Resume" else "Pause",
+                action(if (paused) ACTION_RESUME else ACTION_PAUSE, 2),
+            )
+            .addAction(android.R.drawable.ic_media_next, "Skip", action(ACTION_SKIP, 3))
+            .addAction(android.R.drawable.ic_menu_close_clear_cancel, getString(R.string.stop), action(ACTION_STOP, 1))
+            .setStyle(MediaStyle().setMediaSession(mediaSession.sessionToken).setShowActionsInCompactView(0, 1, 2))
             .build()
     }
 
@@ -167,6 +240,9 @@ class RadioService : Service() {
         private const val CHANNEL_ID = "radio"
         private const val NOTIFICATION_ID = 1
         private const val ACTION_STOP = "com.gpsradio.app.STOP"
+        private const val ACTION_PAUSE = "com.gpsradio.app.PAUSE"
+        private const val ACTION_RESUME = "com.gpsradio.app.RESUME"
+        private const val ACTION_SKIP = "com.gpsradio.app.SKIP"
 
         fun start(context: Context) =
             ContextCompat.startForegroundService(context, Intent(context, RadioService::class.java))

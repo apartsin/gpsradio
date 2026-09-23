@@ -117,6 +117,8 @@ data class ModelConfig(
     val ttsModel: String = "gpt-4o-mini-tts",
     val ttsVoice: String = "alloy",
     val transcriptionModel: String = "gpt-4o-mini-transcribe",
+    /** Speech-to-speech model for natural, interruptible voice conversation. */
+    val realtimeModel: String = "gpt-realtime",
 )
 
 class RadioAgent(

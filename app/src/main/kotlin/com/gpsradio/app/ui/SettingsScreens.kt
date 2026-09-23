@@ -17,6 +17,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.Switch
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -42,6 +46,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.gpsradio.app.data.AppSettings
+import com.gpsradio.core.ai.HostStyle
 import com.gpsradio.core.lang.Languages
 import com.gpsradio.core.memory.MemoryItem
 import com.gpsradio.core.model.Topic
@@ -55,10 +60,11 @@ fun SetupScreen(settings: AppSettings, onSave: (AppSettings) -> Unit) {
         SettingsForm(
             initial = settings,
             modifier = Modifier.padding(pad),
-            intro = "GPS Radio tells you stories about the places around you and answers your questions by voice.\n\n" +
-                "It talks to OpenAI directly from this phone using your own API key. The key is stored encrypted " +
+            intro = "Stories about the places around you, told as you go — with fun facts, history, the odd joke, " +
+                "and answers to anything you ask.\n\n" +
+                "GPS Radio talks to OpenAI directly from this phone using your own API key. The key stays encrypted " +
                 "on this device only. Tip: create a dedicated key with a monthly spending limit at platform.openai.com.",
-            saveLabel = "Start",
+            saveLabel = "Save and start listening",
             showAdvanced = false,
             onSave = onSave,
         )
@@ -120,6 +126,10 @@ private fun SettingsForm(
     var ttsModel by remember { mutableStateOf(initial.models.ttsModel) }
     var ttsVoice by remember { mutableStateOf(initial.models.ttsVoice) }
     var sttModel by remember { mutableStateOf(initial.models.transcriptionModel) }
+    var realtimeModel by remember { mutableStateOf(initial.models.realtimeModel) }
+    var hostStyle by remember { mutableStateOf(initial.hostStyle) }
+    var liveVoice by remember { mutableStateOf(initial.liveVoice) }
+    var showKey by remember { mutableStateOf(false) }
 
     Column(
         modifier
@@ -137,12 +147,38 @@ private fun SettingsForm(
             label = { Text("OpenAI API key") },
             placeholder = { Text("sk-…") },
             singleLine = true,
-            visualTransformation = PasswordVisualTransformation(),
+            visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
+            trailingIcon = {
+                IconButton(onClick = { showKey = !showKey }) {
+                    Icon(if (showKey) Icons.Default.VisibilityOff else Icons.Default.Visibility, if (showKey) "Hide key" else "Show key")
+                }
+            },
+            supportingText = {
+                if (apiKey.isNotBlank() && !apiKey.trim().startsWith("sk-")) Text("OpenAI keys usually start with \"sk-\"")
+            },
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
             modifier = Modifier.fillMaxWidth(),
         )
 
         LanguagePicker(language) { language = it }
+
+        Text("Your host", style = MaterialTheme.typography.titleSmall)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            HostStyle.entries.forEach { h ->
+                FilterChip(selected = hostStyle == h, onClick = { hostStyle = h }, label = { Text(h.label) })
+            }
+        }
+
+        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Natural voice conversation", style = MaterialTheme.typography.titleSmall)
+                Text(
+                    "Talk hands-free like a phone call; you can interrupt anytime. Uses the OpenAI Realtime API.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            Switch(checked = liveVoice, onCheckedChange = { liveVoice = it })
+        }
 
         Text("What are you into?", style = MaterialTheme.typography.titleSmall)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -162,6 +198,7 @@ private fun SettingsForm(
             ModelField("Speech model", ttsModel) { ttsModel = it }
             ModelField("Voice", ttsVoice) { ttsVoice = it }
             ModelField("Transcription model", sttModel) { sttModel = it }
+            ModelField("Realtime voice model", realtimeModel) { realtimeModel = it }
             extra()
         }
 
@@ -177,12 +214,15 @@ private fun SettingsForm(
                             languageAuto = language == AUTO,
                             preferredLanguage = if (language == AUTO) initial.preferredLanguage else language,
                             interests = interests,
+                            hostStyle = hostStyle,
+                            liveVoice = liveVoice,
                             models = initial.models.copy(
                                 narrationModel = narrationModel.trim().ifBlank { initial.models.narrationModel },
                                 conversationModel = conversationModel.trim().ifBlank { initial.models.conversationModel },
                                 ttsModel = ttsModel.trim().ifBlank { initial.models.ttsModel },
                                 ttsVoice = ttsVoice.trim().ifBlank { initial.models.ttsVoice },
                                 transcriptionModel = sttModel.trim().ifBlank { initial.models.transcriptionModel },
+                                realtimeModel = realtimeModel.trim().ifBlank { initial.models.realtimeModel },
                             ),
                         ),
                     )

@@ -28,8 +28,13 @@ class MainActivity : ComponentActivity() {
                 val settings by vm.settings.collectAsStateWithLifecycle()
                 val radio by vm.radio.collectAsStateWithLifecycle()
                 var showSettings by remember { mutableStateOf(false) }
+                var autoStart by remember { mutableStateOf(false) }
                 when {
-                    !settings.hasApiKey -> SetupScreen(settings, onSave = { next -> vm.saveSettings { next } })
+                    !settings.hasApiKey -> SetupScreen(settings, onSave = { next ->
+                        vm.saveSettings { next }
+                        // "Save and start listening": go straight to the radio (asks for location there).
+                        autoStart = true
+                    })
                     showSettings -> SettingsScreen(
                         settings = settings,
                         onSave = { next -> vm.saveSettings { next }; showSettings = false },
@@ -39,7 +44,12 @@ class MainActivity : ComponentActivity() {
                         onForgetAllMemory = vm::clearMemory,
                         onBack = { showSettings = false },
                     )
-                    else -> RadioScreen(vm, onOpenSettings = { showSettings = true })
+                    else -> RadioScreen(
+                        vm,
+                        onOpenSettings = { showSettings = true },
+                        autoStart = autoStart,
+                        onAutoStarted = { autoStart = false },
+                    )
                 }
             }
         }

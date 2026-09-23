@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import androidx.core.content.edit
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import com.gpsradio.core.ai.HostStyle
 import com.gpsradio.core.ai.ModelConfig
 import com.gpsradio.core.lang.Languages
 import com.gpsradio.core.model.Topic
@@ -20,6 +21,9 @@ data class AppSettings(
     val preferredLanguage: String = Languages.FALLBACK,
     val interests: Set<Topic> = setOf(Topic.HISTORY, Topic.NATURE, Topic.ARCHITECTURE, Topic.CULTURE),
     val models: ModelConfig = ModelConfig(),
+    val hostStyle: HostStyle = HostStyle.ENTERTAINING,
+    /** Natural, hands-free voice conversation via the OpenAI Realtime API (falls back to classic). */
+    val liveVoice: Boolean = true,
 ) {
     val hasApiKey: Boolean get() = apiKey.isNotBlank()
 
@@ -55,6 +59,9 @@ class SettingsRepository(context: Context) {
             putString(KEY_TTS_MODEL, next.models.ttsModel)
             putString(KEY_TTS_VOICE, next.models.ttsVoice)
             putString(KEY_STT_MODEL, next.models.transcriptionModel)
+            putString(KEY_REALTIME_MODEL, next.models.realtimeModel)
+            putString(KEY_HOST_STYLE, next.hostStyle.key)
+            putBoolean(KEY_LIVE_VOICE, next.liveVoice)
         }
         _settings.value = next.copy(apiKey = next.apiKey.trim())
     }
@@ -73,7 +80,10 @@ class SettingsRepository(context: Context) {
                 ttsModel = plain.getString(KEY_TTS_MODEL, null) ?: m.ttsModel,
                 ttsVoice = plain.getString(KEY_TTS_VOICE, null) ?: m.ttsVoice,
                 transcriptionModel = plain.getString(KEY_STT_MODEL, null) ?: m.transcriptionModel,
+                realtimeModel = plain.getString(KEY_REALTIME_MODEL, null) ?: m.realtimeModel,
             ),
+            hostStyle = HostStyle.fromKey(plain.getString(KEY_HOST_STYLE, null)),
+            liveVoice = plain.getBoolean(KEY_LIVE_VOICE, d.liveVoice),
         )
     }
 
@@ -113,5 +123,8 @@ class SettingsRepository(context: Context) {
         const val KEY_TTS_MODEL = "tts_model"
         const val KEY_TTS_VOICE = "tts_voice"
         const val KEY_STT_MODEL = "stt_model"
+        const val KEY_REALTIME_MODEL = "realtime_model"
+        const val KEY_HOST_STYLE = "host_style"
+        const val KEY_LIVE_VOICE = "live_voice"
     }
 }

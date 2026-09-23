@@ -108,7 +108,7 @@ class ReviewFixesTest {
         val s = session(f)
         running(s) {
             s.onLocation(fix()); runCurrent()
-            assertTrue(s.state.value.status!!.startsWith("Couldn't load"))
+            assertTrue(s.state.value.status!!.text.startsWith("Couldn't load"))
             fail = false
             // No further GPS fixes arrive; the scheduler retries on its own about a minute later.
             advanceTimeBy(90_000); runCurrent()
