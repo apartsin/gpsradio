@@ -19,7 +19,9 @@ import com.gpsradio.core.ai.RealtimeClient
 import com.gpsradio.core.session.LiveConversation
 import com.gpsradio.core.session.LiveHost
 import kotlinx.coroutines.CoroutineScope
+import com.gpsradio.core.discovery.AreaInfoSource
 import com.gpsradio.core.discovery.DiscoveryService
+import com.gpsradio.core.discovery.OnThisDayClient
 import com.gpsradio.core.discovery.OverpassClient
 import com.gpsradio.core.discovery.WikipediaClient
 import com.gpsradio.core.model.PlaceCandidate
@@ -39,6 +41,8 @@ data class Endpoints(
     val openAiBaseUrl: String = "https://api.openai.com/v1",
     val wikipedia: (String) -> HttpUrl = { lang -> "https://$lang.wikipedia.org/w/api.php".toHttpUrl() },
     val overpassUrl: String = "https://overpass-api.de/api/interpreter",
+    /** Wikipedia's keyless "on this day" feed for a language edition (the client appends MM/DD). */
+    val onThisDay: (String) -> HttpUrl = { lang -> "https://$lang.wikipedia.org/api/rest_v1/feed/onthisday/events".toHttpUrl() },
 )
 
 /**
@@ -88,10 +92,11 @@ open class GpsRadioApp : Application() {
             .build()
         val openAi = OpenAiClient(http, apiKey = { settings.current.apiKey }, baseUrl = ep.openAiBaseUrl)
         val models = { settings.current.models }
+        val wikipedia = WikipediaClient(http, userAgent, ep.wikipedia)
 
         session = RadioSession(
             places = DiscoveryService(
-                WikipediaClient(http, userAgent, ep.wikipedia),
+                wikipedia,
                 OverpassClient(http, userAgent, ep.overpassUrl),
             ),
             narrator = RadioAgent(openAi, models),
@@ -108,6 +113,7 @@ open class GpsRadioApp : Application() {
                         voice = it.models.ttsVoice,
                         liveModel = it.models.realtimeModel,
                         transcriptionModel = it.models.transcriptionModel,
+                        pacing = it.pacing,
                     )
                 }
             },
@@ -117,6 +123,8 @@ open class GpsRadioApp : Application() {
             liveFactory = liveFactory(http, ep.openAiBaseUrl),
             onPersistLanguage = { tag -> settings.update { it.copy(languageAuto = false, preferredLanguage = tag) } },
             onNavigate = ::openInMaps,
+            onThisDay = OnThisDayClient(http, userAgent, ep.onThisDay),
+            areaInfo = AreaInfoSource { lang, title -> wikipedia.articleByTitle(lang, title) },
         )
     }
 

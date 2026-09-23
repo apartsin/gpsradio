@@ -7,6 +7,7 @@ import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.gpsradio.core.ai.HostStyle
 import com.gpsradio.core.ai.ModelConfig
+import com.gpsradio.core.editorial.Pacing
 import com.gpsradio.core.lang.Languages
 import com.gpsradio.core.model.Topic
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -24,6 +25,8 @@ data class AppSettings(
     val hostStyle: HostStyle = HostStyle.ENTERTAINING,
     /** Natural, hands-free voice conversation via the OpenAI Realtime API (falls back to classic). */
     val liveVoice: Boolean = true,
+    /** How often the radio speaks: chatty, balanced, rare or non-stop. */
+    val pacing: Pacing = Pacing.BALANCED,
 ) {
     val hasApiKey: Boolean get() = apiKey.isNotBlank()
 
@@ -62,6 +65,7 @@ class SettingsRepository(context: Context) {
             putString(KEY_REALTIME_MODEL, next.models.realtimeModel)
             putString(KEY_HOST_STYLE, next.hostStyle.key)
             putBoolean(KEY_LIVE_VOICE, next.liveVoice)
+            putString(KEY_PACING, next.pacing.key)
         }
         _settings.value = next.copy(apiKey = next.apiKey.trim())
     }
@@ -84,6 +88,7 @@ class SettingsRepository(context: Context) {
             ),
             hostStyle = HostStyle.fromKey(plain.getString(KEY_HOST_STYLE, null)),
             liveVoice = plain.getBoolean(KEY_LIVE_VOICE, d.liveVoice),
+            pacing = Pacing.fromKey(plain.getString(KEY_PACING, null)),
         )
     }
 
@@ -126,5 +131,6 @@ class SettingsRepository(context: Context) {
         const val KEY_REALTIME_MODEL = "realtime_model"
         const val KEY_HOST_STYLE = "host_style"
         const val KEY_LIVE_VOICE = "live_voice"
+        const val KEY_PACING = "pacing"
     }
 }

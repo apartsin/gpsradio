@@ -42,4 +42,17 @@ enum class SegmentFormat {
     STORY,
     /** A one or two sentence hook that ends by asking whether the listener wants the full story. */
     TEASER,
+    /** A ~15 s "did you know" bumper: one surprising fact from a nearby place's facts. */
+    BUMPER,
+    /** A ~30 s "on this day" segment about a historical event on today's date. */
+    ON_THIS_DAY,
+    /** A short question about a nearby place; the answer is revealed later (see [Segment.quizAnswer]). */
+    QUIZ,
+    /** A 1–2 sentence station ident with a recap of what the listener heard so far. */
+    STATION_ID,
+    /** A story about the current town or region, one facet (history, people, culture, geography) at a time. */
+    AREA;
+
+    /** Everything except place stories and teasers: segments that fill the gaps between stories. */
+    val isFiller: Boolean get() = this != STORY && this != TEASER
 }

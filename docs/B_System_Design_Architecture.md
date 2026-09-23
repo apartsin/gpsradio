@@ -464,6 +464,7 @@ No test layer needs a real phone or a real OpenAI key.
 | Photo pager + map panel; driving layout; media session controls | Done |
 | Tests: core JVM, Robolectric UI, emulator E2E, key-gated live smoke test | Done |
 | Review findings (docs D, F) | Fixed, or listed as planned |
+| Segment formats (bumper, quiz, on this day, station ID, area), pacing dial incl. non-stop (§33) | Done |
 
 ## 28. Natural Voice: OpenAI Realtime
 
@@ -549,3 +550,34 @@ Typed questions are routed into an open live session. If the connection fails, t
 - **Notification.** MediaStyle, with a media session for lock-screen, headset and car Bluetooth controls.
 - **Icon.** An adaptive launcher icon (pin, amber on-air light, broadcast arcs) with a themed monochrome layer.
 - **Distribution.** A committed debug signing key keeps updates installable. CI publishes the `latest` GitHub release containing `gpsradio.apk`.
+
+## 33. Programme: Segment Formats and Pacing
+
+**Formats.** Between place stories, `Programme` (core/session) schedules short radio formats. All are grounded; the humour and fact guardrails of §29 apply.
+
+| Format | Length | Source of facts |
+|---|---|---|
+| `BUMPER` ("did you know") | ~15 s (~35 words) | `facts` of a nearby candidate not yet told, mentioned or used |
+| `QUIZ` | ~15 s | as above (richer facts); the model writes the question and an `ANSWER:` line |
+| `ON_THIS_DAY` | ~30 s | Wikipedia's keyless feed `/{lang}.wikipedia.org/api/rest_v1/feed/onthisday/events/MM/DD` (`OnThisDayClient`, English fallback, cached per day); the event most related to the listener's country/region/city or nearby coordinates wins, sombre events are de-prioritised |
+| `STATION_ID` | 1–2 sentences | titles told so far ("so far today: …") |
+| `AREA` | ~40 s | the Wikipedia article of `AreaLabel.city` / `region` (`WikipediaClient.articleByTitle`), split into facets (overview, history, people, culture, geography); each facet told once |
+
+**Rules** (`Programme.next`, pure; the session reports what aired):
+- never two fillers in a row, never while a good place story is ready (ignoring the temporary post-segment penalty), never while driving through a dense area (≥ 8 candidates within 3 km);
+- the station ID is due every 10 stories, even when a story is ready;
+- fillers wait for the full pacing gap and a per-pacing filler gap; formats rotate (the one aired longest ago first); on this day airs once per day;
+- a quiz opens a 25 s answer window; an answer in conversation (classic or live) is judged by the host with `quiz` in context; otherwise the answer line is spoken when the window closes.
+
+**Pacing dial** (`SessionConfig.pacing`, Settings chips): scales the speak threshold and the segment gap.
+
+| Pacing | Threshold | Gap (walking) | Filler gap |
+|---|---|---|---|
+| Chatty | ×0.85 | ~22 s | 2 min |
+| Balanced (default) | ×1.0 | 45 s | 5 min |
+| Rare | ×1.25 | 90 s | 12 min |
+| Non-stop | ×0.7 | ~4.5 s | none |
+
+A hard floor of a quarter of the gap applies between any two segments. Driving always keeps ≥ 90 s between segments and ≤ 30 s per segment, whatever the dial says.
+
+**Non-stop.** When nothing crosses the (lowered) threshold, the programme keeps talking in this order: (1) weaker unheard nearby places above half the threshold, told as full stories; (2) area facets; (3) bumpers, on this day and quizzes (fillers may follow fillers); (4) a wider discovery radius (×2 per step, up to 3 steps). Teasers are off and the quiz pause is 5 s, so there are no long answer windows. Nothing is repeated; when everything is exhausted, the radio is silent rather than repetitive.
