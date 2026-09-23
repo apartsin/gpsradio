@@ -43,6 +43,11 @@ data class SessionConfig(
     val transcriptionModel: String = "gpt-4o-mini-transcribe",
     /** Ask drivers once per session where they're heading. */
     val askAboutTrip: Boolean = true,
+    /**
+     * Keyless preview: stories are read from source facts with the on-device voice and OpenAI is
+     * never called; questions are unavailable. Needs the session's fallback narrator and speech.
+     */
+    val previewMode: Boolean = false,
 )
 
 class OpenAiSpeech(

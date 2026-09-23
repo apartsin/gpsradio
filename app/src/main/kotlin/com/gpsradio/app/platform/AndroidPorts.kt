@@ -3,7 +3,10 @@ package com.gpsradio.app.platform
 import android.content.Context
 import android.location.Address
 import android.location.Geocoder
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.os.Build
+import com.gpsradio.core.discovery.AreaCacheStore
 import com.gpsradio.core.model.AreaLabel
 import com.gpsradio.core.model.GeoPoint
 import com.gpsradio.core.session.AreaLabeler
@@ -43,6 +46,33 @@ class FileFavoritesStore(context: Context) : FavoritesStore {
     private val file = File(context.filesDir, "favorites.json")
     override fun load(): String? = file.takeIf { it.exists() }?.readText()
     override fun save(serialized: String) = file.writeText(serialized)
+}
+
+/** Previously discovered areas, so visited places still work offline; stays on the device (excluded from backups). */
+class FileAreaCacheStore(context: Context) : AreaCacheStore {
+    private val file = File(context.filesDir, "area_cache.json")
+    override fun load(): String? = file.takeIf { it.exists() }?.readText()
+
+    /** Write-then-rename so a crash mid-write never leaves a truncated cache. */
+    override fun save(serialized: String) {
+        val tmp = File(file.parentFile, file.name + ".tmp")
+        tmp.writeText(serialized)
+        if (!tmp.renameTo(file)) {
+            file.writeText(serialized)
+            tmp.delete()
+        }
+    }
+}
+
+/** Whether the phone currently has an internet-capable network; unknown counts as online. */
+class NetworkMonitor(context: Context) {
+    private val connectivity = context.getSystemService(ConnectivityManager::class.java)
+
+    fun isOnline(): Boolean = runCatching {
+        val cm = connectivity ?: return true
+        val caps = cm.getNetworkCapabilities(cm.activeNetwork ?: return false) ?: return false
+        caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    }.getOrDefault(true)
 }
 
 /** On-device reverse geocoding to a coarse city/region/country label for localized web search. */

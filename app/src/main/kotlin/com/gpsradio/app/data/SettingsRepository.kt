@@ -36,6 +36,8 @@ data class AppSettings(
     val hostStyle: HostStyle = HostStyle.ENTERTAINING,
     /** Natural, hands-free voice conversation via the OpenAI Realtime API (falls back to classic). */
     val liveVoice: Boolean = true,
+    /** The listener chose "Try without a key": stories from source facts with the on-device voice. */
+    val previewMode: Boolean = false,
 ) {
     /** The listener's own key if they entered one, otherwise the key built into this app (if any). */
     val effectiveApiKey: String get() = apiKey.ifBlank { EmbeddedKey.value }
@@ -43,6 +45,9 @@ data class AppSettings(
     val usingEmbeddedKey: Boolean get() = apiKey.isBlank() && EmbeddedKey.value.isNotBlank()
 
     val hasApiKey: Boolean get() = effectiveApiKey.isNotBlank()
+
+    /** Show the radio (not the setup screen): a key is set, or the keyless preview was chosen. */
+    val canListen: Boolean get() = hasApiKey || previewMode
 
     fun resolvedLanguage(): String = Languages.resolveSessionLanguage(
         sessionOverride = null,
@@ -79,6 +84,7 @@ class SettingsRepository(context: Context) {
             putString(KEY_REALTIME_MODEL, next.models.realtimeModel)
             putString(KEY_HOST_STYLE, next.hostStyle.key)
             putBoolean(KEY_LIVE_VOICE, next.liveVoice)
+            putBoolean(KEY_PREVIEW, next.previewMode)
         }
         _settings.value = next.copy(apiKey = next.apiKey.trim())
     }
@@ -101,6 +107,7 @@ class SettingsRepository(context: Context) {
             ),
             hostStyle = HostStyle.fromKey(plain.getString(KEY_HOST_STYLE, null)),
             liveVoice = plain.getBoolean(KEY_LIVE_VOICE, d.liveVoice),
+            previewMode = plain.getBoolean(KEY_PREVIEW, d.previewMode),
         )
     }
 
@@ -143,5 +150,6 @@ class SettingsRepository(context: Context) {
         const val KEY_REALTIME_MODEL = "realtime_model"
         const val KEY_HOST_STYLE = "host_style"
         const val KEY_LIVE_VOICE = "live_voice"
+        const val KEY_PREVIEW = "preview_mode"
     }
 }

@@ -50,6 +50,8 @@ class LiveSmokeTest {
         val segment = agent.narrate(NarrationRequest(top, loc, "en-US", setOf(Topic.HISTORY), emptyList()))
         println("STORY about ${top.place.name}: ${segment.text}")
         assertTrue(segment.text.split(" ").size in 20..200, "narration length out of range")
+        println("BASIS: ${segment.basis}")
+        assertTrue(segment.basis != null, "structured narration should report its claim basis")
 
         val reply = agent.converse(
             ConversationRequest("Tell me more about that.", "en-US", loc, null, top, ranked.drop(1).take(5), listOf(top.place.name), emptyList(), null),

@@ -9,17 +9,22 @@ import android.Manifest
 import android.content.pm.PackageManager
 import androidx.core.content.ContextCompat
 import com.gpsradio.app.platform.AndroidPcmAudio
+import com.gpsradio.app.platform.AndroidTtsSpeech
+import com.gpsradio.app.platform.FileAreaCacheStore
+import com.gpsradio.app.platform.NetworkMonitor
 import com.gpsradio.app.platform.FileFavoritesStore
 import com.gpsradio.app.platform.FileInterestStore
 import com.gpsradio.app.platform.FileMemoryStore
 import com.gpsradio.app.platform.GeocoderAreaLabeler
 import com.gpsradio.app.platform.MediaAudioOutput
+import com.gpsradio.core.ai.NarrationFallback
 import com.gpsradio.core.ai.OpenAiClient
 import com.gpsradio.core.ai.RadioAgent
 import com.gpsradio.core.ai.RealtimeClient
 import com.gpsradio.core.session.LiveConversation
 import com.gpsradio.core.session.LiveHost
 import kotlinx.coroutines.CoroutineScope
+import com.gpsradio.core.discovery.AreaDiskCache
 import com.gpsradio.core.discovery.DiscoveryService
 import com.gpsradio.core.discovery.OverpassClient
 import com.gpsradio.core.discovery.WikipediaClient
@@ -29,6 +34,7 @@ import com.gpsradio.core.session.AudioOutput
 import com.gpsradio.core.session.OpenAiSpeech
 import com.gpsradio.core.session.RadioSession
 import com.gpsradio.core.session.SessionConfig
+import com.gpsradio.core.session.SpeechService
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
@@ -58,6 +64,12 @@ open class GpsRadioApp : Application() {
     protected open fun audioOutput(): AudioOutput = MediaAudioOutput(this, onFocusLost = { session.pause() })
 
     protected open fun areaLabeler(): AreaLabeler? = GeocoderAreaLabeler(this)
+
+    /** On-device voice for the keyless preview and when OpenAI is unreachable. */
+    protected open fun fallbackSpeech(): SpeechService? = AndroidTtsSpeech(this)
+
+    /** Network state for offline-aware scheduling; tests may force online/offline. */
+    protected open fun isOnline(): () -> Boolean = NetworkMonitor(this)::isOnline
 
     /** Natural hands-free voice (OpenAI Realtime); tests return null to use the classic pipeline. */
     protected open fun liveFactory(http: OkHttpClient, baseUrl: String): ((LiveHost, CoroutineScope) -> LiveConversation)? {
@@ -89,11 +101,14 @@ open class GpsRadioApp : Application() {
             .build()
         val openAi = OpenAiClient(http, apiKey = { settings.current.effectiveApiKey }, baseUrl = ep.openAiBaseUrl)
         val models = { settings.current.models }
+        val online = isOnline()
 
         session = RadioSession(
             places = DiscoveryService(
                 WikipediaClient(http, userAgent, ep.wikipedia),
                 OverpassClient(http, userAgent, ep.overpassUrl),
+                diskCache = AreaDiskCache(FileAreaCacheStore(this)),
+                isOnline = online,
             ),
             narrator = RadioAgent(openAi, models),
             speech = OpenAiSpeech(openAi, models),
@@ -105,10 +120,12 @@ open class GpsRadioApp : Application() {
                         language = it.resolvedLanguage(),
                         interests = it.interests,
                         style = it.hostStyle,
-                        liveVoice = it.liveVoice && micGranted(),
+                        liveVoice = it.liveVoice && micGranted() && it.hasApiKey,
                         voice = it.models.ttsVoice,
                         liveModel = it.models.realtimeModel,
                         transcriptionModel = it.models.transcriptionModel,
+                        // Without a key the radio can only read notes aloud on the device.
+                        previewMode = !it.hasApiKey,
                     )
                 }
             },
@@ -119,6 +136,9 @@ open class GpsRadioApp : Application() {
             liveFactory = liveFactory(http, ep.openAiBaseUrl),
             onPersistLanguage = { tag -> settings.update { it.copy(languageAuto = false, preferredLanguage = tag) } },
             onNavigate = ::openInMaps,
+            fallbackNarrator = NarrationFallback(),
+            fallbackSpeech = fallbackSpeech(),
+            isOnline = online,
         )
     }
 

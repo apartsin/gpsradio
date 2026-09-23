@@ -24,11 +24,19 @@ class MainActivity : ComponentActivity() {
                 var showSettings by remember { mutableStateOf(false) }
                 var autoStart by remember { mutableStateOf(false) }
                 when {
-                    !settings.hasApiKey -> SetupScreen(settings, onSave = { next ->
-                        vm.saveSettings { next }
-                        // "Save and start listening": go straight to the radio (asks for location there).
-                        autoStart = true
-                    })
+                    !settings.canListen -> SetupScreen(
+                        settings,
+                        onSave = { next ->
+                            vm.saveSettings { next }
+                            // "Save and start listening": go straight to the radio (asks for location there).
+                            autoStart = true
+                        },
+                        // Keyless preview: same radio screen, stories read on the device.
+                        onTryWithoutKey = { next ->
+                            vm.saveSettings { next }
+                            autoStart = true
+                        },
+                    )
                     showSettings -> SettingsScreen(
                         settings = settings,
                         onSave = { next -> vm.saveSettings { next }; showSettings = false },

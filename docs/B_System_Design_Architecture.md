@@ -470,6 +470,8 @@ No test layer needs a real phone or a real OpenAI key.
 | Natural voice (Realtime), tools, barge-in; classic push-to-talk fallback | Done (needs field testing on devices) |
 | Listener memory; favourites; share | Done |
 | Photo pager + map panel; driving layout; media session controls | Done |
+| Keyless preview and degraded/offline mode: on-device notes (`NarrationFallback`) read by Android TextToSpeech; OpenAI outages back off to it (`FallbackGate`); area cache on disk (`AreaDiskCache`, 14-day TTL, 24 areas, 1.5 MB); offline-aware discovery and questions | Done |
+| Trust: narration returns `{text, basis}` (documented / disputed / legend / mixed) shown as a chip; "why this story?" line from the score breakdown (`StoryReason`) | Done |
 | Tests: core JVM, Robolectric UI, emulator E2E, key-gated live smoke test | Done |
 | Review findings (docs D, F) | Fixed, or listed as planned |
 
