@@ -32,6 +32,9 @@ interface Narrator {
 
     /** A short host line such as the road-trip question, in the listener's language and the host's style. */
     suspend fun hostLine(kind: HostLine, language: String, style: HostStyle): String = kind.fallback
+
+    /** A short, spoken-style answer researched on the web (used by the live voice host as a tool). */
+    suspend fun webAnswer(question: String, language: String, area: AreaLabel?): String = "Web search is not available."
 }
 
 enum class HostLine(val instruction: String, val fallback: String) {
@@ -115,7 +118,8 @@ data class ModelConfig(
     val narrationModel: String = "gpt-4.1-mini",
     val conversationModel: String = "gpt-4.1-mini",
     val ttsModel: String = "gpt-4o-mini-tts",
-    val ttsVoice: String = "alloy",
+    /** Used by both speech and the live voice (supported by gpt-4o-mini-tts and gpt-realtime). */
+    val ttsVoice: String = "coral",
     val transcriptionModel: String = "gpt-4o-mini-transcribe",
     /** Speech-to-speech model for natural, interruptible voice conversation. */
     val realtimeModel: String = "gpt-realtime",
@@ -194,6 +198,22 @@ class RadioAgent(
             ),
         ).text.let(::cleanForSpeech)
     }.getOrElse { kind.fallback }
+
+    override suspend fun webAnswer(question: String, language: String, area: AreaLabel?): String {
+        val res = openAi.respond(
+            OpenAiClient.ResponseRequest(
+                model = models().conversationModel,
+                instructions = "Research the question with web search and answer in 2–4 short sentences suitable for reading " +
+                    "aloud, in ${Languages.displayName(language)}. Facts only; say when something is uncertain or disputed. " +
+                    "Plain text, no URLs or lists.",
+                input = listOf(OpenAiClient.Message("user", question)),
+                webSearch = true,
+                userArea = area,
+                maxOutputTokens = 500,
+            ),
+        )
+        return cleanForSpeech(res.text)
+    }
 
     private suspend fun respondStructured(req: OpenAiClient.ResponseRequest): OpenAiClient.ResponseResult = try {
         openAi.respond(req)
@@ -356,6 +376,32 @@ class RadioAgent(
                 - Otherwise leave both arrays empty.
             """.trimIndent()
         }
+
+        /** System prompt for the live (Realtime) voice host; context is embedded because the session is long-lived. */
+        fun liveInstructions(req: ConversationRequest): String = """
+            You are the host of a location-aware radio show, talking live by voice with the listener, like a phone call.
+            You are ${req.style.persona}
+            Speak ${Languages.displayName(req.language)} (${req.language}) unless the listener switches language.
+
+            How to talk:
+            - Sound like a real person: warm, relaxed, expressive, with natural rhythm. Short turns (1–4 sentences); it's a conversation, not a lecture.
+            - If the listener interrupts, stop and listen. Ask at most one short clarifying question when it genuinely helps.
+            - Facts must come from the context below or from web_search; never invent places or facts. Label legends as legends.
+              Content-related humour is welcome; never joke about tragedies.
+            - If the listener is driving, never ask them to look at the screen.
+
+            Tools:
+            - web_search: for anything beyond the context facts (verification, current info, more depth). Say a quick filler first.
+            - radio_control: resume_radio when they're done or say "continue"; pause; skip; change_language; set_theme/clear_theme;
+              navigate; star_place when they want to save a place; accept_offer / decline_offer to answer pending_offer.
+            - remember: durable preferences they state ("I love castles", "keep it short"); acknowledge briefly.
+            - set_trip: when they tell you where they're heading or what the trip is about.
+
+            If pending_offer is set, you just asked whether they want to hear that story: a yes → radio_control accept_offer
+            (say at most "Here we go"); a no → decline_offer and a light acknowledgement.
+
+            Context (JSON): ${conversationContext(req)}
+        """.trimIndent()
 
         val replySchema: JsonObject = buildJsonObject {
             put("type", "object")

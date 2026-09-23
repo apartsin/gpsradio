@@ -100,6 +100,7 @@ import com.gpsradio.core.model.RankedCandidate
 import com.gpsradio.core.model.Speaker
 import com.gpsradio.core.model.TranscriptEntry
 import com.gpsradio.core.model.TravelMode
+import com.gpsradio.core.session.LiveState
 import com.gpsradio.core.session.RadioUiState
 
 /** Every user action on the radio screen; lets the screen be rendered and tested without a ViewModel. */
@@ -123,11 +124,14 @@ data class RadioActions(
     val onNavigate: (String) -> Unit = {},
     val onRemoveFavorite: (String) -> Unit = {},
     val onAnswerOffer: (Boolean) -> Unit = {},
+    /** Natural-voice mode: tap the mic to open/close a hands-free conversation. */
+    val onLiveToggle: () -> Unit = {},
 )
 
 @Composable
 fun RadioScreen(vm: MainViewModel, onOpenSettings: () -> Unit, autoStart: Boolean = false, onAutoStarted: () -> Unit = {}) {
     val state by vm.radio.collectAsStateWithLifecycle()
+    val settings by vm.settings.collectAsStateWithLifecycle()
     val recording by vm.recording.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var locationDenied by remember { mutableStateOf(false) }
@@ -189,11 +193,15 @@ fun RadioScreen(vm: MainViewModel, onOpenSettings: () -> Unit, autoStart: Boolea
         onNavigate = { id -> vm.navigateIntent(id)?.let { runCatching { context.startActivity(it) } } },
         onRemoveFavorite = vm::removeFavorite,
         onAnswerOffer = vm::answerOffer,
+        onLiveToggle = {
+            if (granted(Manifest.permission.RECORD_AUDIO)) vm.toggleLive() else micPermission.launch(Manifest.permission.RECORD_AUDIO)
+        },
     )
     RadioContent(
         state = state,
         recording = recording,
         actions = actions,
+        liveMode = settings.liveVoice,
         locationDenied = locationDenied,
         onOpenAppSettings = {
             context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null)))
@@ -211,6 +219,8 @@ fun RadioContent(
     placePanel: @Composable (RadioUiState, Modifier) -> Unit = { s, m -> PlacePanel(s, m) },
     locationDenied: Boolean = false,
     onOpenAppSettings: () -> Unit = {},
+    /** Natural voice: the mic is tap-to-talk hands-free instead of hold-to-talk. */
+    liveMode: Boolean = false,
 ) {
     val running = state.radioState != RadioState.IDLE
     val driving = (state.modeOverride ?: state.location?.travelMode) == TravelMode.DRIVING
@@ -246,11 +256,11 @@ fun RadioContent(
             if (!running) {
                 IdleContent(state, actions, starredIds, Modifier.weight(1f))
             } else if (driving) {
-                DrivingContent(state, recording, actions, starredIds, Modifier.weight(1f))
+                DrivingContent(state, recording, actions, starredIds, liveMode, Modifier.weight(1f))
             } else {
                 ContentTabs(state, starredIds, actions, placePanel, Modifier.weight(1f))
                 Controls(state, actions)
-                TalkBar(recording, actions)
+                TalkBar(recording, actions, liveMode, state)
             }
         }
     }
@@ -326,7 +336,14 @@ private fun OfferCard(placeName: String, onAnswer: (Boolean) -> Unit) {
 
 /** Big, glanceable, voice-first layout: photo, place name, a large mic, pause and skip. */
 @Composable
-private fun DrivingContent(state: RadioUiState, recording: Boolean, a: RadioActions, starredIds: Set<String>, modifier: Modifier) {
+private fun DrivingContent(
+    state: RadioUiState,
+    recording: Boolean,
+    a: RadioActions,
+    starredIds: Set<String>,
+    liveMode: Boolean,
+    modifier: Modifier,
+) {
     val focus = state.focus
     Column(modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (focus?.imageUrl != null) {
@@ -355,8 +372,8 @@ private fun DrivingContent(state: RadioUiState, recording: Boolean, a: RadioActi
             }
         }
         Spacer(Modifier.weight(1f))
-        MicButton(recording, a, size = 104)
-        Text(if (recording) "Listening… release to send" else "Hold to talk", style = MaterialTheme.typography.labelLarge)
+        MicButton(recording, a, size = 104, liveMode = liveMode, live = state.live)
+        Text(micHint(recording, liveMode, state.live), style = MaterialTheme.typography.labelLarge)
         Row(horizontalArrangement = Arrangement.spacedBy(32.dp), modifier = Modifier.padding(bottom = 12.dp)) {
             PauseOrBack(state, a, size = 72)
             BigButton(Icons.Default.SkipNext, "Skip", a.onSkip, size = 72)
@@ -501,17 +518,39 @@ private fun BigButton(
     }
 }
 
+fun micHint(recording: Boolean, liveMode: Boolean, live: LiveState?): String = when {
+    live == LiveState.CONNECTING -> "Connecting…"
+    live == LiveState.USER_SPEAKING -> "I'm listening…"
+    live == LiveState.ASSISTANT_SPEAKING -> "Talk anytime to interrupt"
+    live == LiveState.LISTENING -> "Just talk · tap to end"
+    liveMode -> "Tap to talk"
+    recording -> "Listening… release to send"
+    else -> "Hold to talk"
+}
+
 @Composable
-private fun MicButton(recording: Boolean, a: RadioActions, size: Int) {
+private fun MicButton(recording: Boolean, a: RadioActions, size: Int, liveMode: Boolean = false, live: LiveState? = null) {
     val haptics = LocalHapticFeedback.current
     val pressStart by rememberUpdatedState(a.onTalkStart)
     val release by rememberUpdatedState(a.onTalkEnd)
-    Box(
-        contentAlignment = Alignment.Center,
-        modifier = Modifier
-            .size(size.dp)
-            .clip(CircleShape)
-            .background(if (recording) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
+    val active = recording || live != null
+    val base = Modifier
+        .size(size.dp)
+        .clip(CircleShape)
+        .background(if (active) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
+    val gesture = if (liveMode) {
+        base
+            .semantics {
+                contentDescription = if (live != null) "End voice conversation" else "Talk to the radio"
+                role = Role.Button
+                stateDescription = live?.name?.lowercase()?.replace('_', ' ') ?: "Idle"
+            }
+            .clickable {
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                a.onLiveToggle()
+            }
+    } else {
+        base
             .semantics {
                 contentDescription = "Hold to ask a question"
                 role = Role.Button
@@ -526,15 +565,16 @@ private fun MicButton(recording: Boolean, a: RadioActions, size: Int) {
                         release()
                     }
                 })
-            },
-    ) {
-        if (recording) Equalizer(Modifier.size((size / 2).dp), color = MaterialTheme.colorScheme.onError)
+            }
+    }
+    Box(contentAlignment = Alignment.Center, modifier = gesture) {
+        if (active) Equalizer(Modifier.size((size / 2).dp), color = MaterialTheme.colorScheme.onError)
         else Icon(Icons.Default.Mic, null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size((size / 2).dp))
     }
 }
 
 @Composable
-private fun TalkBar(recording: Boolean, a: RadioActions) {
+private fun TalkBar(recording: Boolean, a: RadioActions, liveMode: Boolean, state: RadioUiState) {
     var text by remember { mutableStateOf("") }
     val keyboard = LocalSoftwareKeyboardController.current
     val send = {
@@ -545,11 +585,11 @@ private fun TalkBar(recording: Boolean, a: RadioActions) {
         }
     }
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 8.dp)) {
-        MicButton(recording, a, size = 64)
+        MicButton(recording, a, size = 64, liveMode = liveMode, live = state.live)
         OutlinedTextField(
             value = text,
             onValueChange = { text = it },
-            placeholder = { Text(if (recording) "Listening… release to send" else "Ask anything…") },
+            placeholder = { Text(if (recording || state.live != null) micHint(recording, liveMode, state.live) else "Ask anything…") },
             singleLine = true,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
             keyboardActions = KeyboardActions(onSend = { send() }),

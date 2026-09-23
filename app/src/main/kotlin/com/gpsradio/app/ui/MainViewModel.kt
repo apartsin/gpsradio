@@ -84,6 +84,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         session.removeFavorite(id)
     }
 
+    /** Tap the mic in natural-voice mode: open or close the hands-free conversation. */
+    fun toggleLive() {
+        session.toggleLive()
+    }
+
     fun answerOffer(yes: Boolean) {
         session.answerOffer(yes)
     }

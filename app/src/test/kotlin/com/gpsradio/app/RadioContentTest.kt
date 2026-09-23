@@ -23,6 +23,7 @@ import com.gpsradio.core.model.Speaker
 import com.gpsradio.core.model.Topic
 import com.gpsradio.core.model.TranscriptEntry
 import com.gpsradio.core.model.TravelMode
+import com.gpsradio.core.session.LiveState
 import com.gpsradio.core.session.RadioUiState
 import com.gpsradio.core.session.Status
 import com.gpsradio.core.session.StatusLevel
@@ -189,5 +190,24 @@ class RadioContentTest {
         compose.onNodeWithTag("askField").assertDoesNotExist()
         compose.onNodeWithContentDescription("Skip").performClick()
         assertTrue(skipped)
+    }
+
+    @Test
+    fun naturalVoiceMicIsTapToTalkAndShowsLiveState() {
+        var toggles = 0
+        compose.setContent {
+            GpsRadioTheme {
+                RadioContent(
+                    RadioUiState(radioState = RadioState.CONVERSING, location = loc, live = LiveState.LISTENING),
+                    recording = false,
+                    actions = RadioActions(onLiveToggle = { toggles++ }),
+                    placePanel = { _, _ -> },
+                    liveMode = true,
+                )
+            }
+        }
+        compose.onNodeWithContentDescription("End voice conversation").performClick()
+        assertEquals(1, toggles)
+        compose.onNodeWithText("Just talk · tap to end").assertExists()
     }
 }

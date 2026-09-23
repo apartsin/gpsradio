@@ -100,8 +100,12 @@ class RadioService : Service() {
             ACTION_RESUME -> { session.resume(); return START_STICKY }
             ACTION_SKIP -> { session.skip(); return START_STICKY }
         }
+        // The microphone type lets the live voice hear answers hands-free while the screen is off.
+        val mic = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
+            ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE else 0
         val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK or mic
         } else 0
         try {
             ServiceCompat.startForeground(this, NOTIFICATION_ID, buildNotification(session.state.value), type)

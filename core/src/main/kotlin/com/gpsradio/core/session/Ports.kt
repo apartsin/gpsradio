@@ -36,6 +36,11 @@ data class SessionConfig(
     val language: String,
     val interests: Set<Topic>,
     val style: HostStyle = HostStyle.ENTERTAINING,
+    /** Use the natural, hands-free Realtime voice for conversations. */
+    val liveVoice: Boolean = false,
+    val voice: String = "alloy",
+    val liveModel: String = "gpt-realtime",
+    val transcriptionModel: String = "gpt-4o-mini-transcribe",
 )
 
 class OpenAiSpeech(

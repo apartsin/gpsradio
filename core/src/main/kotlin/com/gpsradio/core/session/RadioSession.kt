@@ -18,6 +18,8 @@ import com.gpsradio.core.editorial.EditorialRanker
 import com.gpsradio.core.editorial.HeardHistory
 import com.gpsradio.core.geo.Geo
 import com.gpsradio.core.lang.Languages
+import com.gpsradio.core.ai.RadioAgent
+import com.gpsradio.core.memory.MemoryCategory
 import com.gpsradio.core.memory.MemoryItem
 import com.gpsradio.core.memory.MemoryStore
 import com.gpsradio.core.memory.UserMemory
@@ -49,6 +51,9 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import java.io.IOException
 import java.util.concurrent.TimeoutException
 
@@ -86,6 +91,8 @@ data class RadioUiState(
     /** Name of a story the radio offered ("want to hear it?") and is waiting for an answer about. */
     val pendingOffer: String? = null,
     val tripContext: String? = null,
+    /** Non-null while a live voice conversation is open. */
+    val live: LiveState? = null,
     val nearby: List<RankedCandidate> = emptyList(),
     val transcript: List<TranscriptEntry> = emptyList(),
     val discovering: Boolean = false,
@@ -108,6 +115,8 @@ class RadioSession(
     private val areaLabeler: AreaLabeler? = null,
     private val memoryStore: MemoryStore? = null,
     private val favoritesStore: FavoritesStore? = null,
+    /** Creates a hands-free Realtime voice conversation; null disables live voice. */
+    private val liveFactory: ((LiveHost, CoroutineScope) -> LiveConversation)? = null,
     private val onPersistLanguage: (String) -> Unit = {},
     private val onNavigate: (PlaceCandidate) -> Unit = {},
     private val ranker: EditorialRanker = EditorialRanker(),
@@ -162,6 +171,7 @@ class RadioSession(
     private var storiesSinceTeaser = 0
     private var tripAsked = false
     private var tripContext: String? = null
+    private var live: LiveConversation? = null
 
     private var lastRefreshPoint: GeoPoint? = null
     private var lastRefreshMode: TravelMode? = null
@@ -209,6 +219,7 @@ class RadioSession(
     }
 
     fun stop() = scope.launch {
+        closeLive()
         schedulerJob?.cancel()
         discoveryJob?.cancel()
         speechJob?.cancel()
@@ -290,6 +301,11 @@ class RadioSession(
 
     fun ask(text: String) = scope.launch {
         if (text.isBlank()) return@launch
+        live?.takeIf { it.isOpen }?.let { l ->
+            addTranscript(TranscriptEntry(Speaker.USER, text.trim(), clock()))
+            l.sendText(text.trim())
+            return@launch
+        }
         beginConversation()
         speechJob = scope.launch { handleUtterance(text.trim()) }
     }
@@ -319,6 +335,19 @@ class RadioSession(
     }
 
     fun whatsNearby() = ask("What else is interesting nearby?")
+
+    /** Whether the natural, hands-free voice is available and enabled. */
+    val liveVoiceEnabled: Boolean get() = liveFactory != null && config().liveVoice
+
+    /** Opens a hands-free voice conversation (tap the mic), or closes it if already open. */
+    fun toggleLive() = scope.launch {
+        if (live?.isOpen == true) {
+            closeLive()
+            endConversation()
+        } else {
+            openLive(opening = null)
+        }
+    }
 
     /** Answer to "want the full story?" from the on-screen buttons. */
     fun answerOffer(yes: Boolean) = scope.launch {
@@ -485,6 +514,8 @@ class RadioSession(
                     lastSpeechEndMs = clock()
                     engagedUntilMs = clock() + offerWindowMs
                     _state.update { it.copy(radioState = RadioState.CONVERSING, pendingOffer = c.place.name) }
+                    // Hands-free: listen for the answer with the live voice when it's enabled.
+                    if (liveVoiceEnabled) openLive(opening = null)
                     return@launch
                 }
                 storiesSinceTeaser++
@@ -708,6 +739,135 @@ class RadioSession(
     private fun teaserEligible(c: RankedCandidate): Boolean =
         (c.place.extract?.length ?: 0) >= teaserMinFactsChars && clock() - lastTeaserMs >= teaserGapMs
 
+    private fun openLive(opening: String?) {
+        val factory = liveFactory ?: return
+        if (live?.isOpen == true) return
+        speechJob?.cancel()
+        pendingId = null
+        engagedUntilMs = Long.MAX_VALUE
+        setRadioState(RadioState.CONVERSING)
+        live = factory(liveHost, scope).also { it.start(opening) }
+    }
+
+    private fun closeLive() {
+        live?.end()
+        live = null
+    }
+
+    private fun conversationRequest(utterance: String) = ConversationRequest(
+        utterance = utterance,
+        language = sessionLanguage,
+        location = _state.value.location,
+        area = _state.value.area,
+        active = activeId?.let { id -> ranked.firstOrNull { it.place.id == id } },
+        nearby = ranked.filter { it.place.id != activeId }.take(10),
+        recentTitles = recentTitles.toList(),
+        history = history.toList(),
+        theme = _state.value.theme,
+        profile = memory.promptLines(),
+        style = config().style,
+        tripContext = tripContext,
+        pendingOffer = pendingOffer?.name,
+    )
+
+    private val liveHost = object : LiveHost {
+        override fun liveInstructions() = RadioAgent.liveInstructions(conversationRequest(""))
+        override fun liveVoice() = config().voice
+        override fun liveModel() = config().liveModel
+        override fun transcriptionModel() = config().transcriptionModel
+
+        override fun onUserSaid(text: String) {
+            addTranscript(TranscriptEntry(Speaker.USER, text, clock()))
+            history += ConversationTurn(true, text)
+            while (history.size > 24) history.removeAt(0)
+        }
+
+        override fun onAssistantSaid(text: String) {
+            addTranscript(TranscriptEntry(Speaker.RADIO, text, clock(), activeId))
+            history += ConversationTurn(false, text)
+            lastSpeechEndMs = clock()
+        }
+
+        override suspend fun callTool(name: String, arguments: JsonObject): String = liveTool(name, arguments)
+
+        override fun onLiveState(state: LiveState?) {
+            _state.update { it.copy(live = state) }
+            if (state == null) {
+                live = null
+                if (_state.value.radioState == RadioState.CONVERSING) {
+                    clearOffer()
+                    endConversation()
+                }
+            }
+        }
+
+        override fun onLiveError(message: String) {
+            fail("Voice conversation unavailable: $message. Hold the mic to ask instead.")
+        }
+    }
+
+    private suspend fun liveTool(name: String, args: JsonObject): String {
+        fun arg(k: String) = (args[k] as? JsonPrimitive)?.contentOrNull?.trim()?.takeIf { it.isNotEmpty() && it != "null" }
+        return when (name) {
+            "web_search" -> {
+                val q = arg("query") ?: return "missing query"
+                setStatus("Checking online…", StatusLevel.WORKING)
+                try {
+                    timed(timeouts.conversationMs, "Search") { narrator.webAnswer(q, sessionLanguage, _state.value.area) }
+                } finally {
+                    if (_state.value.status?.text == "Checking online…") setStatus(null)
+                }
+            }
+            "radio_control" -> {
+                val action = ConversationAction.parse(arg("action"))
+                when (action) {
+                    ConversationAction.RESUME_RADIO -> { closeLive(); endConversation() }
+                    ConversationAction.PAUSE -> { closeLive(); doPause() }
+                    ConversationAction.SKIP -> {
+                        activeId?.let { id -> candidates[id]?.let { penalize(it) } }
+                        closeLive()
+                        endConversation()
+                    }
+                    ConversationAction.ACCEPT_OFFER -> {
+                        val offer = pendingOffer ?: return "there is no pending offer"
+                        closeLive()
+                        acceptOffer(offer)
+                    }
+                    ConversationAction.DECLINE_OFFER -> {
+                        val offer = pendingOffer ?: return "there is no pending offer"
+                        declineOffer(offer, speak = false)
+                    }
+                    else -> applyActionBeforeSpeaking(
+                        ConversationReply(
+                            reply = "",
+                            action = action,
+                            language = arg("language"),
+                            theme = arg("theme")?.let { Topic.fromKey(it) },
+                            entityId = arg("entity_id"),
+                        ),
+                    )
+                }
+                "done"
+            }
+            "remember" -> {
+                arg("forget_text")?.let { memory.forget(it) }
+                val cat = MemoryCategory.parse(arg("category"))
+                val text = arg("text")
+                if (cat != null && text != null) memory.remember(cat, text, arg("topic")?.let { Topic.fromKey(it) }, clock())
+                persistMemory()
+                rerank()
+                "remembered"
+            }
+            "set_trip" -> {
+                val trip = arg("summary") ?: return "missing summary"
+                tripContext = trip
+                _state.update { it.copy(tripContext = trip) }
+                "noted"
+            }
+            else -> "unknown tool $name"
+        }
+    }
+
     private fun shouldTease(c: RankedCandidate): Boolean = teaserEligible(c) && storiesSinceTeaser >= 2
 
     private fun clearOffer() {
@@ -735,6 +895,11 @@ class RadioSession(
         val loc = _state.value.location ?: return false
         if (tripAsked || tripContext != null || loc.travelMode != TravelMode.DRIVING) return false
         tripAsked = true
+        if (liveVoiceEnabled) {
+            // The live host asks in its natural voice and hears the answer hands-free.
+            openLive(opening = HostLine.TRIP_QUESTION.instruction)
+            return true
+        }
         speechJob = scope.launch {
             try {
                 val cfg = config()

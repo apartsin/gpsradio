@@ -5,12 +5,20 @@ import android.content.Intent
 import android.net.Uri
 import com.gpsradio.app.data.SettingsRepository
 import com.gpsradio.app.platform.FileHistoryStore
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
+import com.gpsradio.app.platform.AndroidPcmAudio
 import com.gpsradio.app.platform.FileFavoritesStore
 import com.gpsradio.app.platform.FileMemoryStore
 import com.gpsradio.app.platform.GeocoderAreaLabeler
 import com.gpsradio.app.platform.MediaAudioOutput
 import com.gpsradio.core.ai.OpenAiClient
 import com.gpsradio.core.ai.RadioAgent
+import com.gpsradio.core.ai.RealtimeClient
+import com.gpsradio.core.session.LiveConversation
+import com.gpsradio.core.session.LiveHost
+import kotlinx.coroutines.CoroutineScope
 import com.gpsradio.core.discovery.DiscoveryService
 import com.gpsradio.core.discovery.OverpassClient
 import com.gpsradio.core.discovery.WikipediaClient
@@ -50,6 +58,16 @@ open class GpsRadioApp : Application() {
 
     protected open fun areaLabeler(): AreaLabeler? = GeocoderAreaLabeler(this)
 
+    /** Natural hands-free voice (OpenAI Realtime); tests return null to use the classic pipeline. */
+    protected open fun liveFactory(http: OkHttpClient, baseUrl: String): ((LiveHost, CoroutineScope) -> LiveConversation)? {
+        val realtime = RealtimeClient(http, { settings.current.apiKey })
+        val pcm = AndroidPcmAudio(this)
+        return { host, scope -> LiveConversation({ model -> realtime.connect(model) }, pcm, host, scope) }
+    }
+
+    private fun micGranted() =
+        ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+
     override fun onCreate() {
         super.onCreate()
         settings = SettingsRepository(this)
@@ -80,10 +98,23 @@ open class GpsRadioApp : Application() {
             speech = OpenAiSpeech(openAi, models),
             audio = audioOutput(),
             historyStore = FileHistoryStore(this),
-            config = { settings.current.let { SessionConfig(it.resolvedLanguage(), it.interests, it.hostStyle) } },
+            config = {
+                settings.current.let {
+                    SessionConfig(
+                        language = it.resolvedLanguage(),
+                        interests = it.interests,
+                        style = it.hostStyle,
+                        liveVoice = it.liveVoice && micGranted(),
+                        voice = it.models.ttsVoice,
+                        liveModel = it.models.realtimeModel,
+                        transcriptionModel = it.models.transcriptionModel,
+                    )
+                }
+            },
             areaLabeler = areaLabeler(),
             memoryStore = FileMemoryStore(this),
             favoritesStore = FileFavoritesStore(this),
+            liveFactory = liveFactory(http, ep.openAiBaseUrl),
             onPersistLanguage = { tag -> settings.update { it.copy(languageAuto = false, preferredLanguage = tag) } },
             onNavigate = ::openInMaps,
         )
