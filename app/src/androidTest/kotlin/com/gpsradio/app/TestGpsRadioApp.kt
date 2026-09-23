@@ -24,6 +24,9 @@ class TestGpsRadioApp : GpsRadioApp() {
 
     override fun areaLabeler(): AreaLabeler? = null
 
+    /** No earcons: keeps the E2E timing and recorded audio exactly as before. */
+    override fun stingPlayer(): com.gpsradio.core.session.StingPlayer? = null
+
     /** The E2E test exercises the classic voice pipeline against the fake server. */
     override fun liveFactory(http: okhttp3.OkHttpClient, baseUrl: String): ((com.gpsradio.core.session.LiveHost, kotlinx.coroutines.CoroutineScope) -> com.gpsradio.core.session.LiveConversation)? = null
 }

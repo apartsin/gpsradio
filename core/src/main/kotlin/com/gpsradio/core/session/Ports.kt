@@ -41,6 +41,8 @@ data class SessionConfig(
     val voice: String = "alloy",
     val liveModel: String = "gpt-realtime",
     val transcriptionModel: String = "gpt-4o-mini-transcribe",
+    /** Short stings before stories and answers, and a blip when listening starts. */
+    val soundEffects: Boolean = true,
 )
 
 class OpenAiSpeech(

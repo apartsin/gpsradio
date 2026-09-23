@@ -33,15 +33,38 @@ interface Narrator {
     /** A short host line such as the road-trip question, in the listener's language and the host's style. */
     suspend fun hostLine(kind: HostLine, language: String, style: HostStyle): String = kind.fallback
 
+    /** A host line built from a plain English [draft] (e.g. tour directions); the draft is its own fallback. */
+    suspend fun hostLine(kind: HostLine, draft: String, language: String, style: HostStyle): String = draft
+
     /** A short, spoken-style answer researched on the web (used by the live voice host as a tool). */
     suspend fun webAnswer(question: String, language: String, area: AreaLabel?): String = "Web search is not available."
 }
 
-enum class HostLine(val instruction: String, val fallback: String) {
+enum class HostLine(
+    val instruction: String,
+    val fallback: String,
+    /** For draft-based lines: false keeps an English draft verbatim (functional lines, no model call). */
+    val restyle: Boolean = true,
+) {
     TRIP_QUESTION(
         "The listener just started driving. In ONE short, friendly sentence, ask where they are heading today " +
             "(and optionally what they are in the mood for), so you can pick stories along the way.",
         "Looks like we're on the road! Where are we heading today? I'll pick stories along the way.",
+    ),
+    TOUR_INTRO(
+        "You are starting a short walking tour. Turn the draft into a lively spoken intro of at most three sentences. " +
+            "Keep every stop name, the order, the duration and the first direction exactly; add nothing else factual.",
+        "",
+    ),
+    TOUR_NEXT(
+        "Say this walking direction naturally in one short sentence. Keep the place name, distance and direction exactly.",
+        "",
+        restyle = false,
+    ),
+    TOUR_END(
+        "Close the walking tour warmly in at most two short sentences. Keep any direction and distance exactly.",
+        "",
+        restyle = false,
     ),
 }
 
@@ -85,6 +108,8 @@ data class ConversationRequest(
     val tripContext: String? = null,
     /** A story the radio just offered ("want to hear it?"), awaiting the listener's answer. */
     val pendingOffer: String? = null,
+    /** The active walking tour, e.g. "stop 2 of 5, next: Castle, about 250 metres ahead". */
+    val tour: String? = null,
 )
 
 /** A preference the model decided to remember. */
@@ -92,7 +117,7 @@ data class MemoryDraft(val category: MemoryCategory, val text: String, val topic
 
 enum class ConversationAction {
     NONE, RESUME_RADIO, PAUSE, SKIP, CHANGE_LANGUAGE, SET_THEME, CLEAR_THEME, NAVIGATE, REFRESH_NEARBY,
-    ACCEPT_OFFER, DECLINE_OFFER, STAR_PLACE;
+    ACCEPT_OFFER, DECLINE_OFFER, STAR_PLACE, START_TOUR, END_TOUR;
 
     companion object {
         fun parse(s: String?): ConversationAction =
@@ -112,6 +137,8 @@ data class ConversationReply(
     val forget: List<String> = emptyList(),
     val needsSearch: Boolean = false,
     val tripContext: String? = null,
+    /** Length of the walking tour requested with [ConversationAction.START_TOUR]. */
+    val tourMinutes: Int? = null,
 )
 
 data class ModelConfig(
@@ -199,6 +226,22 @@ class RadioAgent(
         ).text.let(::cleanForSpeech)
     }.getOrElse { kind.fallback }
 
+    override suspend fun hostLine(kind: HostLine, draft: String, language: String, style: HostStyle): String {
+        // Functional English lines are spoken as drafted; everything else is restyled or translated.
+        if (!kind.restyle && language.substringBefore('-').equals("en", ignoreCase = true)) return draft
+        return runCatching {
+            openAi.respond(
+                OpenAiClient.ResponseRequest(
+                    model = models().narrationModel,
+                    instructions = "You are ${style.persona} Speak ${Languages.displayName(language)} ($language). " +
+                        kind.instruction + " Output only the spoken line, plain text.",
+                    input = listOf(OpenAiClient.Message("user", "Draft: $draft")),
+                    maxOutputTokens = 200,
+                ),
+            ).text.let(::cleanForSpeech).ifBlank { draft }
+        }.getOrElse { draft }
+    }
+
     override suspend fun webAnswer(question: String, language: String, area: AreaLabel?): String {
         val res = openAi.respond(
             OpenAiClient.ResponseRequest(
@@ -275,6 +318,9 @@ class RadioAgent(
             - Do not repeat anything from already_told_this_trip. No greetings or sign-offs.
             - If "trip" is given, you may connect the place to where the listener is heading, briefly.
             - Respect listener_profile: lean into what they like, avoid what they avoid, follow their style wishes.
+            - format "arrival": the listener is now standing in front of the place and has just heard its story. In two to
+              four sentences, tell them what to look for with their own eyes (a detail of the facade, a plaque, the view),
+              using only "facts"; if the facts describe nothing visible, give one short extra detail instead. Do not retell the story.
             - format "teaser": instead of the full story, give a one or two sentence irresistible hook and end by asking
               whether they want to hear the story (for example "Want the full story?"). Do not tell the story itself yet.
             - Speak ${Languages.displayName(language)} ($language). Keep original place names, adding a short translation when useful.
@@ -297,6 +343,7 @@ class RadioAgent(
                 req.theme?.let { put("active_theme", it.key) }
                 req.tripContext?.let { put("trip", it) }
                 req.pendingOffer?.let { put("pending_offer", it) }
+                req.tour?.let { put("walking_tour", it) }
                 if (req.profile.isNotEmpty()) putJsonArray("listener_profile") { req.profile.forEach { add(JsonPrimitive(it)) } }
                 req.active?.let { a ->
                     putJsonObject("active_story") {
@@ -365,6 +412,9 @@ class RadioAgent(
                 - refresh_nearby: listener asks what else is nearby and the list is empty or stale.
                 - accept_offer / decline_offer: answer to pending_offer (see above).
                 - star_place: listener wants to save/star/favourite a place for later; set entity_id (active story if unclear).
+                - start_tour: listener wants a short walking tour ("give me 30 minutes", "show me around"); set tour_minutes
+                  (15, 30 or 60; 30 if unsaid) and reply with at most a few words, because the tour intro follows.
+                - end_tour: listener wants to stop the walking tour (walking_tour in the context).
                 - none: otherwise.
 
                 Memory (persists across sessions; listener_profile shows what is already remembered):
@@ -393,7 +443,8 @@ class RadioAgent(
             Tools:
             - web_search: for anything beyond the context facts (verification, current info, more depth). Say a quick filler first.
             - radio_control: resume_radio when they're done or say "continue"; pause; skip; change_language; set_theme/clear_theme;
-              navigate; star_place when they want to save a place; accept_offer / decline_offer to answer pending_offer.
+              navigate; star_place when they want to save a place; accept_offer / decline_offer to answer pending_offer;
+              start_tour with minutes (15, 30 or 60) for a walking tour ("give me 30 minutes"); end_tour to stop it.
             - remember: durable preferences they state ("I love castles", "keep it short"); acknowledge briefly.
             - set_trip: when they tell you where they're heading or what the trip is about.
 
@@ -438,9 +489,10 @@ class RadioAgent(
                 }
                 putJsonObject("needs_search") { put("type", "boolean") }
                 putJsonObject("trip_context") { putJsonArray("type") { add(JsonPrimitive("string")); add(JsonPrimitive("null")) } }
+                putJsonObject("tour_minutes") { putJsonArray("type") { add(JsonPrimitive("integer")); add(JsonPrimitive("null")) } }
             }
             putJsonArray("required") {
-                listOf("reply", "action", "language", "persist_language", "theme", "entity_id", "remember", "forget", "needs_search", "trip_context")
+                listOf("reply", "action", "language", "persist_language", "theme", "entity_id", "remember", "forget", "needs_search", "trip_context", "tour_minutes")
                     .forEach { add(JsonPrimitive(it)) }
             }
         }
@@ -467,6 +519,7 @@ class RadioAgent(
                 },
                 needsSearch = (obj["needs_search"] as? JsonPrimitive)?.booleanOrNull ?: false,
                 tripContext = str("trip_context"),
+                tourMinutes = str("tour_minutes")?.toDoubleOrNull()?.toInt(),
                 forget = (obj["forget"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.contentOrNull?.takeIf { s -> s.isNotBlank() } },
             )
         }

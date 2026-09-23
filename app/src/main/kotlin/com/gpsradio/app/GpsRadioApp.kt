@@ -10,6 +10,9 @@ import android.content.pm.PackageManager
 import androidx.core.content.ContextCompat
 import com.gpsradio.app.platform.AndroidPcmAudio
 import com.gpsradio.app.platform.FileFavoritesStore
+import com.gpsradio.app.platform.FileJournalStore
+import com.gpsradio.app.platform.Stings
+import com.gpsradio.core.session.StingPlayer
 import com.gpsradio.app.platform.FileMemoryStore
 import com.gpsradio.app.platform.GeocoderAreaLabeler
 import com.gpsradio.app.platform.MediaAudioOutput
@@ -57,6 +60,9 @@ open class GpsRadioApp : Application() {
     protected open fun audioOutput(): AudioOutput = MediaAudioOutput(this, onFocusLost = { session.pause() })
 
     protected open fun areaLabeler(): AreaLabeler? = GeocoderAreaLabeler(this)
+
+    /** Earcons synthesized in code; tests may return null to keep audio silent. */
+    protected open fun stingPlayer(): StingPlayer? = Stings()
 
     /** Natural hands-free voice (OpenAI Realtime); tests return null to use the classic pipeline. */
     protected open fun liveFactory(http: OkHttpClient, baseUrl: String): ((LiveHost, CoroutineScope) -> LiveConversation)? {
@@ -108,6 +114,7 @@ open class GpsRadioApp : Application() {
                         voice = it.models.ttsVoice,
                         liveModel = it.models.realtimeModel,
                         transcriptionModel = it.models.transcriptionModel,
+                        soundEffects = it.soundEffects,
                     )
                 }
             },
@@ -117,6 +124,8 @@ open class GpsRadioApp : Application() {
             liveFactory = liveFactory(http, ep.openAiBaseUrl),
             onPersistLanguage = { tag -> settings.update { it.copy(languageAuto = false, preferredLanguage = tag) } },
             onNavigate = ::openInMaps,
+            stings = stingPlayer(),
+            journalStore = FileJournalStore(this),
         )
     }
 

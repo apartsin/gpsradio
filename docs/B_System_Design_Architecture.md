@@ -549,3 +549,23 @@ Typed questions are routed into an open live session. If the connection fails, t
 - **Notification.** MediaStyle, with a media session for lock-screen, headset and car Bluetooth controls.
 - **Icon.** An adaptive launcher icon (pin, amber on-air light, broadcast arcs) with a themed monochrome layer.
 - **Distribution.** A committed debug signing key keeps updates installable. CI publishes the `latest` GitHub release containing `gpsradio.apk`.
+
+## 33. Walking Tours, Stings and the Trip Journal
+
+**Walking mini-tour** ("give me 30 minutes").
+- `TourPlanner` (pure) picks 3–6 high-scoring stops that fit the budget (walking 4.5 km/h × 1.25 street factor, 4 min per stop, loop back to the start), trying several greedy orderings, and orders them by nearest neighbour plus 2-opt. It falls back to two stops, or returns null.
+- `RadioSession.startTour(minutes)` sets `tour: TourState(stops, nextIndex)` and speaks `HostLine.TOUR_INTRO`, drafted by `TourText` and restyled by the narrator. While a tour runs, the regular scheduler is held back.
+- Coming within 40 m of the next stop (or of a later one) tells its story. A second `SegmentFormat.ARRIVAL` chapter ("look for…") follows when the facts are rich enough; it is prepared while the story plays. Directions to the next stop (`TOUR_NEXT`) come after each stop, and `TOUR_END` closes the tour. English functional lines skip the model.
+- Voice: the `start_tour` / `end_tour` conversation actions (`tour_minutes`) and the `radio_control` tool (`minutes`). The conversation context carries `walking_tour`.
+- UI: the chips "Walking tour: 15 · 30 · 60 min" in the Nearby tab, plus the line "Stop 2 of 5 · Castle · 250 m" with End tour on the Now tab (`TourUi.kt`).
+
+**Stings.**
+- `StingPlayer` is a port. `StingSynth` (in core, pure) synthesizes 24 kHz PCM: a 0.6 s station arpeggio before every story, a two-note chime before classic answers, and a short blip when a live conversation starts listening.
+- The app's `Stings` plays them through a static `AudioTrack`.
+- The Settings switch "Sound effects" (`SessionConfig.soundEffects`) turns them off.
+
+**Trip journal.**
+- Every story heard to the end is recorded with place id, name, time, point, first sentence and source URL.
+- `Journal` keeps a local-day grouping, replaces a place heard again on the same day, and prunes entries after 90 days. It is persisted as JSON through `JournalStore` (`FileJournalStore`).
+- The Saved tab lists it by day (`JournalUi.kt`). Each entry has "Tell me again" (re-narrates the place if it is still a candidate, otherwise asks the host) and Share.
+- **GPX export** of a day (`JournalGpx`, GPX 1.1 waypoints plus a track) goes through the share sheet as text, with the `.gpx` file name as the subject. This avoids a FileProvider, manifest entries and URI grants, and works with every mail, chat, notes or cloud app. A file attachment through a FileProvider is a later option if direct import into map apps is needed.

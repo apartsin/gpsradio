@@ -96,6 +96,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.gpsradio.core.ai.RadioAgent
 import com.gpsradio.core.favorites.FavoritePlace
+import com.gpsradio.core.journal.JournalEntry
 import com.gpsradio.core.lang.Languages
 import com.gpsradio.core.model.RadioState
 import com.gpsradio.core.model.RankedCandidate
@@ -128,6 +129,11 @@ data class RadioActions(
     val onAnswerOffer: (Boolean) -> Unit = {},
     /** Natural-voice mode: tap the mic to open/close a hands-free conversation. */
     val onLiveToggle: () -> Unit = {},
+    /** Walking mini-tour (TourUi.kt). */
+    val onStartTour: (Int) -> Unit = {},
+    val onEndTour: () -> Unit = {},
+    /** Trip journal in the Saved tab (JournalUi.kt). */
+    val journal: JournalActions = JournalActions(),
 )
 
 @Composable
@@ -198,6 +204,13 @@ fun RadioScreen(vm: MainViewModel, onOpenSettings: () -> Unit, autoStart: Boolea
         onLiveToggle = {
             if (granted(Manifest.permission.RECORD_AUDIO)) vm.toggleLive() else micPermission.launch(Manifest.permission.RECORD_AUDIO)
         },
+        onStartTour = vm::startTour,
+        onEndTour = vm::endTour,
+        journal = JournalActions(
+            onRetell = vm::retell,
+            onShare = { e -> context.startActivity(vm.journalShareIntent(e)) },
+            onExportDay = { day -> vm.journalGpxIntent(day)?.let { context.startActivity(it) } },
+        ),
     )
     RadioContent(
         state = state,
@@ -274,14 +287,14 @@ fun RadioContent(
 private fun IdleContent(state: RadioUiState, actions: RadioActions, starredIds: Set<String>, modifier: Modifier) {
     var tab by remember { mutableIntStateOf(0) }
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        if (state.favorites.isNotEmpty()) {
+        if (state.favorites.isNotEmpty() || state.journal.isNotEmpty()) {
             TabRow(selectedTabIndex = tab) {
                 Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Listen") })
                 Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Saved (${state.favorites.size})") })
             }
         }
-        if (tab == 1 && state.favorites.isNotEmpty()) {
-            Saved(state.favorites, actions)
+        if (tab == 1 && (state.favorites.isNotEmpty() || state.journal.isNotEmpty())) {
+            Saved(state.favorites, actions, state.journal)
             return@Column
         }
         Spacer(Modifier.weight(1f))
@@ -406,6 +419,7 @@ private fun ContentTabs(
                 // Photo/map height adapts to the screen so the title, actions and story stay visible on small phones.
                 val panelHeight = (maxHeight * 0.45f).coerceIn(110.dp, 240.dp)
                 Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    state.tour?.let { TourBanner(it, state.location, a.onEndTour) }
                     FocusActions(state, starredIds, a)
                     // The panel is not inside a scroll container, so the map can be panned freely.
                     placePanel(state, Modifier.height(panelHeight))
@@ -413,8 +427,11 @@ private fun ContentTabs(
                 }
             }
             1 -> Transcript(state.transcript)
-            2 -> Nearby(state, starredIds, a)
-            else -> Saved(state.favorites, a)
+            2 -> Column {
+                TourChips(state.tour, a.onStartTour)
+                Nearby(state, starredIds, a)
+            }
+            else -> Saved(state.favorites, a, state.journal, canRetell = true)
         }
     }
 }
@@ -679,8 +696,8 @@ private fun NearbyRow(c: RankedCandidate, direction: String, starred: Boolean, a
 }
 
 @Composable
-private fun Saved(favorites: List<FavoritePlace>, a: RadioActions) {
-    if (favorites.isEmpty()) {
+private fun Saved(favorites: List<FavoritePlace>, a: RadioActions, journal: List<JournalEntry> = emptyList(), canRetell: Boolean = false) {
+    if (favorites.isEmpty() && journal.isEmpty()) {
         Text("Tap ☆ on a story or a nearby place to save it here.", Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall)
         return
     }
@@ -709,5 +726,6 @@ private fun Saved(favorites: List<FavoritePlace>, a: RadioActions) {
                 }
             }
         }
+        journalItems(journal, canRetell, a.journal)
     }
 }

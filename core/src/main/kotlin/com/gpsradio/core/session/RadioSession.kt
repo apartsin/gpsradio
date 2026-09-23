@@ -36,6 +36,15 @@ import com.gpsradio.core.model.Speaker
 import com.gpsradio.core.model.Topic
 import com.gpsradio.core.model.TranscriptEntry
 import com.gpsradio.core.model.TravelMode
+import com.gpsradio.core.journal.Journal
+import com.gpsradio.core.journal.JournalEntry
+import com.gpsradio.core.journal.JournalStore
+import com.gpsradio.core.model.ScoreBreakdown
+import com.gpsradio.core.tour.TourPlanner
+import com.gpsradio.core.tour.TourState
+import com.gpsradio.core.tour.TourText
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -97,6 +106,10 @@ data class RadioUiState(
     val transcript: List<TranscriptEntry> = emptyList(),
     val discovering: Boolean = false,
     val status: Status? = null,
+    /** Non-null while a walking mini-tour is active. */
+    val tour: TourState? = null,
+    /** Stories heard to the end, newest first (trip journal). */
+    val journal: List<JournalEntry> = emptyList(),
 )
 
 /**
@@ -131,6 +144,14 @@ class RadioSession(
     private val offerWindowMs: Long = 25_000,
     private val teaserGapMs: Long = 8 * 60_000L,
     private val teaserMinFactsChars: Int = 900,
+    /** Earcons before stories/answers; null plays none. */
+    private val stings: StingPlayer? = null,
+    private val journalStore: JournalStore? = null,
+    private val tourPlanner: TourPlanner = TourPlanner(),
+    /** A tour stop counts as reached within this distance. */
+    private val arrivalRadiusM: Double = 40.0,
+    /** Facts needed for the optional "you're standing in front of it" chapter. */
+    private val arrivalChapterMinChars: Int = 400,
 ) {
     data class Timeouts(
         val narrationMs: Long = 25_000,
@@ -172,6 +193,10 @@ class RadioSession(
     private var tripAsked = false
     private var tripContext: String? = null
     private var live: LiveConversation? = null
+    private val journal = Journal()
+    private var tour: TourState? = null
+    /** After a tour stop's story: directions to the next stop (or the closing line) are still to be said. */
+    private var tourHintDue = false
 
     private var lastRefreshPoint: GeoPoint? = null
     private var lastRefreshMode: TravelMode? = null
@@ -200,7 +225,8 @@ class RadioSession(
         scope.launch {
             memory.restore(runCatching { memoryStore?.load() }.getOrNull())
             favorites.restore(runCatching { favoritesStore?.load() }.getOrNull())
-            _state.update { it.copy(memory = memory.all, favorites = favorites.all) }
+            journal.restore(runCatching { journalStore?.load() }.getOrNull())
+            _state.update { it.copy(memory = memory.all, favorites = favorites.all, journal = journal.all) }
         }
     }
 
@@ -232,6 +258,7 @@ class RadioSession(
         pendingOffer = null
         tripAsked = false
         tripContext = null
+        clearTour()
         _state.update { it.copy(radioState = RadioState.IDLE, nowPlaying = null, discovering = false, pendingOffer = null, tripContext = null) }
     }
 
@@ -251,6 +278,7 @@ class RadioSession(
         if (_state.value.radioState == RadioState.IDLE) return@launch
         maybeRefresh(ctx)
         rerank()
+        if (tour != null) tourTick()
     }
 
     fun setModeOverride(mode: TravelMode?) = scope.launch {
@@ -402,6 +430,8 @@ class RadioSession(
         }
         // Retries and refresh requests must not depend on new fixes: stationary phones get none.
         if (s.radioState != RadioState.IDLE) processor.current?.let { maybeRefresh(it) }
+        // During a walking tour only the tour's stops air (on arrival).
+        if (tour != null) return tourTick()
 
         if (_state.value.radioState != RadioState.RADIO || speaking || discoveryJob?.isActive == true) return
         if (now < engagedUntilMs || now < nextNarrationAllowedMs) return
@@ -503,6 +533,7 @@ class RadioSession(
                 addTranscript(TranscriptEntry(Speaker.RADIO, segment.text, clock(), c.place.id, segment.sources))
                 _state.update { it.copy(radioState = RadioState.NARRATING, nowPlaying = segment, focus = FocusPlace.of(c.place)) }
                 loadGallery(c.place)
+                sting(Sting.STATION)
                 if (format == SegmentFormat.TEASER) {
                     audio.play(bytes)
                     // Wait for "yes/no"; the story stays unheard until it is actually told.
@@ -524,6 +555,7 @@ class RadioSession(
                 // Only a story that was actually heard to the end counts as heard.
                 heard.markHeard(c.place.id, c.place.name, clock())
                 persistHeard()
+                recordJournal(c.place, segment)
                 recentTitles += c.place.name
                 pendingId = null
                 backoffMs = 0
@@ -636,6 +668,7 @@ class RadioSession(
                         style = config().style,
                         tripContext = tripContext,
                         pendingOffer = pendingOffer?.name,
+                        tour = tourSummary(),
                     ),
                     onSearching = { setStatus("Checking online…", StatusLevel.WORKING) },
                 )
@@ -688,6 +721,7 @@ class RadioSession(
             }
             if (bytes != null) {
                 lastAudio = bytes
+                sting(Sting.ANSWER)
                 audio.play(bytes)
             }
         }
@@ -695,6 +729,8 @@ class RadioSession(
         when (reply.action) {
             ConversationAction.RESUME_RADIO, ConversationAction.SKIP, ConversationAction.DECLINE_OFFER -> endConversation()
             ConversationAction.PAUSE -> setRadioState(RadioState.PAUSED)
+            ConversationAction.START_TOUR -> { endConversation(); startTour(reply.tourMinutes ?: 30) }
+            ConversationAction.END_TOUR -> { clearTour(); endConversation() }
             else -> engagedUntilMs = clock() + conversationIdleMs
         }
     }
@@ -768,6 +804,7 @@ class RadioSession(
         style = config().style,
         tripContext = tripContext,
         pendingOffer = pendingOffer?.name,
+        tour = tourSummary(),
     )
 
     private val liveHost = object : LiveHost {
@@ -791,7 +828,9 @@ class RadioSession(
         override suspend fun callTool(name: String, arguments: JsonObject): String = liveTool(name, arguments)
 
         override fun onLiveState(state: LiveState?) {
+            val previous = _state.value.live
             _state.update { it.copy(live = state) }
+            if (state == LiveState.LISTENING && previous == LiveState.CONNECTING) scope.launch { sting(Sting.LISTENING) }
             if (state == null) {
                 live = null
                 if (_state.value.radioState == RadioState.CONVERSING) {
@@ -837,6 +876,12 @@ class RadioSession(
                         val offer = pendingOffer ?: return "there is no pending offer"
                         declineOffer(offer, speak = false)
                     }
+                    ConversationAction.START_TOUR -> {
+                        closeLive()
+                        endConversation()
+                        startTour(arg("minutes")?.toDoubleOrNull()?.toInt() ?: 30)
+                    }
+                    ConversationAction.END_TOUR -> clearTour()
                     else -> applyActionBeforeSpeaking(
                         ConversationReply(
                             reply = "",
@@ -992,6 +1037,212 @@ class RadioSession(
 
     private fun addTranscript(e: TranscriptEntry) =
         _state.update { it.copy(transcript = (it.transcript + e).takeLast(100)) }
+
+    // ---- stings, journal, walking tour ------------------------------------------------------
+
+    /** Plays a sound effect when enabled; never fails the caller. */
+    private suspend fun sting(kind: Sting) {
+        val player = stings ?: return
+        if (!config().soundEffects) return
+        try {
+            player.play(kind)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // A missing earcon is not worth an error.
+        }
+    }
+
+    private fun recordJournal(place: PlaceCandidate, segment: Segment) {
+        journal.record(place.id, place.name, place.point, segment.text, place.url, clock())
+        runCatching { journalStore?.save(journal.serialize()) }
+        _state.update { it.copy(journal = journal.all) }
+    }
+
+    /** "Tell me again" from the journal: re-narrate a place still around, otherwise ask the host about it. */
+    fun retell(placeId: String, name: String) = scope.launch {
+        if (_state.value.radioState == RadioState.IDLE) return@launch
+        val place = candidates[placeId]
+        val loc = _state.value.location
+        if (place != null && loc != null) {
+            speechJob?.cancel()
+            speakStory(rankedFor(place, loc), allowTeaser = false)
+        } else {
+            ask("Tell me again about $name, please.")
+        }
+    }
+
+    /** Plans and starts a walking mini-tour of about [minutes] ("give me 30 minutes"). */
+    fun startTour(minutes: Int) = scope.launch { beginTour(minutes.coerceIn(10, 120)) }
+
+    fun endTour() = scope.launch { clearTour() }
+
+    private fun beginTour(minutes: Int) {
+        if (_state.value.radioState == RadioState.IDLE) return
+        val loc = _state.value.location ?: processor.current
+        if (loc == null) {
+            setStatus("Waiting for GPS to plan a tour…")
+            return
+        }
+        rerank()
+        val plan = tourPlanner.plan(ranked, loc.point, minutes)
+        if (plan == null) {
+            setStatus("Not enough sights nearby for a $minutes-minute tour yet.")
+            return
+        }
+        closeLive()
+        speechJob?.cancel()
+        pendingId = null
+        prefetchJob?.cancel()
+        prefetched = null
+        clearOffer()
+        engagedUntilMs = 0
+        val t = TourState.of(plan)
+        tour = t
+        tourHintDue = false
+        _state.update { it.copy(tour = t, radioState = RadioState.RADIO, status = null) }
+        speakTourLine(HostLine.TOUR_INTRO, TourText.intro(t, loc.point, heading(loc)))
+    }
+
+    private fun clearTour() {
+        tour = null
+        tourHintDue = false
+        _state.update { it.copy(tour = null) }
+    }
+
+    private fun heading(loc: LocationContext): Double? = loc.headingDeg?.takeIf { loc.travelMode != TravelMode.STATIONARY }
+
+    /** Scheduler step during a tour: directions after a stop, then the next stop's story on arrival. */
+    private fun tourTick() {
+        val t = tour ?: return
+        if (_state.value.radioState != RadioState.RADIO || speechJob?.isActive == true || clock() < engagedUntilMs) return
+        val loc = _state.value.location ?: return
+        val next = t.next
+        if (tourHintDue) {
+            if (next == null) {
+                val draft = TourText.finish(t, loc.point, heading(loc))
+                clearTour()
+                speakTourLine(HostLine.TOUR_END, draft)
+                return
+            }
+            tourHintDue = false
+            if (Geo.distanceM(loc.point, next.point) > arrivalRadiusM) {
+                speakTourLine(HostLine.TOUR_NEXT, TourText.next(next, loc.point, heading(loc)))
+                return
+            }
+        }
+        // Arrival at the next stop, or at a later one if the listener walked there directly.
+        val arrived = (t.nextIndex until t.stops.size).firstOrNull { Geo.distanceM(loc.point, t.stops[it].point) <= arrivalRadiusM }
+        if (arrived != null) speakTourStop(arrived)
+    }
+
+    private fun speakTourLine(kind: HostLine, draft: String) {
+        speechJob = scope.launch {
+            val cfg = config()
+            val lang = sessionLanguage
+            val line = try {
+                timed(timeouts.narrationMs, "Host line") { narrator.hostLine(kind, draft, lang, cfg.style) }.ifBlank { draft }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                draft
+            }
+            addTranscript(TranscriptEntry(Speaker.RADIO, line, clock()))
+            _state.update { it.copy(radioState = RadioState.NARRATING, nowPlaying = Segment(line, null, "Walking tour", emptyList())) }
+            try {
+                val bytes = timed(timeouts.speechMs, "Speech") { speech.synthesize(line, lang, cfg.style) }
+                audio.play(bytes)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                fail("Speech failed: ${e.message}")
+            }
+            lastSpeechEndMs = clock()
+            setRadioState(RadioState.RADIO)
+            scope.launch { tourTick() }
+        }
+    }
+
+    private fun speakTourStop(index: Int) {
+        val t = tour ?: return
+        val loc = _state.value.location ?: return
+        val stop = t.stops[index]
+        val advanced = t.copy(nextIndex = index + 1)
+        tour = advanced
+        tourHintDue = true
+        _state.update { it.copy(tour = advanced) }
+        val c = rankedFor(stop.place, loc)
+        speechJob = scope.launch {
+            pendingId = c.place.id
+            val lang = sessionLanguage
+            setRadioState(RadioState.RESEARCHING)
+            try {
+                coroutineScope {
+                    // "You're standing in front of it": a short second chapter, prepared while the story plays.
+                    val chapter = if ((c.place.extract?.length ?: 0) >= arrivalChapterMinChars) {
+                        async { prepareOrNull(c, loc, lang, SegmentFormat.ARRIVAL) }
+                    } else null
+                    val (segment, bytes) = prepare(c, loc, lang)
+                    activeId = c.place.id
+                    lastAudio = bytes
+                    addTranscript(TranscriptEntry(Speaker.RADIO, segment.text, clock(), c.place.id, segment.sources))
+                    _state.update { it.copy(radioState = RadioState.NARRATING, nowPlaying = segment, focus = FocusPlace.of(c.place)) }
+                    loadGallery(c.place)
+                    sting(Sting.STATION)
+                    audio.play(bytes)
+                    heard.markHeard(c.place.id, c.place.name, clock())
+                    persistHeard()
+                    recordJournal(c.place, segment)
+                    recentTitles += c.place.name
+                    pendingId = null
+                    chapter?.await()?.let { (more, moreBytes) ->
+                        addTranscript(TranscriptEntry(Speaker.RADIO, more.text, clock(), c.place.id, more.sources))
+                        _state.update { it.copy(nowPlaying = more) }
+                        lastAudio = moreBytes
+                        audio.play(moreBytes)
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                fail("Couldn't tell the story of ${c.place.name}: ${e.message}")
+            }
+            pendingId = null
+            lastSpeechEndMs = clock()
+            setRadioState(RadioState.RADIO)
+            scope.launch { tourTick() }
+        }
+    }
+
+    private suspend fun prepareOrNull(c: RankedCandidate, loc: LocationContext, lang: String, format: SegmentFormat): Pair<Segment, ByteArray>? =
+        try {
+            prepare(c, loc, lang, format)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            null
+        }
+
+    /** A ranked view of [place] for narration, even when it is no longer in (or filtered out of) the ranking. */
+    private fun rankedFor(place: PlaceCandidate, loc: LocationContext): RankedCandidate {
+        val known = ranked.firstOrNull { it.place.id == place.id }
+        return RankedCandidate(
+            place = place,
+            distanceM = Geo.distanceM(loc.point, place.point),
+            bearingDeg = Geo.bearingDeg(loc.point, place.point),
+            score = known?.score ?: 0.0,
+            breakdown = known?.breakdown ?: ScoreBreakdown(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+        )
+    }
+
+    /** One line for the model about the active tour, e.g. "stop 2 of 5, next: Castle, about 250 metres ahead". */
+    private fun tourSummary(): String? {
+        val t = tour ?: return null
+        val next = t.next ?: return "all ${t.stops.size} stops done, closing the tour"
+        val loc = _state.value.location
+        val way = loc?.let { ", " + TourText.way(it.point, heading(it), next.point) } ?: ""
+        return "stop ${t.nextIndex + 1} of ${t.stops.size}, next: ${next.name}$way; stops: " + t.stops.joinToString(", ") { it.name }
+    }
 
     companion object {
         fun langBase(tag: String): String = tag.substringBefore('-').lowercase()

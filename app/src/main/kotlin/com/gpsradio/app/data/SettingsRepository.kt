@@ -24,6 +24,8 @@ data class AppSettings(
     val hostStyle: HostStyle = HostStyle.ENTERTAINING,
     /** Natural, hands-free voice conversation via the OpenAI Realtime API (falls back to classic). */
     val liveVoice: Boolean = true,
+    /** Short stings before stories and answers, and a blip when listening starts. */
+    val soundEffects: Boolean = true,
 ) {
     val hasApiKey: Boolean get() = apiKey.isNotBlank()
 
@@ -62,6 +64,7 @@ class SettingsRepository(context: Context) {
             putString(KEY_REALTIME_MODEL, next.models.realtimeModel)
             putString(KEY_HOST_STYLE, next.hostStyle.key)
             putBoolean(KEY_LIVE_VOICE, next.liveVoice)
+            putBoolean(KEY_SOUND_EFFECTS, next.soundEffects)
         }
         _settings.value = next.copy(apiKey = next.apiKey.trim())
     }
@@ -84,6 +87,7 @@ class SettingsRepository(context: Context) {
             ),
             hostStyle = HostStyle.fromKey(plain.getString(KEY_HOST_STYLE, null)),
             liveVoice = plain.getBoolean(KEY_LIVE_VOICE, d.liveVoice),
+            soundEffects = plain.getBoolean(KEY_SOUND_EFFECTS, d.soundEffects),
         )
     }
 
@@ -126,5 +130,6 @@ class SettingsRepository(context: Context) {
         const val KEY_REALTIME_MODEL = "realtime_model"
         const val KEY_HOST_STYLE = "host_style"
         const val KEY_LIVE_VOICE = "live_voice"
+        const val KEY_SOUND_EFFECTS = "sound_effects"
     }
 }

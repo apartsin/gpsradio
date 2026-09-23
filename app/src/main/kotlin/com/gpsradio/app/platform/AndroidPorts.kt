@@ -8,6 +8,7 @@ import com.gpsradio.core.model.AreaLabel
 import com.gpsradio.core.model.GeoPoint
 import com.gpsradio.core.session.AreaLabeler
 import com.gpsradio.core.favorites.FavoritesStore
+import com.gpsradio.core.journal.JournalStore
 import com.gpsradio.core.memory.MemoryStore
 import com.gpsradio.core.session.HistoryStore
 import kotlinx.coroutines.Dispatchers
@@ -33,6 +34,13 @@ class FileMemoryStore(context: Context) : MemoryStore {
 /** Starred places; stays on the device (excluded from backups). */
 class FileFavoritesStore(context: Context) : FavoritesStore {
     private val file = File(context.filesDir, "favorites.json")
+    override fun load(): String? = file.takeIf { it.exists() }?.readText()
+    override fun save(serialized: String) = file.writeText(serialized)
+}
+
+/** Trip journal of heard stories; stays on the device (excluded from backups). */
+class FileJournalStore(context: Context) : JournalStore {
+    private val file = File(context.filesDir, "journal.json")
     override fun load(): String? = file.takeIf { it.exists() }?.readText()
     override fun save(serialized: String) = file.writeText(serialized)
 }
