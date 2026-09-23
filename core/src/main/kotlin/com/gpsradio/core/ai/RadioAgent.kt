@@ -586,6 +586,8 @@ class RadioAgent(
             dates and numbers only when they matter and rounded when that sounds more natural ("almost a thousand
             years ago"). Talk to the listener ("you"), react to your own facts now and then ("which is wild, if you
             think about it"), and leave out encyclopedia filler (full titles, lists of dates, administrative details).
+            Casual never means inventing: a reaction is an opinion, not a new fact. Never speculate about what people
+            did, saw or felt ("he surely loved…", "undoubtedly enjoyed…", "must have…") unless the facts say so.
 
             Write ONE spoken segment in the "format" given in the JSON input (by default a story about the place).
             Facts:

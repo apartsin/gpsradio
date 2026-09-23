@@ -138,8 +138,9 @@ class LiveEvalTest {
                 val s = agent.narrate(narr(castle))
                 val words = s.text.split(Regex("\\s+")).size
                 val g = judge.check(
-                    "Every factual claim (dates, numbers, names, events) in TEXT is supported by FACTS. Humour, opinions and " +
-                        "descriptions of location/direction are fine.",
+                    "Every factual claim (dates, numbers, names, events) in TEXT is supported by FACTS. Humour, opinions, " +
+                        "descriptions of location/direction/distance (given to the narrator separately) and rounded numbers " +
+                        "or dates consistent with FACTS (e.g. 'nearly 400 years ago' for 1634) are fine.",
                     "FACTS: ${castle.extract}\nTEXT: ${s.text}",
                 )
                 Result("story: grounded, 40–160 words, names the place", g.pass && words in 40..160 && "Ort" in s.text, "words=$words; ${g.reason}; text=${s.text}")
