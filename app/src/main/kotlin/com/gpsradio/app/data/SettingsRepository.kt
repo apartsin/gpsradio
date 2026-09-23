@@ -1,0 +1,97 @@
+package com.gpsradio.app.data
+
+import android.content.Context
+import android.content.SharedPreferences
+import androidx.core.content.edit
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
+import com.gpsradio.core.ai.ModelConfig
+import com.gpsradio.core.lang.Languages
+import com.gpsradio.core.model.Topic
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import java.util.Locale
+
+data class AppSettings(
+    val apiKey: String = "",
+    /** Auto follows the device language (spec A §13). */
+    val languageAuto: Boolean = true,
+    val preferredLanguage: String = Languages.FALLBACK,
+    val interests: Set<Topic> = setOf(Topic.HISTORY, Topic.NATURE, Topic.ARCHITECTURE, Topic.CULTURE),
+    val models: ModelConfig = ModelConfig(),
+) {
+    val hasApiKey: Boolean get() = apiKey.isNotBlank()
+
+    fun resolvedLanguage(): String = Languages.resolveSessionLanguage(
+        sessionOverride = null,
+        preferred = preferredLanguage,
+        autoMode = languageAuto,
+        deviceLocaleTag = Locale.getDefault().toLanguageTag(),
+    )
+}
+
+/**
+ * User settings. The OpenAI key lives only on this device, in Keystore-backed encrypted prefs;
+ * it is never bundled in the APK or committed anywhere.
+ */
+class SettingsRepository(context: Context) {
+    private val plain: SharedPreferences = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
+    private val secure: SharedPreferences = EncryptedSharedPreferences.create(
+        context,
+        "secure_settings",
+        MasterKey.Builder(context).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build(),
+        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+    )
+
+    private val _settings = MutableStateFlow(load())
+    val settings: StateFlow<AppSettings> = _settings.asStateFlow()
+    val current: AppSettings get() = _settings.value
+
+    fun update(transform: (AppSettings) -> AppSettings) {
+        val next = transform(_settings.value)
+        secure.edit { putString(KEY_API, next.apiKey.trim()) }
+        plain.edit {
+            putBoolean(KEY_LANG_AUTO, next.languageAuto)
+            putString(KEY_LANG, next.preferredLanguage)
+            putStringSet(KEY_INTERESTS, next.interests.map { it.key }.toSet())
+            putString(KEY_NARRATION_MODEL, next.models.narrationModel)
+            putString(KEY_CONVERSATION_MODEL, next.models.conversationModel)
+            putString(KEY_TTS_MODEL, next.models.ttsModel)
+            putString(KEY_TTS_VOICE, next.models.ttsVoice)
+            putString(KEY_STT_MODEL, next.models.transcriptionModel)
+        }
+        _settings.value = next.copy(apiKey = next.apiKey.trim())
+    }
+
+    private fun load(): AppSettings {
+        val d = AppSettings()
+        val m = d.models
+        return AppSettings(
+            apiKey = secure.getString(KEY_API, "").orEmpty(),
+            languageAuto = plain.getBoolean(KEY_LANG_AUTO, d.languageAuto),
+            preferredLanguage = plain.getString(KEY_LANG, null) ?: d.preferredLanguage,
+            interests = plain.getStringSet(KEY_INTERESTS, null)?.mapNotNull { Topic.fromKey(it) }?.toSet() ?: d.interests,
+            models = ModelConfig(
+                narrationModel = plain.getString(KEY_NARRATION_MODEL, null) ?: m.narrationModel,
+                conversationModel = plain.getString(KEY_CONVERSATION_MODEL, null) ?: m.conversationModel,
+                ttsModel = plain.getString(KEY_TTS_MODEL, null) ?: m.ttsModel,
+                ttsVoice = plain.getString(KEY_TTS_VOICE, null) ?: m.ttsVoice,
+                transcriptionModel = plain.getString(KEY_STT_MODEL, null) ?: m.transcriptionModel,
+            ),
+        )
+    }
+
+    private companion object {
+        const val KEY_API = "openai_api_key"
+        const val KEY_LANG_AUTO = "language_auto"
+        const val KEY_LANG = "preferred_language"
+        const val KEY_INTERESTS = "interests"
+        const val KEY_NARRATION_MODEL = "narration_model"
+        const val KEY_CONVERSATION_MODEL = "conversation_model"
+        const val KEY_TTS_MODEL = "tts_model"
+        const val KEY_TTS_VOICE = "tts_voice"
+        const val KEY_STT_MODEL = "stt_model"
+    }
+}

@@ -1,0 +1,149 @@
+package com.gpsradio.core.discovery
+
+import com.gpsradio.core.editorial.HeardHistory
+import com.gpsradio.core.geo.Geo
+import com.gpsradio.core.model.GeoPoint
+import com.gpsradio.core.model.PlaceCandidate
+import com.gpsradio.core.model.ResearchStatus
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlin.math.min
+
+/** Something that can list grounded nearby entities. A future backend can implement this too. */
+interface PlacesProvider {
+    suspend fun discover(center: GeoPoint, radiusM: Int, languageBase: String): List<PlaceCandidate>
+}
+
+/**
+ * Finds and enriches nearby entities (spec B §7) from Wikipedia (in the narration language and
+ * English) and OpenStreetMap, merges duplicates, and caches area results by coarse cell.
+ */
+class DiscoveryService(
+    private val wikipedia: WikipediaClient,
+    private val overpass: OverpassClient,
+    private val clock: () -> Long = System::currentTimeMillis,
+    private val cacheTtlMs: Long = 6 * 3600_000L,
+    private val maxCacheEntries: Int = 30,
+    private val articlesPerLanguage: Int = 20,
+) : PlacesProvider {
+
+    private data class CacheEntry(val atMs: Long, val places: List<PlaceCandidate>)
+
+    private val cache = object : LinkedHashMap<String, CacheEntry>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, CacheEntry>?) = size > maxCacheEntries
+    }
+
+    override suspend fun discover(center: GeoPoint, radiusM: Int, languageBase: String): List<PlaceCandidate> {
+        val key = cacheKey(center, radiusM, languageBase)
+        synchronized(cache) { cache[key] }?.let { if (clock() - it.atMs < cacheTtlMs) return it.places }
+
+        val query = Geo.quantize(center)
+        val langs = listOf(languageBase, "en").distinct()
+        val (wikiResults, osmResult) = coroutineScope {
+            val wiki = langs.map { lang -> async { lang to runCatching { wikiCandidates(lang, query, radiusM) } } }
+            val osm = async { runCatching { overpass.nearby(query, radiusM) } }
+            wiki.map { it.await() } to osm.await()
+        }
+        val failures = wikiResults.mapNotNull { it.second.exceptionOrNull() } + listOfNotNull(osmResult.exceptionOrNull())
+        if (failures.size == wikiResults.size + 1) throw failures.first()
+
+        val merged = merge(
+            wiki = wikiResults.flatMap { it.second.getOrDefault(emptyList()) },
+            osm = osmResult.getOrDefault(emptyList()),
+            languageBase = languageBase,
+        )
+        synchronized(cache) { cache[key] = CacheEntry(clock(), merged) }
+        return merged
+    }
+
+    private suspend fun wikiCandidates(lang: String, center: GeoPoint, radiusM: Int): List<PlaceCandidate> {
+        val hits = wikipedia.geosearch(lang, center, min(radiusM, 10_000), limit = 60)
+            .sortedBy { it.distM }
+            .take(articlesPerLanguage)
+        val byId = hits.associateBy { it.pageId }
+        return wikipedia.pages(lang, hits.map { it.pageId }).mapNotNull { page ->
+            val hit = byId[page.pageId] ?: return@mapNotNull null
+            val extract = page.extract
+            val topics = TopicClassifier.fromText(page.title, page.description, extract?.take(1200))
+            val len = extract?.length ?: 0
+            PlaceCandidate(
+                id = "wiki:$lang:${page.pageId}",
+                name = page.title,
+                category = page.description ?: "place",
+                point = hit.point,
+                source = "wikipedia:$lang",
+                sourceConfidence = if (len > 200) 0.85 else 0.6,
+                baseRelevance = (0.3 + min(len / 2500.0, 0.45) + if (topics.isNotEmpty()) 0.1 else 0.0).coerceAtMost(1.0),
+                topics = topics,
+                description = page.description,
+                extract = extract?.take(4000),
+                url = wikipedia.articleUrl(lang, page.title),
+                wikidataId = page.wikidataId,
+                researchStatus = if (extract != null) ResearchStatus.READY else ResearchStatus.FAILED,
+            )
+        }
+    }
+
+    internal fun merge(wiki: List<PlaceCandidate>, osm: List<OverpassClient.Element>, languageBase: String): List<PlaceCandidate> {
+        // Prefer the narration-language article when the same entity appears in several editions.
+        val byEntity = LinkedHashMap<String, PlaceCandidate>()
+        wiki.sortedBy { if (it.source == "wikipedia:$languageBase") 0 else 1 }.forEach { c ->
+            val k = c.wikidataId ?: c.id
+            if (k !in byEntity) byEntity[k] = c
+        }
+        val out = byEntity.values.toMutableList()
+
+        for (e in osm) {
+            val tags = e.tags
+            val name = tags["name:$languageBase"] ?: tags["name"] ?: continue
+            val osmTopics = TopicClassifier.fromOsmTags(tags)
+            val wd = tags["wikidata"]
+            val linked = out.indexOfFirst { (wd != null && it.wikidataId == wd) || isSamePlace(it, name, e.point) }
+            if (linked >= 0) {
+                val c = out[linked]
+                out[linked] = c.copy(topics = c.topics + osmTopics, sourceConfidence = min(1.0, c.sourceConfidence + 0.05))
+                continue
+            }
+            val facts = osmFacts(tags)
+            out += PlaceCandidate(
+                id = e.osmId,
+                name = name,
+                category = osmCategory(tags),
+                point = e.point,
+                source = "openstreetmap",
+                sourceConfidence = 0.5,
+                baseRelevance = 0.2 + (if (wd != null || tags["wikipedia"] != null) 0.15 else 0.0) + min(facts.length / 800.0, 0.2),
+                topics = osmTopics,
+                description = tags["description"],
+                extract = facts.ifBlank { null },
+                url = "https://www.openstreetmap.org/${e.osmId.removePrefix("osm:")}",
+                wikidataId = wd,
+                researchStatus = ResearchStatus.READY,
+            )
+        }
+        return out
+    }
+
+    private fun isSamePlace(c: PlaceCandidate, name: String, p: GeoPoint): Boolean =
+        HeardHistory.normalizeName(c.name) == HeardHistory.normalizeName(name) && Geo.distanceM(c.point, p) < 300
+
+    private fun osmCategory(tags: Map<String, String>): String =
+        listOf("historic", "tourism", "natural", "man_made").firstNotNullOfOrNull { k -> tags[k]?.let { "$k: $it" } } ?: "place"
+
+    private fun osmFacts(tags: Map<String, String>): String = buildList {
+        add(osmCategory(tags))
+        tags["description"]?.let { add("description: $it") }
+        tags["inscription"]?.let { add("inscription: $it") }
+        tags["start_date"]?.let { add("dates from: $it") }
+        tags["ele"]?.let { add("elevation: $it m") }
+        tags["heritage"]?.let { add("heritage-listed") }
+        tags["architect"]?.let { add("architect: $it") }
+        tags["artist_name"]?.let { add("artist: $it") }
+        tags["memorial"]?.let { add("memorial type: $it") }
+    }.joinToString("; ")
+
+    private fun cacheKey(center: GeoPoint, radiusM: Int, lang: String): String {
+        val q = Geo.quantize(center, 2) // ~1 km cells
+        return "${q.lat},${q.lon}|$radiusM|$lang"
+    }
+}
