@@ -1,3 +1,6 @@
+import java.time.LocalDate
+import java.time.ZoneOffset
+
 // The owner chose to ship a default OpenAI key in the app (from the CI secret OPENAI_API_KEY, never from
 // the repo). It is XOR-scrambled so string scanners don't spot it; it is NOT secret from a determined user.
 val embeddedOpenAiKey: String = (System.getenv("OPENAI_API_KEY") ?: "").trim()
@@ -12,7 +15,7 @@ fun scramble(key: String): String =
 val buildNumber: Int = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 0
 val appVersionName: String = if (buildNumber > 0) "0.5.$buildNumber" else "0.5.0-local"
 val gitSha: String = System.getenv("GITHUB_SHA")?.take(7) ?: "local"
-val buildDate: String = java.time.LocalDate.now(java.time.ZoneOffset.UTC).toString()
+val buildDate: String = LocalDate.now(ZoneOffset.UTC).toString()
 
 plugins {
     id("com.android.application")
