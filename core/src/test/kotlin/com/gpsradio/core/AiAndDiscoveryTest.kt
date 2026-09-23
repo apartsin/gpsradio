@@ -46,6 +46,8 @@ class AiAndDiscoveryTest {
         assertEquals("Just text here.", plain.reply)
         assertEquals(ConversationAction.NONE, plain.action)
         assertEquals(Topic.WAR, RadioAgent.parseReply("""{"reply":"ok","action":"set_theme","theme":"war"}""").theme)
+        // Seen live: the model filled the theme but left action "none".
+        assertEquals(ConversationAction.SET_THEME, RadioAgent.parseReply("""{"reply":"ok","action":"none","theme":"war"}""").action)
     }
 
     @Test

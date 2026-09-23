@@ -144,7 +144,7 @@ class RadioAgent(
             put("listener_interests", buildJsonArray { req.interests.forEach { add(JsonPrimitive(it.key)) } })
             if (req.profile.isNotEmpty()) put("listener_profile", buildJsonArray { req.profile.forEach { add(JsonPrimitive(it)) } })
             put("already_told_this_trip", buildJsonArray { req.recentTitles.takeLast(8).forEach { add(JsonPrimitive(it)) } })
-            put("target_length_words", (seconds * 2.3).toInt())
+            put("target_length_words", if (req.format == SegmentFormat.TEASER) 35 else (seconds * 2.3).toInt())
             put("format", req.format.name.lowercase())
             req.tripContext?.let { put("trip", it) }
         }
@@ -263,7 +263,8 @@ class RadioAgent(
 
             Write ONE spoken segment about the place in the JSON input.
             Facts:
-            - Every factual claim (dates, numbers, names, events) must come from "facts". Never invent or embellish facts.
+            - Every factual claim (dates, numbers, names, events) must come from "facts". Never invent or embellish facts,
+              and don't extrapolate beyond them (no "still today", "famous for", "the first/only…" unless the facts say so).
             - Label legends, folklore and disputed claims as such ("the story goes…", "locals insist…").
             - Humour and comparisons are welcome but must not add new facts, and never joke about tragedies, victims, war or disasters.
             Craft:
@@ -276,8 +277,9 @@ class RadioAgent(
             - Do not repeat anything from already_told_this_trip. No greetings or sign-offs.
             - If "trip" is given, you may connect the place to where the listener is heading, briefly.
             - Respect listener_profile: lean into what they like, avoid what they avoid, follow their style wishes.
-            - format "teaser": instead of the full story, give a one or two sentence irresistible hook and end by asking
-              whether they want to hear the story (for example "Want the full story?"). Do not tell the story itself yet.
+            - format "teaser": instead of the full story, at most 2 sentences and about 35 words: the location plus ONE
+              intriguing detail, then end with a question asking whether they want the full story (e.g. "Want the full
+              story?"). Do not reveal the rest. The last character must be a question mark.
             - Speak ${Languages.displayName(language)} ($language). Keep original place names, adding a short translation when useful.
             - Output plain spoken text only: no lists, markdown, URLs, emojis or stage directions.
         """.trimIndent()
@@ -356,7 +358,9 @@ class RadioAgent(
                   (reply with at most a few words like "Here we go."), no → decline_offer (acknowledge lightly).
                 - If they tell you about their trip (destination, purpose, time available, who is with them), put a short
                   summary in "trip_context"; otherwise null.
-                - Replies are spoken aloud: concise (usually 2–5 sentences), plain text, no lists, no markdown, no URLs.
+                - Replies are spoken aloud: concise (usually 2–4 sentences, at most about 70 words), plain text, no lists,
+                  no markdown, no URLs. For pure control requests (continue, pause, skip, save, switch language) reply
+                  in a few words only (e.g. "Back to the radio!").
                 - If the listener is driving, never ask them to look at the screen.
 
                 Set "action":
@@ -364,7 +368,8 @@ class RadioAgent(
                 - pause: listener asks you to be quiet or stop for now.
                 - skip: listener wants to skip the current story.
                 - change_language: listener asks to speak another language; set "language" to a BCP-47 tag and reply in that language. persist_language=true only if they explicitly ask to make it their default.
-                - set_theme: listener wants a theme (theme one of: ${Topic.entries.joinToString { it.key }}); clear_theme to remove it.
+                - set_theme: listener wants a theme for a while (theme one of: ${Topic.entries.joinToString { it.key }});
+                  whenever you set "theme", action MUST be set_theme. clear_theme to remove it.
                 - navigate: listener wants to go to a place; set entity_id from nearby/active_story.
                 - refresh_nearby: listener asks what else is nearby and the list is empty or stale.
                 - accept_offer / decline_offer: answer to pending_offer (see above).
@@ -374,7 +379,8 @@ class RadioAgent(
                 Memory (persists across sessions; listener_profile shows what is already remembered):
                 - Add to "remember" only durable preferences or facts the listener states or clearly implies
                   ("I love castles", "no war stories please", "keep it shorter", "we travel with kids", "remember that I'm vegetarian").
-                  Not one-off requests about the current moment. category: like | avoid | style | about_me;
+                  Not one-off requests about the current moment. If they state several preferences, add EACH as its own item
+                  (e.g. "I love castles and keep it short" → a like AND a style item). category: like | avoid | style | about_me;
                   topic: one of the theme keys when it clearly maps to one, else null. Acknowledge briefly in the reply.
                 - Add to "forget" the text of remembered items the listener asks to drop or contradicts.
                 - Otherwise leave both arrays empty.
@@ -456,12 +462,15 @@ class RadioAgent(
                 json.parseToJsonElement(text.substring(start, end + 1)).jsonObject
             }.getOrNull() ?: return ConversationReply(reply = cleanForSpeech(text))
             fun str(k: String) = (obj[k] as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() && it != "null" }
+            val theme = str("theme")?.let { Topic.fromKey(it) }
+            val action = ConversationAction.parse(str("action"))
             return ConversationReply(
                 reply = cleanForSpeech(str("reply") ?: text),
-                action = ConversationAction.parse(str("action")),
+                // A theme without an action is still a request to set that theme.
+                action = if (action == ConversationAction.NONE && theme != null) ConversationAction.SET_THEME else action,
                 language = str("language"),
                 persistLanguage = (obj["persist_language"] as? JsonPrimitive)?.booleanOrNull ?: false,
-                theme = str("theme")?.let { Topic.fromKey(it) },
+                theme = theme,
                 entityId = str("entity_id"),
                 remember = (obj["remember"] as? JsonArray).orEmpty().mapNotNull { el ->
                     val o = el as? JsonObject ?: return@mapNotNull null

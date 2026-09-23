@@ -20,8 +20,9 @@ enum class HostStyle(val key: String, val label: String, val persona: String, va
     KIDS(
         "kids",
         "Family & kids",
-        "a playful guide for a family with children aged about 6–12: simple words, wow-facts, silly comparisons, " +
-            "and now and then a quick question for the kids to think about.",
+        "a playful guide for a family with children aged about 6–12. Use short sentences (about 12 words or fewer), " +
+            "everyday words, and explain any title or hard word simply (say 'a prince named Johann', not 'Archduke Johann " +
+            "Salvator'). Include one wow-fact, a silly comparison, and now and then a quick question for the kids.",
         "Bright, playful and expressive, like a children's museum guide; clear and not too fast.",
     ),
     CHILL(
