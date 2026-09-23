@@ -13,6 +13,8 @@ class TestGpsRadioApp : GpsRadioApp() {
             openAiBaseUrl = base.resolve("/openai/v1").toString(),
             wikipedia = { lang -> base.resolve("/wiki/$lang/w/api.php")!! },
             overpassUrl = base.resolve("/overpass").toString(),
+            // Unknown to the fake server (404): no "on this day" segments in E2E runs.
+            onThisDay = { lang -> base.resolve("/onthisday/$lang")!! },
         )
     }
 

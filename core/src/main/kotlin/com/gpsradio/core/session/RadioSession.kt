@@ -70,6 +70,19 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import java.io.IOException
 import java.util.concurrent.TimeoutException
+import com.gpsradio.core.ai.FillerRequest
+import com.gpsradio.core.ai.QuizQuestion
+import com.gpsradio.core.discovery.AreaFacet
+import com.gpsradio.core.discovery.AreaFacts
+import com.gpsradio.core.discovery.AreaInfoSource
+import com.gpsradio.core.discovery.OnThisDayClient
+import com.gpsradio.core.discovery.OnThisDaySource
+import com.gpsradio.core.editorial.Pacing
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.TextStyle
+import java.util.Locale
 
 /** The place currently being described; drives the photo + map panel. */
 data class FocusPlace(
@@ -172,6 +185,12 @@ class RadioSession(
     private val arrivalRadiusM: Double = 40.0,
     /** Facts needed for the optional "you're standing in front of it" chapter. */
     private val arrivalChapterMinChars: Int = 400,
+    /** Running order for fillers between stories (bumpers, on this day, quizzes, station ID). */
+    private val programme: Programme = Programme(),
+    /** "On this day" events; null leaves that format out. */
+    private val onThisDay: OnThisDaySource? = null,
+    /** Articles about the current town/region for area stories; null leaves that format out. */
+    private val areaInfo: AreaInfoSource? = null,
 ) {
     data class Timeouts(
         val narrationMs: Long = 25_000,
@@ -263,6 +282,8 @@ class RadioSession(
     fun start() = scope.launch {
         if (schedulerJob?.isActive == true) return@launch
         heard.restore(historyStore.load(), clock())
+        programme.reset()
+        radiusBoost = 1.0
         _state.update { it.copy(radioState = RadioState.RADIO, sessionLanguage = sessionLanguage, status = previewNote()) }
         schedulerJob = scope.launch {
             while (isActive) {
@@ -481,7 +502,8 @@ class RadioSession(
         if (ranker.holdForPacing(_state.value.location, lastSpeechEndMs, now)) return
         if (maybeAskAboutTrip()) return
         rerank()
-        val pick = ranker.pickForAirtime(ranked) ?: return
+        if (runProgramme(now)) return
+        val pick = ranker.pickForAirtime(ranked, config().pacing) ?: return
         speakStory(pick)
     }
 
@@ -502,7 +524,7 @@ class RadioSession(
                         _state.update { it.copy(area = area) }
                     }
                 }
-                val radius = refreshPolicy.searchRadiusM(ctx.travelMode)
+                val radius = (refreshPolicy.searchRadiusM(ctx.travelMode) * radiusBoost).toInt()
                 val found = timed(timeouts.discoveryMs, "Discovery") {
                     // Driving: look-ahead corridor cells, fetched (and cached) before arrival.
                     refreshPolicy.corridorCells(ctx)?.let { cells -> corridor.discover(cells, lang, clock()) }
@@ -551,6 +573,7 @@ class RadioSession(
                 lastSpeechEndMs = lastSpeechEndMs,
                 userEngaged = now < engagedUntilMs || _state.value.radioState == RadioState.CONVERSING,
                 theme = _state.value.theme,
+                pacing = config().pacing,
             ),
         )
         // Only push a new list to the UI when it visibly changed (order or ~10 m distance steps).
@@ -615,6 +638,7 @@ class RadioSession(
                 persistHeard()
                 recordJournal(c.place, segment)
                 recentTitles += c.place.name
+                programme.onStoryAired()
                 pendingId = null
                 backoffMs = 0
                 lastSpeechEndMs = clock()
@@ -728,7 +752,7 @@ class RadioSession(
                 // A rich story may be offered as a teaser first; don't pre-generate its full version.
                 !teaserEligible(r) &&
                 // Ignore the temporary conversation-cost penalty: it will have decayed by the time this airs.
-                r.score + ranker.weights.conversationCost * r.breakdown.conversationCost >= ranker.speakThreshold
+                r.score + ranker.weights.conversationCost * r.breakdown.conversationCost >= ranker.thresholdFor(config().pacing)
         } ?: return
         if (prefetched?.placeId == next.place.id) return
         val lang = sessionLanguage
@@ -804,6 +828,7 @@ class RadioSession(
                         tripContext = tripContext,
                         pendingOffer = pendingOffer?.name,
                         tour = tourSummary(),
+                        quiz = programme.pendingQuiz,
                     ),
                     onSearching = { setStatus("Checking online…", StatusLevel.WORKING) },
                 )
@@ -823,6 +848,7 @@ class RadioSession(
         active?.takeIf { reply.action == ConversationAction.NONE && (reply.entityId == null || reply.entityId == it.place.id) }
             ?.let { learn(InterestModel.Signal.FOLLOW_UP, it.place) }
         while (history.size > 24) history.removeAt(0)
+        programme.onQuizResolved() // the reply had the quiz in context and answered it
         reply.entityId?.let { id -> candidates[id] }?.let { place ->
             activeId = place.id
             mentionedIds += place.id
@@ -945,6 +971,7 @@ class RadioSession(
         tripContext = tripContext,
         pendingOffer = pendingOffer?.name,
         tour = tourSummary(),
+        quiz = programme.pendingQuiz,
     )
 
     private val liveHost = object : LiveHost {
@@ -957,6 +984,7 @@ class RadioSession(
             addTranscript(TranscriptEntry(Speaker.USER, text, clock()))
             history += ConversationTurn(true, text)
             while (history.size > 24) history.removeAt(0)
+            programme.onQuizResolved() // the live host has the quiz in context and answers it
         }
 
         override fun onAssistantSaid(text: String) {
@@ -1053,7 +1081,9 @@ class RadioSession(
         }
     }
 
-    private fun shouldTease(c: RankedCandidate): Boolean = teaserEligible(c) && storiesSinceTeaser >= 2 && !onDeviceNow()
+    private fun shouldTease(c: RankedCandidate): Boolean =
+        teaserEligible(c) && storiesSinceTeaser >= 2 && !onDeviceNow() &&
+            config().pacing != Pacing.NONSTOP // no answer window in non-stop
 
     private fun clearOffer() {
         pendingOffer = null
@@ -1410,7 +1440,171 @@ class RadioSession(
         return "stop ${t.nextIndex + 1} of ${t.stops.size}, next: ${next.name}$way; stops: " + t.stops.joinToString(", ") { it.name }
     }
 
+    // ---- programme: fillers between stories (see Programme) --------------------------------
+
+    /** Non-stop "widen the search" multiplier for the discovery radius. */
+    private var radiusBoost = 1.0
+    private var areaFacets: List<AreaFacet> = emptyList()
+    private var areaKey: String? = null
+    private var areaJob: Job? = null
+
+    /** Consults the running order; true when it takes this tick (a filler, a quiz reveal, or a pacing wait). */
+    private fun runProgramme(now: Long): Boolean {
+        val loc = _state.value.location ?: return false
+        val cfg = config()
+        loadAreaFacts()
+        val situation = Programme.Situation(
+            nowMs = now,
+            mode = loc.travelMode,
+            pacing = cfg.pacing,
+            minGapMs = ranker.minGapMs(loc.travelMode, cfg.pacing),
+            lastSpeechEndMs = lastSpeechEndMs,
+            storyReady = ranker.storyReady(ranked, cfg.pacing),
+            ranked = ranked,
+            recentTitles = recentTitles.toList(),
+            onThisDayAvailable = onThisDay != null,
+            dayKey = dayKey(today()),
+            themeActive = _state.value.theme != null,
+            speakThreshold = ranker.thresholdFor(cfg.pacing),
+            areaFacets = areaFacets,
+        )
+        return when (val plan = programme.next(situation)) {
+            Programme.Plan.None -> false
+            Programme.Plan.Wait -> true
+            is Programme.Plan.RevealQuiz -> { revealQuiz(plan.quiz); true }
+            is Programme.Plan.Filler -> { speakFiller(plan, loc); true }
+            is Programme.Plan.RelaxedStory -> { speakStory(plan.candidate); true }
+            Programme.Plan.WidenSearch -> {
+                programme.onWidened()
+                radiusBoost = (radiusBoost * 2).coerceAtMost(8.0)
+                lastRefreshPoint = null
+                maybeRefresh(loc) // re-discover now with the wider radius; its end triggers the next tick
+                true
+            }
+        }
+    }
+
+    /** Fetches the town's (and region's) article once per area and language, in the background. */
+    private fun loadAreaFacts() {
+        val source = areaInfo ?: return
+        val area = _state.value.area ?: return
+        val lang = langBase(sessionLanguage)
+        val key = "$lang|${area.city}|${area.region}"
+        if (key == areaKey || areaJob?.isActive == true) return
+        areaKey = key
+        areaJob = scope.launch {
+            val facets = listOfNotNull(area.city, area.region).distinct().flatMap { name ->
+                val article = runCatching { source.article(lang, name) }.getOrNull()
+                    ?: runCatching { if (lang != "en") source.article("en", name) else null }.getOrNull()
+                article?.let { AreaFacts.facets(name, it) }.orEmpty()
+            }
+            areaFacets = facets
+        }
+    }
+
+    private fun speakFiller(plan: Programme.Plan.Filler, loc: LocationContext) {
+        val c = plan.candidate
+        val day = today()
+        speechJob = scope.launch {
+            val cfg = config()
+            val lang = sessionLanguage
+            try {
+                setRadioState(RadioState.RESEARCHING)
+                val segment = timed(timeouts.narrationMs, "Narration") {
+                    when (plan.format) {
+                        SegmentFormat.ON_THIS_DAY -> {
+                            val events = onThisDay?.events(langBase(lang), day.monthValue, day.dayOfMonth).orEmpty()
+                            val event = OnThisDayClient.pick(events, _state.value.area, loc.point, langBase(lang))
+                                ?: throw IllegalStateException("no on-this-day event")
+                            val date = day.month.getDisplayName(TextStyle.FULL, Locale.ENGLISH) + " " + day.dayOfMonth
+                            narrator.narrateFiller(
+                                FillerRequest(
+                                    plan.format, lang, loc, _state.value.area, cfg.style, event = event, dateLabel = date,
+                                    profile = memory.promptLines(), tripContext = tripContext,
+                                ),
+                            )
+                        }
+                        SegmentFormat.AREA -> narrator.narrateFiller(
+                            FillerRequest(
+                                plan.format, lang, loc, _state.value.area, cfg.style, areaFacet = plan.areaFacet,
+                                areaToldFacets = programme.toldFacets, profile = memory.promptLines(), tripContext = tripContext,
+                            ),
+                        )
+                        SegmentFormat.STATION_ID -> narrator.narrateFiller(
+                            FillerRequest(
+                                plan.format, lang, loc, _state.value.area, cfg.style, recap = recentTitles.toList(),
+                                profile = memory.promptLines(), tripContext = tripContext,
+                            ),
+                        )
+                        else -> narrator.narrate(
+                            NarrationRequest(
+                                c ?: throw IllegalStateException("${plan.format} needs a place"), loc, lang, cfg.interests,
+                                recentTitles.toList(), memory.promptLines(), style = cfg.style, format = plan.format,
+                                tripContext = tripContext,
+                            ),
+                        )
+                    }
+                }
+                val bytes = timed(timeouts.speechMs, "Speech") { speech.synthesize(segment.text, lang, cfg.style) }
+                lastAudio = bytes
+                addTranscript(TranscriptEntry(Speaker.RADIO, segment.text, clock(), segment.entityId, segment.sources))
+                _state.update { s ->
+                    s.copy(radioState = RadioState.NARRATING, nowPlaying = segment, focus = c?.let { FocusPlace.of(it.place) } ?: s.focus)
+                }
+                c?.let { loadGallery(it.place) }
+                audio.play(bytes)
+                programme.onFillerAired(plan.format, c?.place?.id, clock(), dayKey(day), plan.areaFacet?.id)
+                // A bumper or quiz touched the place: it stays a candidate, but less novel.
+                c?.let { mentionedIds += it.place.id }
+                lastSpeechEndMs = clock()
+                val answer = segment.quizAnswer
+                if (plan.format == SegmentFormat.QUIZ && answer != null) {
+                    // Wait for a guess like after a teaser; the answer is revealed when the window closes.
+                    programme.onQuizAsked(QuizQuestion(segment.text, answer, c?.place?.id))
+                    // Non-stop keeps the thinking pause short so the radio never goes quiet for long.
+                    engagedUntilMs = clock() + if (cfg.pacing == Pacing.NONSTOP) NONSTOP_QUIZ_PAUSE_MS else offerWindowMs
+                    setRadioState(RadioState.CONVERSING)
+                    if (liveVoiceEnabled && cfg.pacing != Pacing.NONSTOP) openLive(opening = null)
+                    return@launch
+                }
+                setRadioState(RadioState.RADIO)
+            } catch (e: CancellationException) {
+                programme.onFillerFailed(plan.format, c?.place?.id, clock(), dayKey(day), plan.areaFacet?.id)
+                throw e
+            } catch (e: Exception) {
+                // Fillers are optional: no error on air, just don't retry this one straight away.
+                programme.onFillerFailed(plan.format, c?.place?.id, clock(), dayKey(day), plan.areaFacet?.id)
+                setRadioState(RadioState.RADIO)
+            }
+        }
+    }
+
+    private fun revealQuiz(quiz: QuizQuestion) {
+        programme.onQuizResolved()
+        speechJob = scope.launch {
+            try {
+                val bytes = timed(timeouts.speechMs, "Speech") { speech.synthesize(quiz.answer, sessionLanguage, config().style) }
+                lastAudio = bytes
+                addTranscript(TranscriptEntry(Speaker.RADIO, quiz.answer, clock(), quiz.placeId))
+                setRadioState(RadioState.NARRATING)
+                audio.play(bytes)
+                lastSpeechEndMs = clock()
+                setRadioState(RadioState.RADIO)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                setRadioState(RadioState.RADIO)
+            }
+        }
+    }
+
+    private fun today(): LocalDate = Instant.ofEpochMilli(clock()).atZone(ZoneId.systemDefault()).toLocalDate()
+
+    private fun dayKey(d: LocalDate) = "%02d-%02d".format(d.monthValue, d.dayOfMonth)
+
     companion object {
+        const val NONSTOP_QUIZ_PAUSE_MS = 5_000L
+
         fun langBase(tag: String): String = tag.substringBefore('-').lowercase()
 
         /** A skip this soon after a story starts playing counts as "not interested". */

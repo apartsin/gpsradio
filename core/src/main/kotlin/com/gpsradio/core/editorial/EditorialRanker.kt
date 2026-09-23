@@ -44,6 +44,7 @@ class EditorialRanker(
         val userEngaged: Boolean = false,
         val theme: Topic? = null,
         val defaultInterest: Double = 0.4,
+        val pacing: Pacing = Pacing.BALANCED,
     )
 
     fun proximityScaleM(mode: TravelMode): Double = when (mode) {
@@ -79,13 +80,19 @@ class EditorialRanker(
         return holdForManeuver(loc, nowMs)
     }
 
+    /** The gap between segments for this mode, scaled by the pacing dial (driving ≥ 90 s). */
+    fun minGapMs(mode: TravelMode, pacing: Pacing): Long = pacing.scaleGap(minGapMs(mode), mode)
+
+    /** The speak threshold scaled by the pacing dial. */
+    fun thresholdFor(pacing: Pacing): Double = speakThreshold * pacing.thresholdScale
+
     fun rank(candidates: Collection<PlaceCandidate>, ctx: Context): List<RankedCandidate> {
         val loc = ctx.location
         val convCost = when {
             ctx.userEngaged -> 1.0
             ctx.lastSpeechEndMs == null -> 0.0
             else -> {
-                val gap = minGapMs(loc.travelMode)
+                val gap = minGapMs(loc.travelMode, ctx.pacing)
                 (1.0 - (ctx.nowMs - ctx.lastSpeechEndMs).toDouble() / gap).coerceIn(0.0, 1.0)
             }
         }
@@ -138,6 +145,14 @@ class EditorialRanker(
     }
 
     /** The candidate that deserves airtime now, or null for silence. */
-    fun pickForAirtime(ranked: List<RankedCandidate>): RankedCandidate? =
-        ranked.firstOrNull()?.takeIf { it.score >= speakThreshold }
+    fun pickForAirtime(ranked: List<RankedCandidate>, pacing: Pacing = Pacing.BALANCED): RankedCandidate? =
+        ranked.firstOrNull()?.takeIf { it.score >= thresholdFor(pacing) }
+
+    /**
+     * Whether a candidate would qualify once the temporary conversation-cost penalty has decayed,
+     * i.e. a good place story is ready and fillers should wait.
+     */
+    fun storyReady(ranked: List<RankedCandidate>, pacing: Pacing = Pacing.BALANCED): Boolean = ranked.any {
+        it.score + weights.conversationCost * it.breakdown.conversationCost >= thresholdFor(pacing)
+    }
 }

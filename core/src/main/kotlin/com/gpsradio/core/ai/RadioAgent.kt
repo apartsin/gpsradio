@@ -1,5 +1,7 @@
 package com.gpsradio.core.ai
 
+import com.gpsradio.core.discovery.AreaFacet
+import com.gpsradio.core.discovery.OnThisDayEvent
 import com.gpsradio.core.geo.Geo
 import com.gpsradio.core.lang.Languages
 import com.gpsradio.core.location.Corridor
@@ -40,7 +42,45 @@ interface Narrator {
 
     /** A short, spoken-style answer researched on the web (used by the live voice host as a tool). */
     suspend fun webAnswer(question: String, language: String, area: AreaLabel?): String = "Web search is not available."
+
+    /**
+     * A segment not about a single place (on this day, station ID). The default is a plain,
+     * fact-only line so a narrator without a model still works; [RadioAgent] writes it in the host's voice.
+     */
+    suspend fun narrateFiller(req: FillerRequest): Segment = when (req.format) {
+        SegmentFormat.STATION_ID -> Segment(RadioAgent.fallbackRecap(req.recap), null, "Station ID", emptyList())
+        SegmentFormat.ON_THIS_DAY -> {
+            val e = req.event ?: throw IllegalArgumentException("on this day needs an event")
+            Segment(listOfNotNull(e.year?.let { "On this day in $it:" }, e.text).joinToString(" "), null, "On this day", RadioAgent.eventSources(e))
+        }
+        SegmentFormat.AREA -> {
+            val f = req.areaFacet ?: throw IllegalArgumentException("an area story needs a facet")
+            Segment(RadioAgent.firstSentences(f.facts, 3), null, f.area, RadioAgent.facetSources(f))
+        }
+        else -> throw IllegalArgumentException("${req.format} needs a place; use narrate()")
+    }
 }
+
+/** Input for segments not about one nearby place: [SegmentFormat.ON_THIS_DAY], [SegmentFormat.STATION_ID], [SegmentFormat.AREA]. */
+data class FillerRequest(
+    val format: SegmentFormat,
+    val language: String,
+    val location: LocationContext?,
+    val area: AreaLabel? = null,
+    val style: HostStyle = HostStyle.ENTERTAINING,
+    /** The event for [SegmentFormat.ON_THIS_DAY]. */
+    val event: OnThisDayEvent? = null,
+    /** Today's date, e.g. "September 23", for on this day. */
+    val dateLabel: String? = null,
+    /** Titles told so far, for the [SegmentFormat.STATION_ID] recap. */
+    val recap: List<String> = emptyList(),
+    /** The town/region facet for [SegmentFormat.AREA], with facts from its article. */
+    val areaFacet: AreaFacet? = null,
+    /** Area facets already told, so the story doesn't repeat them. */
+    val areaToldFacets: List<String> = emptyList(),
+    val profile: List<String> = emptyList(),
+    val tripContext: String? = null,
+)
 
 enum class HostLine(
     val instruction: String,
@@ -77,6 +117,8 @@ data class Segment(
     val sources: List<SourceRef>,
     val imageUrl: String? = null,
     val point: GeoPoint? = null,
+    /** For [SegmentFormat.QUIZ]: the spoken line that reveals the answer later. */
+    val quizAnswer: String? = null,
     /** Model-judged basis of the story's claims; null when unknown (plain-text reply or on-device notes). */
     val basis: StoryBasis? = null,
     /** Language of [text] when it differs from the session language (on-device notes read a source extract). */
@@ -118,7 +160,12 @@ data class ConversationRequest(
     val pendingOffer: String? = null,
     /** The active walking tour, e.g. "stop 2 of 5, next: Castle, about 250 metres ahead". */
     val tour: String? = null,
+    /** A quiz question the host asked and has not revealed yet; the listener may be answering it. */
+    val quiz: QuizQuestion? = null,
 )
+
+/** A quiz question on air and the line that reveals its answer. */
+data class QuizQuestion(val question: String, val answer: String, val placeId: String? = null)
 
 /** A preference the model decided to remember. */
 data class MemoryDraft(val category: MemoryCategory, val text: String, val topic: Topic?)
@@ -169,7 +216,7 @@ class RadioAgent(
 
     override suspend fun narrate(req: NarrationRequest): Segment {
         val c = req.candidate
-        val seconds = targetSeconds(req.location.travelMode)
+        val seconds = targetSeconds(req.location.travelMode, req.format)
         val context = buildJsonObject {
             put("place_name", c.place.name)
             put("category", c.place.category)
@@ -202,7 +249,58 @@ class RadioAgent(
         val res = if (structuredNarration) respondStructured(request) else openAi.respond(request)
         val (text, basis) = parseNarration(res.text)
         val sources = listOfNotNull(c.place.url?.let { SourceRef(c.place.name, it) })
-        return Segment(text, c.place.id, c.place.name, sources, c.place.imageUrl, c.place.point, basis = basis)
+        val (spoken, answer) = if (req.format == SegmentFormat.QUIZ) splitQuiz(text) else text to null
+        return Segment(cleanForSpeech(spoken), c.place.id, c.place.name, sources, c.place.imageUrl, c.place.point, answer?.let(::cleanForSpeech), basis = basis)
+    }
+
+    override suspend fun narrateFiller(req: FillerRequest): Segment {
+        val mode = req.location?.travelMode ?: TravelMode.UNKNOWN
+        val context = buildJsonObject {
+            put("format", req.format.name.lowercase())
+            put("travel_mode", mode.name.lowercase())
+            put("target_length_words", (targetSeconds(mode, req.format) * 2.3).toInt())
+            req.area?.let { a -> put("area", listOfNotNull(a.city, a.region, a.countryCode).joinToString(", ")) }
+            req.dateLabel?.let { put("date", it) }
+            req.event?.let { e ->
+                putJsonObject("event") {
+                    e.year?.let { put("year", it) }
+                    put("text", e.text)
+                    putJsonArray("pages") {
+                        e.pages.take(3).forEach { p ->
+                            add(buildJsonObject {
+                                put("title", p.title)
+                                p.description?.let { put("description", it) }
+                                put("facts", (p.extract ?: "").take(600))
+                            })
+                        }
+                    }
+                }
+            }
+            if (req.recap.isNotEmpty()) putJsonArray("recap") { req.recap.takeLast(6).forEach { add(JsonPrimitive(it)) } }
+            req.areaFacet?.let { f ->
+                put("area_name", f.area)
+                put("facet", f.kind.key)
+                put("facts", f.facts.take(MAX_FACTS_CHARS))
+                if (req.areaToldFacets.isNotEmpty()) putJsonArray("already_told_about_area") { req.areaToldFacets.forEach { add(JsonPrimitive(it)) } }
+            }
+            if (req.profile.isNotEmpty()) putJsonArray("listener_profile") { req.profile.forEach { add(JsonPrimitive(it)) } }
+            req.tripContext?.let { put("trip", it) }
+        }
+        val res = openAi.respond(
+            OpenAiClient.ResponseRequest(
+                model = models().narrationModel,
+                instructions = narrationInstructions(req.language, req.style),
+                input = listOf(OpenAiClient.Message("user", context.toString())),
+                maxOutputTokens = 500,
+            ),
+        )
+        val title = when (req.format) {
+            SegmentFormat.ON_THIS_DAY -> "On this day"
+            SegmentFormat.AREA -> req.areaFacet?.area ?: "Around here"
+            else -> "Station ID"
+        }
+        val sources = req.event?.let(::eventSources) ?: req.areaFacet?.let(::facetSources).orEmpty()
+        return Segment(cleanForSpeech(res.text), null, title, sources)
     }
 
     override suspend fun converse(req: ConversationRequest, onSearching: suspend () -> Unit): ConversationReply {
@@ -299,6 +397,48 @@ class RadioAgent(
             TravelMode.STATIONARY -> 50
         }
 
+        /** Spoken length per format; driving never exceeds 30 s. */
+        fun targetSeconds(mode: TravelMode, format: SegmentFormat): Int {
+            val s = when (format) {
+                SegmentFormat.STORY, SegmentFormat.TEASER -> targetSeconds(mode)
+                SegmentFormat.BUMPER -> 15
+                SegmentFormat.QUIZ -> 15
+                SegmentFormat.ON_THIS_DAY -> 30
+                SegmentFormat.STATION_ID -> 10
+                SegmentFormat.AREA -> 40
+                SegmentFormat.ARRIVAL -> 25
+            }
+            return if (mode == TravelMode.DRIVING) s.coerceAtMost(30) else s
+        }
+
+        private val answerLine = Regex("(?im)^[ \\t*_]*ANSWER[ \\t*_]*:")
+
+        /** Splits a quiz reply into the question and the reveal line after "ANSWER:". */
+        fun splitQuiz(text: String): Pair<String, String?> {
+            val m = answerLine.findAll(text).lastOrNull() ?: return text.trim() to null
+            val question = text.substring(0, m.range.first).trim()
+            val answer = text.substring(m.range.last + 1).trim().trimStart('*', '_', ' ').trim()
+            return if (question.isEmpty() || answer.isEmpty()) text.trim() to null else question to answer
+        }
+
+        fun facetSources(f: AreaFacet): List<SourceRef> = listOfNotNull(f.url?.let { SourceRef(f.area, it) })
+
+        fun firstSentences(text: String, n: Int): String =
+            Regex("[^.!?]+[.!?]+").findAll(text).take(n).joinToString(" ") { it.value.trim() }.ifBlank { text.take(300) }
+
+        fun eventSources(e: OnThisDayEvent): List<SourceRef> = e.pages.mapNotNull { p -> p.url?.let { SourceRef(p.title, it) } }
+
+        /** Plain recap for narrators without a model. */
+        fun fallbackRecap(titles: List<String>): String {
+            val t = titles.takeLast(3)
+            val list = when (t.size) {
+                0 -> return "You're listening to GPS Radio."
+                1 -> t[0]
+                else -> t.dropLast(1).joinToString(", ") + " and " + t.last()
+            }
+            return "You're listening to GPS Radio. So far today: $list."
+        }
+
         fun describeDistance(m: Double): String = when {
             m < 60 -> "right here"
             m < 1000 -> "about ${((m / 50).toInt().coerceAtLeast(1)) * 50} metres"
@@ -337,9 +477,10 @@ class RadioAgent(
             You host a personal, location-aware radio show. The listener is out in the real world (walking, cycling or driving)
             and hears you through headphones or the car speakers. You are ${style.persona}
 
-            Write ONE spoken segment about the place in the JSON input.
+            Write ONE spoken segment in the "format" given in the JSON input (by default a story about the place).
             Facts:
-            - Every factual claim (dates, numbers, names, events) must come from "facts". Never invent or embellish facts,
+            - Every factual claim (dates, numbers, names, events) must come from "facts" (for on_this_day: from "event";
+              for station_id: only the titles in "recap"; for area: from "facts" about area_name). Never invent or embellish facts,
               and don't extrapolate beyond them (no "still today", "famous for", "the first/only…" unless the facts say so).
             - Label legends, folklore and disputed claims as such ("the story goes…", "locals insist…").
             - Humour and comparisons are welcome but must not add new facts, and never joke about tragedies, victims, war or disasters.
@@ -367,6 +508,21 @@ class RadioAgent(
             - format "teaser": instead of the full story, at most 2 sentences and about 35 words: the location plus ONE
               intriguing detail, then end with a question asking whether they want the full story (e.g. "Want the full
               story?"). Do not reveal the rest. The last character must be a question mark.
+            Short radio formats (keep them tight; the facts and humour rules above still apply):
+            - format "bumper": a quick "did you know" bumper of about target_length_words words: ONE surprising fact from
+              "facts", naming the place once. Vary the opener (not always "Did you know"). No question, no full story.
+            - format "quiz": ask ONE short, fair question whose answer is clearly in "facts" (offer two or three options when
+              that helps), and say they can answer out loud or wait for the answer. Then, on a final separate line, write
+              "ANSWER:" followed by one or two spoken sentences that reveal the answer (for example "The answer to our quiz: ...").
+              Never reveal the answer before that line.
+            - format "on_this_day": about target_length_words words on "event": open with the date and year ("On this day in 1932..."),
+              tell what happened and why it mattered, using only "event". Mention the listener's area only if the event is
+              really about it; never invent a local connection. If the event involves deaths, war or disaster, be respectful: no humour.
+            - format "station_id": one or two sentences: a friendly station ident and a recap of the day so far naming a few
+              titles from "recap" ("So far today: ..."). No new facts, no question.
+            - format "area": a story about the town or region the listener is in (area_name), told from the angle in "facet"
+              (overview, history, people, culture, geography) using only "facts". Pick the most vivid details for that angle;
+              don't repeat what already_told_about_area covers. No directions needed: they are in it.
             - Speak ${Languages.displayName(language)} ($language). Keep original place names, adding a short translation when useful.
             - The spoken text is plain speech only: no lists, markdown, URLs, emojis or stage directions.
             - When a JSON format is requested, put the spoken segment in "text" and set "basis" to how well-founded
@@ -418,6 +574,12 @@ class RadioAgent(
                 req.tripContext?.let { put("trip", it) }
                 req.pendingOffer?.let { put("pending_offer", it) }
                 req.tour?.let { put("walking_tour", it) }
+                req.quiz?.let { q ->
+                    putJsonObject("quiz") {
+                        put("question", q.question)
+                        put("answer", q.answer)
+                    }
+                }
                 if (req.profile.isNotEmpty()) putJsonArray("listener_profile") { req.profile.forEach { add(JsonPrimitive(it)) } }
                 req.active?.let { a ->
                     putJsonObject("active_story") {
@@ -475,6 +637,8 @@ class RadioAgent(
                   they mean, or where they are heading), but never quiz the listener repeatedly.
                 - If pending_offer is set, the listener is answering "do you want to hear that story?": yes → accept_offer
                   (reply with at most a few words like "Here we go."), no → decline_offer (acknowledge lightly).
+                - If quiz is set, you just asked that quiz question: if the listener is answering it, say warmly whether they
+                  got it right and reveal the answer from quiz.answer (never mock a wrong guess); if they ask something else, answer that.
                 - If they tell you about their trip (destination, purpose, time available, who is with them), put a short
                   summary in "trip_context"; otherwise null.
                 - Replies are spoken aloud: concise (usually 2–4 sentences, at most about 70 words), plain text, no lists,
@@ -533,6 +697,8 @@ class RadioAgent(
 
             If pending_offer is set, you just asked whether they want to hear that story: a yes → radio_control accept_offer
             (say at most "Here we go"); a no → decline_offer and a light acknowledgement.
+            If quiz is set, you just asked that quiz question: when they answer, say kindly whether they got it right and
+            reveal the answer from quiz.answer.
 
             Context (JSON): ${conversationContext(req)}
         """.trimIndent()

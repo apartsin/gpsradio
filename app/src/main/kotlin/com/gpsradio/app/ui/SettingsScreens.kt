@@ -49,6 +49,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.gpsradio.app.data.AppSettings
 import com.gpsradio.core.ai.HostStyle
+import com.gpsradio.core.editorial.Pacing
 import com.gpsradio.core.lang.Languages
 import com.gpsradio.core.memory.MemoryItem
 import com.gpsradio.core.model.Topic
@@ -146,6 +147,7 @@ private fun SettingsForm(
     var hostStyle by remember { mutableStateOf(initial.hostStyle) }
     var liveVoice by remember { mutableStateOf(initial.liveVoice) }
     var soundEffects by remember { mutableStateOf(initial.soundEffects) }
+    var pacing by remember { mutableStateOf(initial.pacing) }
     var showKey by remember { mutableStateOf(false) }
 
     Column(
@@ -183,6 +185,13 @@ private fun SettingsForm(
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             HostStyle.entries.forEach { h ->
                 FilterChip(selected = hostStyle == h, onClick = { hostStyle = h }, label = { Text(h.label) })
+            }
+        }
+
+        Text("Pacing", style = MaterialTheme.typography.titleSmall)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Pacing.entries.forEach { p ->
+                FilterChip(selected = pacing == p, onClick = { pacing = p }, label = { Text(p.label) })
             }
         }
 
@@ -239,6 +248,7 @@ private fun SettingsForm(
             hostStyle = hostStyle,
             liveVoice = liveVoice,
             soundEffects = soundEffects,
+            pacing = pacing,
             // Adding a key ends the keyless preview.
             previewMode = initial.previewMode && apiKey.isBlank(),
             models = initial.models.copy(

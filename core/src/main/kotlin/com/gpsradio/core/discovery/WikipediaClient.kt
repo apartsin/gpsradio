@@ -117,6 +117,26 @@ class WikipediaClient(
             .take(limit)
     }
 
+    /** A whole article as plain text, with `== Section ==` headings kept (for area stories); null if missing. */
+    suspend fun articleByTitle(lang: String, title: String): Article? {
+        val url = baseUrl(lang).newBuilder()
+            .addQueryParameter("action", "query")
+            .addQueryParameter("prop", "extracts")
+            .addQueryParameter("explaintext", "1")
+            .addQueryParameter("exsectionformat", "wiki")
+            .addQueryParameter("redirects", "1")
+            .addQueryParameter("titles", title)
+            .addQueryParameter("format", "json")
+            .addQueryParameter("formatversion", "2")
+            .build()
+        val body = http.fetchString(request(url))
+        val page = json.decodeFromString(PagesResponse.serializer(), body).query?.pages.orEmpty()
+            .firstOrNull { !it.missing && !it.extract.isNullOrBlank() } ?: return null
+        return Article(page.title, page.extract!!.trim(), articleUrl(lang, page.title))
+    }
+
+    data class Article(val title: String, val text: String, val url: String)
+
     fun articleUrl(lang: String, title: String): String =
         "https://$lang.wikipedia.org/wiki/" + title.replace(' ', '_')
 

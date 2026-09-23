@@ -28,7 +28,9 @@ import com.gpsradio.core.session.LiveConversation
 import com.gpsradio.core.session.LiveHost
 import kotlinx.coroutines.CoroutineScope
 import com.gpsradio.core.discovery.AreaDiskCache
+import com.gpsradio.core.discovery.AreaInfoSource
 import com.gpsradio.core.discovery.DiscoveryService
+import com.gpsradio.core.discovery.OnThisDayClient
 import com.gpsradio.core.discovery.OverpassClient
 import com.gpsradio.core.discovery.WikipediaClient
 import com.gpsradio.core.model.PlaceCandidate
@@ -49,6 +51,8 @@ data class Endpoints(
     val openAiBaseUrl: String = "https://api.openai.com/v1",
     val wikipedia: (String) -> HttpUrl = { lang -> "https://$lang.wikipedia.org/w/api.php".toHttpUrl() },
     val overpassUrl: String = "https://overpass-api.de/api/interpreter",
+    /** Wikipedia's keyless "on this day" feed for a language edition (the client appends MM/DD). */
+    val onThisDay: (String) -> HttpUrl = { lang -> "https://$lang.wikipedia.org/api/rest_v1/feed/onthisday/events".toHttpUrl() },
 )
 
 /**
@@ -107,10 +111,11 @@ open class GpsRadioApp : Application() {
         val openAi = OpenAiClient(http, apiKey = { settings.current.effectiveApiKey }, baseUrl = ep.openAiBaseUrl)
         val models = { settings.current.models }
         val online = isOnline()
+        val wikipedia = WikipediaClient(http, userAgent, ep.wikipedia)
 
         session = RadioSession(
             places = DiscoveryService(
-                WikipediaClient(http, userAgent, ep.wikipedia),
+                wikipedia,
                 OverpassClient(http, userAgent, ep.overpassUrl),
                 diskCache = AreaDiskCache(FileAreaCacheStore(this)),
                 isOnline = online,
@@ -132,6 +137,7 @@ open class GpsRadioApp : Application() {
                         // Without a key the radio can only read notes aloud on the device.
                         previewMode = !it.hasApiKey,
                         soundEffects = it.soundEffects,
+                        pacing = it.pacing,
                     )
                 }
             },
@@ -147,6 +153,8 @@ open class GpsRadioApp : Application() {
             isOnline = online,
             stings = stingPlayer(),
             journalStore = FileJournalStore(this),
+            onThisDay = OnThisDayClient(http, userAgent, ep.onThisDay),
+            areaInfo = AreaInfoSource { lang, title -> wikipedia.articleByTitle(lang, title) },
         )
     }
 

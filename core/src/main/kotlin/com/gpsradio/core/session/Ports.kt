@@ -3,6 +3,7 @@ package com.gpsradio.core.session
 import com.gpsradio.core.ai.HostStyle
 import com.gpsradio.core.ai.ModelConfig
 import com.gpsradio.core.ai.OpenAiClient
+import com.gpsradio.core.editorial.Pacing
 import com.gpsradio.core.lang.Languages
 import com.gpsradio.core.model.AreaLabel
 import com.gpsradio.core.model.GeoPoint
@@ -50,6 +51,8 @@ data class SessionConfig(
     val previewMode: Boolean = false,
     /** Short stings before stories and answers, and a blip when listening starts. */
     val soundEffects: Boolean = true,
+    /** How often the radio speaks: scales the speak threshold, segment gaps and fillers. */
+    val pacing: Pacing = Pacing.BALANCED,
 )
 
 class OpenAiSpeech(

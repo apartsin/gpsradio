@@ -7,6 +7,7 @@ import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.gpsradio.core.ai.HostStyle
 import com.gpsradio.core.ai.ModelConfig
+import com.gpsradio.core.editorial.Pacing
 import com.gpsradio.core.lang.Languages
 import com.gpsradio.core.model.Topic
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -40,6 +41,8 @@ data class AppSettings(
     val previewMode: Boolean = false,
     /** Short stings before stories and answers, and a blip when listening starts. */
     val soundEffects: Boolean = true,
+    /** How often the radio speaks: chatty, balanced, rare or non-stop. */
+    val pacing: Pacing = Pacing.BALANCED,
 ) {
     /** The listener's own key if they entered one, otherwise the key built into this app (if any). */
     val effectiveApiKey: String get() = apiKey.ifBlank { EmbeddedKey.value }
@@ -88,6 +91,7 @@ class SettingsRepository(context: Context) {
             putBoolean(KEY_LIVE_VOICE, next.liveVoice)
             putBoolean(KEY_PREVIEW, next.previewMode)
             putBoolean(KEY_SOUND_EFFECTS, next.soundEffects)
+            putString(KEY_PACING, next.pacing.key)
         }
         _settings.value = next.copy(apiKey = next.apiKey.trim())
     }
@@ -112,6 +116,7 @@ class SettingsRepository(context: Context) {
             liveVoice = plain.getBoolean(KEY_LIVE_VOICE, d.liveVoice),
             previewMode = plain.getBoolean(KEY_PREVIEW, d.previewMode),
             soundEffects = plain.getBoolean(KEY_SOUND_EFFECTS, d.soundEffects),
+            pacing = Pacing.fromKey(plain.getString(KEY_PACING, null)),
         )
     }
 
@@ -156,5 +161,6 @@ class SettingsRepository(context: Context) {
         const val KEY_LIVE_VOICE = "live_voice"
         const val KEY_PREVIEW = "preview_mode"
         const val KEY_SOUND_EFFECTS = "sound_effects"
+        const val KEY_PACING = "pacing"
     }
 }
