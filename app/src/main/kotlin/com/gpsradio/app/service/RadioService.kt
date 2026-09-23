@@ -52,6 +52,7 @@ class RadioService : Service() {
     private var currentMode: TravelMode? = null
     private var modeWatcher: kotlinx.coroutines.Job? = null
     private var stateWatcher: kotlinx.coroutines.Job? = null
+    private var quotaWatcher: kotlinx.coroutines.Job? = null
     private lateinit var mediaSession: MediaSessionCompat
 
     private val session get() = (application as GpsRadioApp).session
@@ -126,6 +127,11 @@ class RadioService : Service() {
             session.state.map { Triple(it.radioState, it.nowPlaying?.title ?: it.focus?.name, it.area?.city) }
                 .distinctUntilChanged()
                 .collect { updateMediaUi(session.state.value) }
+        }
+        if (quotaWatcher == null) quotaWatcher = scope.launch {
+            session.state.map { it.quotaExhausted }
+                .distinctUntilChanged()
+                .collect { exhausted -> if (exhausted) notifyQuota() else cancelQuotaNotice() }
         }
         if (modeWatcher == null) modeWatcher = scope.launch {
             session.state.map { it.location?.travelMode ?: TravelMode.UNKNOWN }
@@ -220,6 +226,40 @@ class RadioService : Service() {
         super.onDestroy()
     }
 
+    /** A heads-up alert (separate from the silent playback notification) when the OpenAI credit runs out. */
+    @SuppressLint("MissingPermission")
+    private fun notifyQuota() {
+        val nm = getSystemService(NotificationManager::class.java)
+        nm.createNotificationChannel(
+            NotificationChannel(ALERTS_CHANNEL_ID, getString(R.string.alerts_channel), NotificationManager.IMPORTANCE_HIGH),
+        )
+        val openSettings = PendingIntent.getActivity(
+            this, 4,
+            Intent(this, MainActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                .putExtra(MainActivity.EXTRA_OPEN_SETTINGS, true),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val builtIn = (application as GpsRadioApp).settings.current.usingEmbeddedKey
+        val text = getString(if (builtIn) R.string.quota_text_builtin else R.string.quota_text_own)
+        val n = NotificationCompat.Builder(this, ALERTS_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_radio)
+            .setContentTitle(getString(R.string.quota_title))
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setCategory(NotificationCompat.CATEGORY_ERROR)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setContentIntent(openSettings)
+            .addAction(0, getString(R.string.add_key), openSettings)
+            .setAutoCancel(true)
+            .build()
+        runCatching { NotificationManagerCompat.from(this).notify(QUOTA_NOTIFICATION_ID, n) }
+    }
+
+    private fun cancelQuotaNotice() {
+        runCatching { NotificationManagerCompat.from(this).cancel(QUOTA_NOTIFICATION_ID) }
+    }
+
     private fun buildNotification(s: RadioUiState): Notification {
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(
@@ -255,6 +295,8 @@ class RadioService : Service() {
     companion object {
         private const val CHANNEL_ID = "radio"
         private const val NOTIFICATION_ID = 1
+        private const val ALERTS_CHANNEL_ID = "alerts"
+        private const val QUOTA_NOTIFICATION_ID = 2
         private const val ACTION_STOP = "com.gpsradio.app.STOP"
         private const val ACTION_PAUSE = "com.gpsradio.app.PAUSE"
         private const val ACTION_RESUME = "com.gpsradio.app.RESUME"

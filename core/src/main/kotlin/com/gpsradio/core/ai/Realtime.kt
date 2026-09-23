@@ -126,10 +126,23 @@ object RealtimeProtocol {
                 val callId = str("call_id") ?: return null
                 RealtimeEvent.FunctionCall(callId, str("name").orEmpty(), str("arguments") ?: "{}")
             }
-            "response.done" -> RealtimeEvent.ResponseDone
-            "error" -> RealtimeEvent.Error(
-                ((o["error"] as? JsonObject)?.get("message") as? JsonPrimitive)?.contentOrNull ?: "Realtime error",
-            )
+            "response.done" -> {
+                // Out of credit shows up as a failed response rather than an "error" event.
+                val details = ((o["response"] as? JsonObject)?.get("status_details") as? JsonObject)
+                val err = details?.get("error") as? JsonObject
+                val fields = listOf("code", "type", "message").mapNotNull { (err?.get(it) as? JsonPrimitive)?.contentOrNull }
+                if (fields.any(QuotaErrors::matches)) {
+                    RealtimeEvent.Error(QuotaErrors.MESSAGE + " (insufficient_quota)")
+                } else {
+                    RealtimeEvent.ResponseDone
+                }
+            }
+            "error" -> {
+                val err = o["error"] as? JsonObject
+                val message = (err?.get("message") as? JsonPrimitive)?.contentOrNull ?: "Realtime error"
+                val code = listOf("code", "type").mapNotNull { (err?.get(it) as? JsonPrimitive)?.contentOrNull }
+                RealtimeEvent.Error(if (code.any(QuotaErrors::matches) || QuotaErrors.matches(message)) "${QuotaErrors.MESSAGE} (insufficient_quota): $message" else message)
+            }
             else -> null
         }
     }
@@ -211,10 +224,11 @@ class RealtimeClient(
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                val body = runCatching { response?.body?.string() }.getOrNull()
                 val msg = when (response?.code) {
                     401 -> "OpenAI rejected the API key"
                     null -> t.message ?: "connection failed"
-                    else -> "HTTP ${response.code}"
+                    else -> OpenAiClient.friendlyError(response.code, body).let { if (QuotaErrors.matches(it)) it else "HTTP ${response.code}" }
                 }
                 channel.trySend(RealtimeEvent.Error(msg))
                 channel.trySend(RealtimeEvent.Closed(msg))

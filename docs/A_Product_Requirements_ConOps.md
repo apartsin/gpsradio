@@ -376,3 +376,16 @@ Stories must match where the listener actually is, especially at driving speed.
 |---|---|---|
 | PR-44 | Precise location | Request fine location; explain in the UI when only approximate location is granted. |
 | PR-45 | Playback sync | Compensate for preparation latency and skip stories that are no longer ahead. |
+
+## 26. Out-of-Credit Notice
+
+If the OpenAI key runs out of credit, the listener is told right away and clearly:
+- a status message with an "Add key" button;
+- a phone notification, even when the app is in the background;
+- a short spoken notice once.
+
+The radio keeps going with short on-device notes. The warning clears once credit is back or a new key is saved.
+
+| ID | Capability | Requirement |
+|---|---|---|
+| PR-46 | Out-of-credit notice | Detect exhausted OpenAI credit, notify the listener on screen, by notification and by voice, and offer to add a key. |

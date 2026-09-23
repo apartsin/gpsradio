@@ -7,6 +7,7 @@ import com.gpsradio.core.favorites.FavoritePlace
 import com.gpsradio.core.favorites.Favorites
 import com.gpsradio.core.favorites.FavoritesStore
 import com.gpsradio.core.ai.OpenAiException
+import com.gpsradio.core.ai.QuotaErrors
 import com.gpsradio.core.ai.ConversationReply
 import com.gpsradio.core.ai.ConversationRequest
 import com.gpsradio.core.ai.ConversationTurn
@@ -47,11 +48,13 @@ import com.gpsradio.core.journal.JournalStore
 import com.gpsradio.core.model.ScoreBreakdown
 import com.gpsradio.core.tour.TourPlanner
 import com.gpsradio.core.tour.TourState
+import com.gpsradio.core.tour.TourStop
 import com.gpsradio.core.tour.TourText
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -136,6 +139,8 @@ data class RadioUiState(
     val tour: TourState? = null,
     /** Stories heard to the end, newest first (trip journal). */
     val journal: List<JournalEntry> = emptyList(),
+    /** The OpenAI key is out of credit (billing limit reached): the listener must top up or add a key. */
+    val quotaExhausted: Boolean = false,
 )
 
 /**
@@ -211,7 +216,9 @@ class RadioSession(
         val atMs: Long,
     )
 
-    private val scope = CoroutineScope(SupervisorJob() + dispatcher)
+    /** Last line of defence: a stray exception in a session job is reported, never a process crash. */
+    private val crashGuard = CoroutineExceptionHandler { _, e -> runCatching { fail("Something went wrong: ${e.message}") } }
+    private val scope = CoroutineScope(SupervisorJob() + dispatcher + crashGuard)
     private val _state = MutableStateFlow(RadioUiState())
     val state: StateFlow<RadioUiState> = _state.asStateFlow()
 
@@ -240,6 +247,11 @@ class RadioSession(
     private var tour: TourState? = null
     /** After a tour stop's story: directions to the next stop (or the closing line) are still to be said. */
     private var tourHintDue = false
+    private var tourStartedMs = 0L
+    /** Since when the listener has been far from the next stop (null while close). */
+    private var tourAwaySinceMs: Long? = null
+    /** Index of the stop being told; rolled back if the story is interrupted rather than skipped. */
+    private var tourStopInFlight: Int? = null
 
     private var lastRefreshPoint: GeoPoint? = null
     private var lastRefreshMode: TravelMode? = null
@@ -284,6 +296,14 @@ class RadioSession(
         heard.restore(historyStore.load(), clock())
         programme.reset()
         radiusBoost = 1.0
+        // Off for a while: the listener may be far away now, so don't narrate from the old spot.
+        val last = _state.value.location ?: processor.current
+        if (last != null && clock() - last.timestampMs > STALE_FIX_ON_START_MS) {
+            processor.forgetFix()
+            ranked = emptyList()
+            prefetched = null
+            _state.update { it.copy(location = null, nearby = emptyList()) }
+        }
         _state.update { it.copy(radioState = RadioState.RADIO, sessionLanguage = sessionLanguage, status = previewNote()) }
         schedulerJob = scope.launch {
             while (isActive) {
@@ -312,6 +332,15 @@ class RadioSession(
     }
 
     fun pause() = scope.launch { doPause() }
+
+    /** The key or its billing may have changed: probe OpenAI again right away. */
+    fun onApiKeyChanged() = scope.launch {
+        if (!_state.value.quotaExhausted) return@launch
+        clearQuota()
+        fallbackGate.onPrimarySuccess()
+        nextNarrationAllowedMs = 0
+        backoffMs = 0
+    }
 
     fun resume() = scope.launch {
         val st = _state.value.radioState
@@ -348,6 +377,8 @@ class RadioSession(
             candidates[id]?.let { learn(InterestModel.Signal.EARLY_SKIP, it) }
         }
         storyPlayback = null
+        // A skipped tour stop stays skipped; any other interruption (pause, hold-to-talk) keeps it for later.
+        tourStopInFlight = null
         speechJob?.cancel()
         if (wasSpeaking) {
             // Penalize what was actually on air (or being prepared), not the previous story.
@@ -499,6 +530,11 @@ class RadioSession(
 
         if (_state.value.radioState != RadioState.RADIO || speaking || discoveryJob?.isActive == true) return
         if (now < engagedUntilMs || now < nextNarrationAllowedMs) return
+        // A quiz answer is due as soon as the answer window closes (only junctions hold it back).
+        programme.pendingQuiz?.let { quiz ->
+            if (!ranker.holdForManeuver(_state.value.location, now)) revealQuiz(quiz)
+            return
+        }
         if (ranker.holdForPacing(_state.value.location, lastSpeechEndMs, now, config().pacing)) return
         if (maybeAskAboutTrip()) return
         rerank()
@@ -552,7 +588,8 @@ class RadioSession(
                 _state.update { it.copy(discovering = false) }
             }
             rerank()
-            tick()
+            // After this job completes: tick() skips work while discovery is still active.
+            scope.launch { tick() }
         }
     }
 
@@ -676,10 +713,12 @@ class RadioSession(
             segment = s
             val bytes = timed(timeouts.speechMs, "Speech") { speech.synthesize(s.text, lang, cfg.style) }
             fallbackGate.onPrimarySuccess()
+            clearQuota()
             prepLatencyMs = prepLatencyMs * 0.7 + (clock() - started) * 0.3
             clearNotes(DEGRADED_NOTE, OFFLINE_NOTE)
             s to bytes
         } catch (e: Exception) {
+            if (isQuota(e)) noteQuota()
             // OpenAI unavailable: read the source notes on the device instead of going silent.
             if (!hasFallback || !FallbackGate.isOutage(e)) throw e
             fallbackGate.onPrimaryFailure()
@@ -723,9 +762,14 @@ class RadioSession(
 
     /** On-device notes and voice; [spoken] is model text that was generated but could not be voiced. */
     private suspend fun prepareOnDevice(req: NarrationRequest, spoken: Segment? = null): Pair<Segment, ByteArray> {
-        if (!config().previewMode) setStatus(if (isOnline()) DEGRADED_NOTE else OFFLINE_NOTE)
-        val segment = spoken?.takeIf { req.format == SegmentFormat.STORY }
+        if (!config().previewMode && !_state.value.quotaExhausted) setStatus(if (isOnline()) DEGRADED_NOTE else OFFLINE_NOTE)
+        var segment = spoken?.takeIf { req.format == SegmentFormat.STORY }
             ?: fallbackNarrator!!.narrate(req.copy(format = SegmentFormat.STORY))
+        // Say once, out loud, why the stories got shorter: the listener may not be looking at the screen.
+        if (_state.value.quotaExhausted && !quotaAnnounced && (segment.language ?: req.language).let { langBase(it) == langBase(req.language) }) {
+            quotaAnnounced = true
+            segment = segment.copy(text = quotaSpoken(req.language) + " " + segment.text)
+        }
         val bytes = timed(timeouts.speechMs, "Speech") {
             fallbackSpeech!!.synthesize(segment.text, segment.language ?: req.language, req.style)
         }
@@ -747,6 +791,9 @@ class RadioSession(
     private fun prefetchNext(excludeId: String) {
         if (prefetchJob?.isActive == true) return
         val loc = _state.value.location ?: return
+        // At speed the listener is far past this spot by the time the next story may air (gap + story),
+        // so a prefetched story would be discarded as stale: don't pay for it.
+        if (loc.travelMode == TravelMode.DRIVING || loc.travelMode == TravelMode.CYCLING) return
         val next = ranked.firstOrNull { r ->
             r.place.id != excludeId &&
                 // A rich story may be offered as a teaser first; don't pre-generate its full version.
@@ -886,7 +933,14 @@ class RadioSession(
             if (bytes != null) {
                 lastAudio = bytes
                 sting(Sting.ANSWER)
-                audio.play(bytes)
+                try {
+                    audio.play(bytes)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    // e.g. audio focus refused during a phone call: the answer stays in the transcript.
+                    fail("Couldn't play the answer: ${e.message}")
+                }
             }
         }
         lastSpeechEndMs = clock()
@@ -1208,8 +1262,38 @@ class RadioSession(
     private fun setStatus(msg: String?, level: StatusLevel = StatusLevel.INFO) =
         _state.update { it.copy(status = msg?.let { m -> Status(m, level) } ?: previewNote()) }
 
-    private fun previewNote(): Status? =
-        if (config().previewMode) Status(PREVIEW_NOTE, StatusLevel.INFO, needsKey = true, actionLabel = "Add key") else null
+    private fun previewNote(): Status? = when {
+        _state.value.quotaExhausted -> quotaStatus()
+        config().previewMode -> Status(PREVIEW_NOTE, StatusLevel.INFO, needsKey = true, actionLabel = "Add key")
+        else -> null
+    }
+
+    // ---- out of OpenAI credit -------------------------------------------------------------------
+
+    private var quotaAnnounced = false
+
+    private fun isQuota(e: Throwable): Boolean =
+        (e is OpenAiException && e.isQuotaExhausted) || QuotaErrors.matches(e.message)
+
+    private fun quotaStatus(): Status =
+        Status(if (config().usingBuiltInKey) QUOTA_BUILT_IN else QUOTA_OWN_KEY, StatusLevel.ERROR, needsKey = true, actionLabel = "Add key")
+
+    /**
+     * Tells the listener: a persistent status with an "Add key" action, a transcript line (not repeated
+     * back to back), and [RadioUiState.quotaExhausted] for the app's notification.
+     */
+    private fun noteQuota() {
+        val status = quotaStatus()
+        _state.update { it.copy(quotaExhausted = true, status = status) }
+        if (_state.value.transcript.lastOrNull()?.text != status.text) addTranscript(TranscriptEntry(Speaker.SYSTEM, status.text, clock()))
+    }
+
+    private fun clearQuota() {
+        if (!_state.value.quotaExhausted) return
+        quotaAnnounced = false
+        _state.update { it.copy(quotaExhausted = false) }
+        setStatus(null)
+    }
 
     /** Questions need OpenAI: in preview mode or offline, say so (once per question) and return true. */
     private fun questionsUnavailable(): Boolean {
@@ -1225,6 +1309,10 @@ class RadioSession(
     }
 
     private fun fail(msg: String) {
+        if (QuotaErrors.matches(msg)) {
+            noteQuota()
+            return
+        }
         val keyProblem = "API key" in msg || "401" in msg
         val friendly = if (keyProblem) "OpenAI didn't accept the API key. Check it in Settings." else msg
         _state.update { it.copy(status = Status(friendly, StatusLevel.ERROR, needsKey = keyProblem)) }
@@ -1261,6 +1349,8 @@ class RadioSession(
         val place = candidates[placeId]
         val loc = _state.value.location
         if (place != null && loc != null) {
+            closeLive()
+            clearOffer()
             speechJob?.cancel()
             speakStory(rankedFor(place, loc), allowTeaser = false)
         } else {
@@ -1293,9 +1383,13 @@ class RadioSession(
         prefetched = null
         clearOffer()
         engagedUntilMs = 0
+        // A quiz answer would otherwise wait until the tour ends, out of context.
+        programme.onQuizResolved()
         val t = TourState.of(plan)
         tour = t
         tourHintDue = false
+        tourStartedMs = clock()
+        tourAwaySinceMs = null
         _state.update { it.copy(tour = t, radioState = RadioState.RADIO, status = null) }
         speakTourLine(HostLine.TOUR_INTRO, TourText.intro(t, loc.point, heading(loc)))
     }
@@ -1303,7 +1397,25 @@ class RadioSession(
     private fun clearTour() {
         tour = null
         tourHintDue = false
+        tourAwaySinceMs = null
+        tourStopInFlight = null
         _state.update { it.copy(tour = null) }
+    }
+
+    /**
+     * The listener has moved on: they started driving or cycling, stayed over [TOUR_AWAY_M] from the
+     * next stop for [TOUR_AWAY_MS], or the tour ran past twice its planned length.
+     */
+    private fun tourAbandoned(t: TourState, loc: LocationContext, next: TourStop?): Boolean {
+        val now = clock()
+        if (loc.travelMode == TravelMode.DRIVING || loc.travelMode == TravelMode.CYCLING) return true
+        if (now - tourStartedMs > t.minutes * 2 * 60_000L) return true
+        if (next != null && Geo.distanceM(loc.point, next.point) > TOUR_AWAY_M) {
+            val since = tourAwaySinceMs ?: now.also { tourAwaySinceMs = it }
+            return now - since > TOUR_AWAY_MS
+        }
+        tourAwaySinceMs = null
+        return false
     }
 
     private fun heading(loc: LocationContext): Double? = loc.headingDeg?.takeIf { loc.travelMode != TravelMode.STATIONARY }
@@ -1314,6 +1426,12 @@ class RadioSession(
         if (_state.value.radioState != RadioState.RADIO || speechJob?.isActive == true || clock() < engagedUntilMs) return
         val loc = _state.value.location ?: return
         val next = t.next
+        if (tourAbandoned(t, loc, next)) {
+            clearTour()
+            setStatus(TOUR_ABANDONED)
+            addTranscript(TranscriptEntry(Speaker.SYSTEM, TOUR_ABANDONED, clock()))
+            return
+        }
         if (tourHintDue) {
             if (next == null) {
                 val draft = TourText.finish(t, loc.point, heading(loc))
@@ -1366,9 +1484,28 @@ class RadioSession(
         val advanced = t.copy(nextIndex = index + 1)
         tour = advanced
         tourHintDue = true
+        tourStopInFlight = index
         _state.update { it.copy(tour = advanced) }
         val c = rankedFor(stop.place, loc)
         speechJob = scope.launch {
+            try {
+                tellTourStop(c, loc)
+            } finally {
+                // Interrupted (pause, hold-to-talk) before the story was heard: tell this stop again later.
+                val cur = tour
+                if (tourStopInFlight == index && cur != null && cur.nextIndex == index + 1) {
+                    val back = cur.copy(nextIndex = index)
+                    tour = back
+                    tourHintDue = false
+                    _state.update { it.copy(tour = back) }
+                }
+                tourStopInFlight = null
+            }
+        }
+    }
+
+    private suspend fun tellTourStop(c: RankedCandidate, loc: LocationContext) {
+        run {
             pendingId = c.place.id
             val lang = sessionLanguage
             setRadioState(RadioState.RESEARCHING)
@@ -1386,6 +1523,7 @@ class RadioSession(
                     loadGallery(c.place)
                     sting(Sting.STATION)
                     audio.play(bytes)
+                    tourStopInFlight = null
                     heard.markHeard(c.place.id, c.place.name, clock())
                     persistHeard()
                     recordJournal(c.place, segment)
@@ -1401,6 +1539,8 @@ class RadioSession(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                // A failure moves on to the next stop (no endless retries of a broken one).
+                tourStopInFlight = null
                 fail("Couldn't tell the story of ${c.place.name}: ${e.message}")
             }
             pendingId = null
@@ -1478,7 +1618,7 @@ class RadioSession(
                 programme.onWidened()
                 radiusBoost = (radiusBoost * 2).coerceAtMost(8.0)
                 lastRefreshPoint = null
-                maybeRefresh(loc) // re-discover now with the wider radius; its end triggers the next tick
+                maybeRefresh(loc) // re-discover now with the wider radius; its end schedules the next tick
                 true
             }
         }
@@ -1505,6 +1645,12 @@ class RadioSession(
     private fun speakFiller(plan: Programme.Plan.Filler, loc: LocationContext) {
         val c = plan.candidate
         val day = today()
+        // Fillers have no on-device version: while OpenAI is out (offline, resting, preview) skip them
+        // instead of waiting for timeouts on air.
+        if (onDeviceNow()) {
+            programme.onFillerFailed(plan.format, c?.place?.id, clock(), dayKey(day), plan.areaFacet?.id)
+            return
+        }
         speechJob = scope.launch {
             val cfg = config()
             val lang = sessionLanguage
@@ -1545,6 +1691,8 @@ class RadioSession(
                         )
                     }
                 }
+                // A quiz question whose answer couldn't be parsed would never be resolved: drop it.
+                if (plan.format == SegmentFormat.QUIZ && segment.quizAnswer.isNullOrBlank()) throw IllegalStateException("quiz without an answer")
                 val bytes = timed(timeouts.speechMs, "Speech") { speech.synthesize(segment.text, lang, cfg.style) }
                 lastAudio = bytes
                 addTranscript(TranscriptEntry(Speaker.RADIO, segment.text, clock(), segment.entityId, segment.sources))
@@ -1613,6 +1761,27 @@ class RadioSession(
         const val PREVIEW_NOTE = "Preview mode — add an OpenAI key for full stories and questions"
         const val PREVIEW_QUESTIONS = "Questions need an OpenAI key. Add one to ask about anything you pass."
         const val OFFLINE_QUESTIONS = "You're offline, so I can't answer questions right now."
+        const val QUOTA_BUILT_IN = "The app's built-in OpenAI credit has run out. Add your own OpenAI key in Settings " +
+            "for full stories and questions. Until then I'll read short notes with the on-device voice."
+        const val QUOTA_OWN_KEY = "Your OpenAI key is out of credit (billing limit reached). Top up at platform.openai.com " +
+            "or add another key in Settings. Until then I'll read short notes with the on-device voice."
+
+        /** The one-time spoken notice, in the session language where available. */
+        fun quotaSpoken(language: String): String = when (langBase(language)) {
+            "ru" -> "Небольшое объявление: закончился кредит OpenAI. Добавьте ключ в настройках, а пока я читаю короткие заметки."
+            "de" -> "Kurze Durchsage: Das OpenAI-Guthaben ist aufgebraucht. Fügen Sie in den Einstellungen einen Schlüssel hinzu; bis dahin lese ich kurze Notizen."
+            "es" -> "Un aviso: se acabó el crédito de OpenAI. Añade una clave en Ajustes; mientras tanto leeré notas breves."
+            "fr" -> "Petite annonce : le crédit OpenAI est épuisé. Ajoutez une clé dans les réglages ; en attendant, je lis de courtes notes."
+            else -> "Quick note: the OpenAI credit has run out. Add a key in Settings; until then I'll read short notes."
+        }
+
+        /** On start, a fix older than this is dropped rather than narrated from. */
+        const val STALE_FIX_ON_START_MS = 2 * 60_000L
+
+        const val TOUR_ABANDONED = "Walking tour ended: looks like you've moved on. Back to the regular radio."
+        const val TOUR_AWAY_M = 1_000.0
+        const val TOUR_AWAY_MS = 5 * 60_000L
+
         const val DEGRADED_NOTE = "OpenAI is unreachable, so I'm reading quick notes with the on-device voice."
         const val OFFLINE_NOTE = "You're offline, so I'm reading quick notes with the on-device voice."
         const val OFFLINE_NO_PLACES = "You're offline and no places around here are saved yet. Stories resume when you're back online."

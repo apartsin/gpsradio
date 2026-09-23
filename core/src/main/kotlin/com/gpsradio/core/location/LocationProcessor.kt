@@ -69,6 +69,11 @@ class LocationProcessor(private val config: Config = Config()) {
 
     private fun prior(tsMs: Long): ActivityType? = activity?.takeIf { tsMs - activityAtMs <= config.priorMaxAgeMs }
 
+    /** Forgets the last fix (e.g. the radio was off for a while and the listener may be elsewhere). */
+    fun forgetFix() {
+        last = null
+    }
+
     val current: LocationContext? get() = last?.let { it.copy(travelMode = modeOverride ?: it.travelMode) }
 
     /** Returns the new context, or null when the sample is rejected. */

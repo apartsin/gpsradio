@@ -98,6 +98,8 @@ class AndroidPcmAudio(private val context: Context) : PcmAudio {
         queue.offer(pcm)
     }
 
+    override fun pendingPlaybackMs(): Long = (playingUntilMs - System.currentTimeMillis()).coerceAtLeast(0)
+
     override fun stopPlayback() {
         queue.clear()
         playingUntilMs = 0

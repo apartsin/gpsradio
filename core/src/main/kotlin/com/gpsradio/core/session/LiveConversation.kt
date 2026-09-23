@@ -1,5 +1,6 @@
 package com.gpsradio.core.session
 
+import com.gpsradio.core.ai.QuotaErrors
 import com.gpsradio.core.ai.RealtimeConnection
 import com.gpsradio.core.ai.RealtimeEvent
 import com.gpsradio.core.ai.RealtimeProtocol
@@ -21,6 +22,9 @@ interface PcmAudio {
     fun play(pcm: ByteArray)
     /** Drops queued audio immediately (the listener started talking over the host). */
     fun stopPlayback()
+
+    /** Roughly how much queued host audio is still to be heard, in ms (0 when silent or unknown). */
+    fun pendingPlaybackMs(): Long = 0
 }
 
 enum class LiveState { CONNECTING, LISTENING, USER_SPEAKING, ASSISTANT_SPEAKING }
@@ -94,6 +98,8 @@ class LiveConversation(
         watchdog = scope.launch {
             while (isOpen) {
                 delay(1_000)
+                // Audio still playing from the queue counts as activity: never cut off the end of an answer.
+                if (audio.pendingPlaybackMs() > 0) lastActivityMs = clock()
                 if (!speaking && !toolRunning && clock() - lastActivityMs > idleTimeoutMs) {
                     end()
                     break
@@ -195,7 +201,7 @@ class LiveConversation(
             is RealtimeEvent.Error -> {
                 // Before the host has spoken, an error means setup failed (bad key, rejected session.update):
                 // surface it. Later errors (e.g. a cancelled response) keep the conversation open.
-                val fatal = !gotFirstAudio || e.message.contains("API key") || e.message.startsWith("HTTP") || e.message.contains("failed")
+                val fatal = !gotFirstAudio || QuotaErrors.matches(e.message) || e.message.contains("API key") || e.message.startsWith("HTTP") || e.message.contains("failed")
                 if (fatal) fail(e.message)
             }
             is RealtimeEvent.Closed -> if (isOpen) {

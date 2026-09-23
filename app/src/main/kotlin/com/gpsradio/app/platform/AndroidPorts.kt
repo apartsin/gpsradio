@@ -22,31 +22,41 @@ import java.io.File
 import java.util.Locale
 import kotlin.coroutines.resume
 
+/** Write-then-rename so a crash or kill mid-write never leaves truncated JSON (which would lose the data). */
+internal fun writeAtomically(file: File, text: String) {
+    val tmp = File(file.parentFile, file.name + ".tmp")
+    tmp.writeText(text)
+    if (!tmp.renameTo(file)) {
+        file.writeText(text)
+        tmp.delete()
+    }
+}
+
 class FileHistoryStore(context: Context) : HistoryStore {
     private val file = File(context.filesDir, "heard_history.json")
     override fun load(): String? = file.takeIf { it.exists() }?.readText()
-    override fun save(serialized: String) = file.writeText(serialized)
+    override fun save(serialized: String) = writeAtomically(file, serialized)
 }
 
 /** Learned listener preferences; stays on the device (excluded from backups). */
 class FileMemoryStore(context: Context) : MemoryStore {
     private val file = File(context.filesDir, "user_memory.json")
     override fun load(): String? = file.takeIf { it.exists() }?.readText()
-    override fun save(serialized: String) = file.writeText(serialized)
+    override fun save(serialized: String) = writeAtomically(file, serialized)
 }
 
 /** Implicitly learned topic interests (full listens, early skips, follow-ups); stays on the device. */
 class FileInterestStore(context: Context) : InterestStore {
     private val file = File(context.filesDir, "learned_interests.json")
     override fun load(): String? = file.takeIf { it.exists() }?.readText()
-    override fun save(serialized: String) = file.writeText(serialized)
+    override fun save(serialized: String) = writeAtomically(file, serialized)
 }
 
 /** Starred places; stays on the device (excluded from backups). */
 class FileFavoritesStore(context: Context) : FavoritesStore {
     private val file = File(context.filesDir, "favorites.json")
     override fun load(): String? = file.takeIf { it.exists() }?.readText()
-    override fun save(serialized: String) = file.writeText(serialized)
+    override fun save(serialized: String) = writeAtomically(file, serialized)
 }
 
 /** Previously discovered areas, so visited places still work offline; stays on the device (excluded from backups). */
@@ -54,15 +64,7 @@ class FileAreaCacheStore(context: Context) : AreaCacheStore {
     private val file = File(context.filesDir, "area_cache.json")
     override fun load(): String? = file.takeIf { it.exists() }?.readText()
 
-    /** Write-then-rename so a crash mid-write never leaves a truncated cache. */
-    override fun save(serialized: String) {
-        val tmp = File(file.parentFile, file.name + ".tmp")
-        tmp.writeText(serialized)
-        if (!tmp.renameTo(file)) {
-            file.writeText(serialized)
-            tmp.delete()
-        }
-    }
+    override fun save(serialized: String) = writeAtomically(file, serialized)
 }
 
 /** Whether the phone currently has an internet-capable network; unknown counts as online. */
@@ -80,7 +82,7 @@ class NetworkMonitor(context: Context) {
 class FileJournalStore(context: Context) : JournalStore {
     private val file = File(context.filesDir, "journal.json")
     override fun load(): String? = file.takeIf { it.exists() }?.readText()
-    override fun save(serialized: String) = file.writeText(serialized)
+    override fun save(serialized: String) = writeAtomically(file, serialized)
 }
 
 /** On-device reverse geocoding to a coarse city/region/country label for localized web search. */

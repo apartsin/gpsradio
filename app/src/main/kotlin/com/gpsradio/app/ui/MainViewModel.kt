@@ -32,7 +32,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val recording: StateFlow<Boolean> = _recording.asStateFlow()
 
     fun saveSettings(transform: (AppSettings) -> AppSettings) {
+        val before = graph.settings.current.effectiveApiKey
         graph.settings.update(transform)
+        // A new key may have credit: stop warning and try OpenAI again right away.
+        if (graph.settings.current.effectiveApiKey != before) session.onApiKeyChanged()
     }
 
     fun startRadio() {

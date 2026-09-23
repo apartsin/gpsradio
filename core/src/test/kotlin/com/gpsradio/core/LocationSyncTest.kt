@@ -91,8 +91,9 @@ class LocationSyncTest {
 
     @Test
     fun storyForAPlacePassedDuringPreparationIsDropped() = runTest {
-        // 300 m ahead at 25 m/s: passed after ~12 s, but narration takes 20 s (within the 25 s timeout).
-        val near = place("near", Geo.destination(start, 0.0, 300.0))
+        // 200 m ahead at 25 m/s: passed after ~8 s, but narration takes 20 s (within the 25 s timeout),
+        // so the listener is ~300 m past it, beyond the 250 m driving tolerance.
+        val near = place("near", Geo.destination(start, 0.0, 200.0))
         val f = Fake(listOf(near), narrateMs = 20_000)
         val s = session(f)
         try {

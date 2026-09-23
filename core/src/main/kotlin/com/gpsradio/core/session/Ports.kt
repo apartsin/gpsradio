@@ -53,6 +53,8 @@ data class SessionConfig(
     val soundEffects: Boolean = true,
     /** How often the radio speaks: scales the speak threshold, segment gaps and fillers. */
     val pacing: Pacing = Pacing.BALANCED,
+    /** True when running on the app's built-in key rather than the listener's own (changes the out-of-credit advice). */
+    val usingBuiltInKey: Boolean = false,
 )
 
 class OpenAiSpeech(

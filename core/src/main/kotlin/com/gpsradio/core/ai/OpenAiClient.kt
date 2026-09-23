@@ -24,6 +24,25 @@ import okhttp3.RequestBody.Companion.toRequestBody
 class OpenAiException(val status: Int, message: String) : Exception(message) {
     /** Worth retrying later (auth problems, rate limits, server errors) rather than blaming the content. */
     val isTransient: Boolean get() = status == 401 || status == 403 || status == 408 || status == 429 || status >= 500
+
+    /** The key's credit or billing limit is used up (not a short rate limit): the listener has to act. */
+    val isQuotaExhausted: Boolean get() = QuotaErrors.matches(message)
+}
+
+/** Recognises OpenAI's "out of credit / billing limit" errors in HTTP bodies, Realtime events and messages. */
+object QuotaErrors {
+    /** Prefix of the friendly message; [matches] recognises it too. */
+    const val MESSAGE = "OpenAI credit ran out"
+
+    private val markers = listOf(
+        MESSAGE.lowercase(), "insufficient_quota", "exceeded your current quota", "billing_hard_limit",
+        "billing hard limit", "check your plan and billing",
+    )
+
+    fun matches(text: String?): Boolean {
+        val t = text?.lowercase() ?: return false
+        return markers.any { it in t }
+    }
 }
 
 /**
@@ -135,20 +154,29 @@ class OpenAiClient(
         throw OpenAiException(e.code, friendlyError(e))
     }
 
-    private fun friendlyError(e: HttpException): String {
-        val detail = e.message?.substringAfter(": ", "")?.let { body ->
-            runCatching { json.parseToJsonElement(body).jsonObject["error"]?.jsonObject?.get("message")?.jsonPrimitive?.contentOrNull }.getOrNull()
-        }
-        return when (e.code) {
-            401 -> "OpenAI rejected the API key"
-            429 -> "OpenAI rate limit or quota reached" + (detail?.let { ": $it" } ?: "")
-            else -> "OpenAI error ${e.code}" + (detail?.let { ": $it" } ?: "")
-        }
-    }
+    private fun friendlyError(e: HttpException): String = friendlyError(e.code, e.message?.substringAfter(": ", ""))
 
     companion object {
         private val JSON = "application/json".toMediaType()
         private val json = Json { ignoreUnknownKeys = true }
+
+        /** User-facing message for an OpenAI HTTP error; quota exhaustion starts with [QuotaErrors.MESSAGE]. */
+        fun friendlyError(code: Int, body: String?): String {
+            val error = body?.let { runCatching { json.parseToJsonElement(it).jsonObject["error"]?.jsonObject }.getOrNull() }
+            val detail = error?.get("message")?.jsonPrimitive?.contentOrNull
+            val type = listOfNotNull(error?.get("code")?.jsonPrimitive?.contentOrNull, error?.get("type")?.jsonPrimitive?.contentOrNull)
+            if ((code == 429 || code == 402 || code == 403) && 
+                // The body may be truncated (not valid JSON), so the raw text is checked too.
+                (type.any(QuotaErrors::matches) || QuotaErrors.matches(detail) || QuotaErrors.matches(body))
+            ) {
+                return QuotaErrors.MESSAGE + " (insufficient_quota)" + (detail?.let { ": $it" } ?: "")
+            }
+            return when (code) {
+                401 -> "OpenAI rejected the API key"
+                429 -> "OpenAI rate limit reached" + (detail?.let { ": $it" } ?: "")
+                else -> "OpenAI error $code" + (detail?.let { ": $it" } ?: "")
+            }
+        }
 
         fun isReasoningModel(model: String): Boolean =
             model.startsWith("gpt-5") || Regex("^o\\d").containsMatchIn(model)

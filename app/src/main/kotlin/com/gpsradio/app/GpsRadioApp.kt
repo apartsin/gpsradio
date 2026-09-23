@@ -138,6 +138,7 @@ open class GpsRadioApp : Application() {
                         previewMode = !it.hasApiKey,
                         soundEffects = it.soundEffects,
                         pacing = it.pacing,
+                        usingBuiltInKey = it.usingEmbeddedKey,
                     )
                 }
             },

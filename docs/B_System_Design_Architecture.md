@@ -611,3 +611,14 @@ Typed questions are routed into an open live session. If the connection fails, t
 A hard floor of a quarter of the gap applies between any two segments. Driving keeps ≤ 30 s per segment and ≥ 90 s between segments, except in Non-stop, where the driving gap is 12 s (`Pacing.drivingMinGapMs`) so the radio keeps talking on the road; junctions (`holdForManeuver`) always mean silence.
 
 **Non-stop.** When nothing crosses the (lowered) threshold, the programme keeps talking in this order: (1) weaker unheard nearby places above half the threshold, told as full stories; (2) area facets; (3) bumpers, on this day and quizzes (fillers may follow fillers); (4) a wider discovery radius (×2 per step, up to 3 steps). Teasers are off and the quiz pause is 5 s, so there are no long answer windows. Nothing is repeated; when everything is exhausted, the radio is silent rather than repetitive.
+
+## 35. Out of OpenAI Credit
+
+When the key's credit or billing limit runs out, OpenAI answers HTTP 429 with `insufficient_quota`. This is not a short rate limit: the listener has to act.
+- **Detection** (`QuotaErrors`): the HTTP body's `error.code` / `type` / message, also on a truncated body (`OpenAiClient.friendlyError`); Realtime `error` events, failed `response.done` with `status_details.error`, and a 429 handshake. Messages start with "OpenAI credit ran out", so every path (stories, answers, speech, live voice) recognises them.
+- **Session** (`RadioUiState.quotaExhausted`):
+  - A persistent ERROR status with an "Add key" action, and a transcript line (not repeated back to back). The text differs for the built-in key ("add your own key") and the user's own key ("top up or add another key").
+  - Stories continue as on-device notes. The first one starts with a one-time spoken notice in the session language, because the listener may be driving.
+  - Fillers are skipped.
+  - The warning clears on the next successful OpenAI story, or at once when the key changes in Settings (`onApiKeyChanged`).
+- **App:** a heads-up notification on the "Alerts" channel. Tapping it or its action opens Settings. It is cancelled when credit returns.
