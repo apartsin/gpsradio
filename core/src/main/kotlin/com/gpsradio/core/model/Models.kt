@@ -2,7 +2,21 @@ package com.gpsradio.core.model
 
 import kotlinx.serialization.Serializable
 
-enum class TravelMode { STATIONARY, WALKING, DRIVING, UNKNOWN }
+enum class TravelMode { STATIONARY, WALKING, CYCLING, DRIVING, UNKNOWN }
+
+/**
+ * Activity reported by the platform's activity recognition (Android Activity Recognition
+ * Transition API). Used as a prior that biases speed-based travel-mode detection (spec B §24).
+ */
+enum class ActivityType { IN_VEHICLE, ON_BICYCLE, WALKING, RUNNING, STILL }
+
+/** Road-trip category of a candidate while driving (spec A §16, PR-27). */
+enum class RoadTripKind {
+    /** A landmark you can see from the road: peak, lake, castle, tower, bridge, lighthouse, viewpoint. */
+    VISIBLE,
+    /** A high-relevance sight close to the route: the story ends with an offer to navigate there. */
+    WORTH_A_STOP,
+}
 
 /** Radio state per spec B §4/§9. IDLE means no session is running. */
 enum class RadioState { IDLE, RADIO, RESEARCHING, NARRATING, CONVERSING, PAUSED }
@@ -29,6 +43,8 @@ data class LocationContext(
     val speedMps: Double,
     val headingDeg: Double?,
     val travelMode: TravelMode,
+    /** True while speed or heading changes sharply (junction, roundabout, braking); see ManeuverDetector. */
+    val maneuvering: Boolean = false,
 )
 
 /** Approximate place name for the user's area, used to localize web search. */
@@ -86,6 +102,8 @@ data class ScoreBreakdown(
     val sourceQuality: Double,
     val repetition: Double,
     val conversationCost: Double,
+    /** Road-trip bonus while driving (visible from the road / worth a stop), 0..1. */
+    val roadTrip: Double = 0.0,
 )
 
 /** A candidate scored for airtime relative to the current user position (spec B §5.3/§8). */
@@ -95,6 +113,8 @@ data class RankedCandidate(
     val bearingDeg: Double,
     val score: Double,
     val breakdown: ScoreBreakdown,
+    /** Set while driving when the place is visible from the road or worth a stop. */
+    val roadTrip: RoadTripKind? = null,
 ) {
     val storyId: String get() = place.id
 }

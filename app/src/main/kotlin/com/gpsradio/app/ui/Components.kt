@@ -88,6 +88,7 @@ fun StatusCard(state: RadioUiState, onMode: (TravelMode?) -> Unit, onFixKey: () 
                     val modes = listOf(
                         null to (detected?.let { "Auto · $it" } ?: "Auto"),
                         TravelMode.WALKING to "Walk",
+                        TravelMode.CYCLING to "Cycle",
                         TravelMode.DRIVING to "Drive",
                         TravelMode.STATIONARY to "Still",
                     )

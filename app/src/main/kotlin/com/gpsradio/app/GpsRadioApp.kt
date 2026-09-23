@@ -10,6 +10,7 @@ import android.content.pm.PackageManager
 import androidx.core.content.ContextCompat
 import com.gpsradio.app.platform.AndroidPcmAudio
 import com.gpsradio.app.platform.FileFavoritesStore
+import com.gpsradio.app.platform.FileInterestStore
 import com.gpsradio.app.platform.FileMemoryStore
 import com.gpsradio.app.platform.GeocoderAreaLabeler
 import com.gpsradio.app.platform.MediaAudioOutput
@@ -114,6 +115,7 @@ open class GpsRadioApp : Application() {
             areaLabeler = areaLabeler(),
             memoryStore = FileMemoryStore(this),
             favoritesStore = FileFavoritesStore(this),
+            interestStore = FileInterestStore(this),
             liveFactory = liveFactory(http, ep.openAiBaseUrl),
             onPersistLanguage = { tag -> settings.update { it.copy(languageAuto = false, preferredLanguage = tag) } },
             onNavigate = ::openInMaps,

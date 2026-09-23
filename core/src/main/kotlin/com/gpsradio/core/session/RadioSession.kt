@@ -13,9 +13,12 @@ import com.gpsradio.core.ai.ConversationTurn
 import com.gpsradio.core.ai.NarrationRequest
 import com.gpsradio.core.ai.Narrator
 import com.gpsradio.core.ai.Segment
+import com.gpsradio.core.discovery.CorridorDiscovery
 import com.gpsradio.core.discovery.PlacesProvider
 import com.gpsradio.core.editorial.EditorialRanker
 import com.gpsradio.core.editorial.HeardHistory
+import com.gpsradio.core.editorial.InterestModel
+import com.gpsradio.core.editorial.InterestStore
 import com.gpsradio.core.geo.Geo
 import com.gpsradio.core.lang.Languages
 import com.gpsradio.core.ai.RadioAgent
@@ -25,6 +28,7 @@ import com.gpsradio.core.memory.MemoryStore
 import com.gpsradio.core.memory.UserMemory
 import com.gpsradio.core.location.AreaRefreshPolicy
 import com.gpsradio.core.location.LocationProcessor
+import com.gpsradio.core.model.ActivityType
 import com.gpsradio.core.model.AreaLabel
 import com.gpsradio.core.model.GeoPoint
 import com.gpsradio.core.model.LocationContext
@@ -115,6 +119,8 @@ class RadioSession(
     private val areaLabeler: AreaLabeler? = null,
     private val memoryStore: MemoryStore? = null,
     private val favoritesStore: FavoritesStore? = null,
+    /** Persists implicit interest signals (full listens, early skips, follow-ups); null keeps them per session. */
+    private val interestStore: InterestStore? = null,
     /** Creates a hands-free Realtime voice conversation; null disables live voice. */
     private val liveFactory: ((LiveHost, CoroutineScope) -> LiveConversation)? = null,
     private val onPersistLanguage: (String) -> Unit = {},
@@ -165,6 +171,10 @@ class RadioSession(
     private val topicPenalty = HashMap<Topic, Double>()
     private val memory = UserMemory()
     private val favorites = Favorites()
+    private val interestModel = InterestModel()
+    private val corridor = CorridorDiscovery(places)
+    /** Story whose audio is playing now and when playback started (for early-skip detection). */
+    private var storyPlayback: Pair<String, Long>? = null
     private val galleries = HashMap<String, List<String>>()
     private var pendingOffer: PlaceCandidate? = null
     private var lastTeaserMs = 0L
@@ -202,6 +212,7 @@ class RadioSession(
         scope.launch {
             memory.restore(runCatching { memoryStore?.load() }.getOrNull())
             favorites.restore(runCatching { favoritesStore?.load() }.getOrNull())
+            interestModel.restore(runCatching { interestStore?.load() }.getOrNull())
             _state.update { it.copy(memory = memory.all, favorites = favorites.all) }
         }
     }
@@ -256,6 +267,9 @@ class RadioSession(
         rerank()
     }
 
+    /** Activity-recognition transition (vehicle, bicycle, walking, still): a prior for mode detection. */
+    fun onActivity(type: ActivityType) = scope.launch { processor.setActivity(type, clock()) }
+
     fun setModeOverride(mode: TravelMode?) = scope.launch {
         processor.modeOverride = mode
         _state.update { it.copy(modeOverride = mode, location = processor.current ?: it.location) }
@@ -266,6 +280,10 @@ class RadioSession(
         closeLive()
         clearOffer()
         val wasSpeaking = speechJob?.isActive == true
+        storyPlayback?.takeIf { wasSpeaking && clock() - it.second < EARLY_SKIP_MS }?.let { (id, _) ->
+            candidates[id]?.let { learn(InterestModel.Signal.EARLY_SKIP, it) }
+        }
+        storyPlayback = null
         speechJob?.cancel()
         if (wasSpeaking) {
             // Penalize what was actually on air (or being prepared), not the previous story.
@@ -414,6 +432,7 @@ class RadioSession(
 
         if (_state.value.radioState != RadioState.RADIO || speaking || discoveryJob?.isActive == true) return
         if (now < engagedUntilMs || now < nextNarrationAllowedMs) return
+        if (ranker.holdForPacing(_state.value.location, lastSpeechEndMs, now)) return
         if (maybeAskAboutTrip()) return
         rerank()
         val pick = ranker.pickForAirtime(ranked) ?: return
@@ -439,7 +458,9 @@ class RadioSession(
                 }
                 val radius = refreshPolicy.searchRadiusM(ctx.travelMode)
                 val found = timed(timeouts.discoveryMs, "Discovery") {
-                    places.discover(refreshPolicy.searchCenter(ctx), radius, lang)
+                    // Driving: look-ahead corridor cells, fetched (and cached) before arrival.
+                    refreshPolicy.corridorCells(ctx)?.let { cells -> corridor.discover(cells, lang, clock()) }
+                        ?: places.discover(refreshPolicy.searchCenter(ctx), radius, lang)
                 }
                 if (lang != lastRefreshLang) candidates.clear()
                 found.forEach { candidates[it.id] = it }
@@ -477,7 +498,7 @@ class RadioSession(
             candidates.values.filter { it.id !in failedIds },
             EditorialRanker.Context(
                 location = loc,
-                interests = interests,
+                interests = interestModel.adjust(interests, now, explicit = memory.topicWeights().keys),
                 heard = heard,
                 nowMs = now,
                 mentionedIds = mentionedIds,
@@ -537,7 +558,10 @@ class RadioSession(
                 }
                 storiesSinceTeaser++
                 prefetchNext(excludeId = c.place.id)
+                storyPlayback = c.place.id to clock()
                 audio.play(bytes)
+                storyPlayback = null
+                learn(InterestModel.Signal.COMPLETED, c.place)
                 // Only a story that was actually heard to the end counts as heard.
                 heard.markHeard(c.place.id, c.place.name, clock())
                 persistHeard()
@@ -633,7 +657,11 @@ class RadioSession(
         if (p.placeId != c.place.id) return null
         prefetched = null
         // Distance/direction in the text must still be roughly right.
-        val maxMove = if (loc.travelMode == TravelMode.DRIVING) 500.0 else 200.0
+        val maxMove = when (loc.travelMode) {
+            TravelMode.DRIVING -> 500.0
+            TravelMode.CYCLING -> 300.0
+            TravelMode.WALKING, TravelMode.STATIONARY, TravelMode.UNKNOWN -> 200.0
+        }
         val fresh = clock() - p.atMs < 10 * 60_000L && Geo.distanceM(p.preparedAt, loc.point) < maxMove && stillInSync(c.place)
         return if (p.language == lang && fresh) p.segment to p.audio else null
     }
@@ -703,6 +731,9 @@ class RadioSession(
         }
         history += ConversationTurn(true, text)
         history += ConversationTurn(false, reply.reply)
+        // A follow-up question about the story just told is a strong interest signal.
+        active?.takeIf { reply.action == ConversationAction.NONE && (reply.entityId == null || reply.entityId == it.place.id) }
+            ?.let { learn(InterestModel.Signal.FOLLOW_UP, it.place) }
         while (history.size > 24) history.removeAt(0)
         reply.entityId?.let { id -> candidates[id] }?.let { place ->
             activeId = place.id
@@ -999,6 +1030,12 @@ class RadioSession(
         if (_state.value.radioState != RadioState.IDLE) setRadioState(RadioState.PAUSED)
     }
 
+    /** Implicit personalization: feed a listening signal into the learned interests. */
+    private fun learn(signal: InterestModel.Signal, place: PlaceCandidate) {
+        if (!interestModel.record(signal, place.topics, clock(), key = place.id)) return
+        runCatching { interestStore?.save(interestModel.serialize(clock())) }
+    }
+
     private fun penalize(place: PlaceCandidate) {
         heard.markHeard(place.id, place.name, clock())
         persistHeard()
@@ -1049,6 +1086,9 @@ class RadioSession(
 
     companion object {
         fun langBase(tag: String): String = tag.substringBefore('-').lowercase()
+
+        /** A skip this soon after a story starts playing counts as "not interested". */
+        const val EARLY_SKIP_MS = 8_000L
 
         private val yes = setOf("yes", "yeah", "yep", "sure", "ok", "okay", "go on", "go ahead", "tell me", "please", "yes please", "да", "давай", "конечно", "ja", "oui", "sí", "si", "כן")
         private val no = setOf("no", "nope", "not now", "no thanks", "skip", "нет", "не надо", "nein", "non", "לא")
