@@ -16,6 +16,8 @@ import com.gpsradio.core.discovery.OverpassClient
 import com.gpsradio.core.discovery.PlacesProvider
 import com.gpsradio.core.discovery.WikipediaClient
 import com.gpsradio.core.geo.Geo
+import com.gpsradio.core.lang.Notice
+import com.gpsradio.core.lang.Notices
 import com.gpsradio.core.model.AreaLabel
 import com.gpsradio.core.model.GeoPoint
 import com.gpsradio.core.model.LocationContext
@@ -143,11 +145,14 @@ class DegradedModeTest {
             s.onLocation(fix()); runCurrent()
             advanceTimeBy(5_000); runCurrent()
             assertEquals(RadioState.NARRATING, s.state.value.radioState)
-            val text = s.state.value.nowPlaying!!.text
+            val notice = Notices.text(Notice.DEGRADED_NOTES, "en-US")
+            val full = s.state.value.nowPlaying!!.text
+            assertTrue(full.startsWith(notice), full)
+            val text = full.removePrefix(notice).trim()
             assertTrue(text.startsWith("Quick note about Ort Castle, about 300 metres to the north:"), text)
             assertTrue(text.contains("It dates from the 11th century."))
             assertFalse(text.contains("TV set"), "only the first three sentences")
-            assertTrue(world.played.single().startsWith("DEVICE:Quick note"))
+            assertTrue(world.played.single().startsWith("DEVICE:$notice Quick note"))
             assertEquals(RadioSession.DEGRADED_NOTE, s.state.value.status!!.text)
             assertEquals(StatusLevel.INFO, s.state.value.status!!.level)
             assertTrue(s.state.value.transcript.none { it.speaker == Speaker.SYSTEM })
@@ -191,8 +196,10 @@ class DegradedModeTest {
         running(s) {
             s.onLocation(fix()); runCurrent()
             advanceTimeBy(5_000); runCurrent()
-            assertEquals("AI story about Ort Castle", s.state.value.nowPlaying!!.text)
-            assertEquals("DEVICE:AI story about Ort Castle", world.played.single())
+            // The first on-device segment says once, out loud, why the voice changed (voice is the main channel).
+            val notice = Notices.text(Notice.DEGRADED_NOTES, "en-US")
+            assertEquals("$notice AI story about Ort Castle", s.state.value.nowPlaying!!.text)
+            assertEquals("DEVICE:$notice AI story about Ort Castle", world.played.single())
         }
     }
 

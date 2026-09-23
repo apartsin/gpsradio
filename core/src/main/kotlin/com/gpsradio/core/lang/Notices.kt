@@ -1,0 +1,90 @@
+package com.gpsradio.core.lang
+
+/**
+ * Short spoken notices for things the listener must hear, not just see (voice is the main channel,
+ * spec A §32): failures, unavailable features, tour changes. Written out per language because they
+ * must work without a model (offline, out of credit). Unknown languages get English.
+ */
+enum class Notice {
+    ANSWER_FAILED,
+    QUESTIONS_OFFLINE,
+    QUESTIONS_NEED_KEY,
+    TOUR_NO_GPS,
+    TOUR_TOO_FEW_SIGHTS,
+    TOUR_ABANDONED,
+    OFFLINE_NOTES,
+    DEGRADED_NOTES,
+}
+
+object Notices {
+    private val texts: Map<String, Map<Notice, String>> = mapOf(
+        "en" to mapOf(
+            Notice.ANSWER_FAILED to "Sorry, I couldn't answer that right now. Try again in a moment.",
+            Notice.QUESTIONS_OFFLINE to "You're offline, so I can't answer questions right now. The stories go on.",
+            Notice.QUESTIONS_NEED_KEY to "Questions need an OpenAI key. You can add one in Settings.",
+            Notice.TOUR_NO_GPS to "I'm still waiting for your location before I can plan a tour.",
+            Notice.TOUR_TOO_FEW_SIGHTS to "There aren't enough sights nearby for a walking tour yet.",
+            Notice.TOUR_ABANDONED to "Looks like you've moved on, so I've ended the walking tour. Back to the regular radio.",
+            Notice.OFFLINE_NOTES to "Quick note: you're offline, so for now I'll read short notes with the phone's own voice.",
+            Notice.DEGRADED_NOTES to "Quick note: I can't reach OpenAI right now, so I'll read short notes with the phone's own voice.",
+        ),
+        "ru" to mapOf(
+            Notice.ANSWER_FAILED to "Извините, сейчас не получилось ответить. Попробуйте чуть позже.",
+            Notice.QUESTIONS_OFFLINE to "Нет подключения к интернету, поэтому на вопросы я сейчас ответить не могу. Истории продолжаются.",
+            Notice.QUESTIONS_NEED_KEY to "Для вопросов нужен ключ OpenAI. Его можно добавить в настройках.",
+            Notice.TOUR_NO_GPS to "Я ещё жду ваше местоположение, чтобы составить прогулку.",
+            Notice.TOUR_TOO_FEW_SIGHTS to "Поблизости пока недостаточно достопримечательностей для прогулки.",
+            Notice.TOUR_ABANDONED to "Похоже, вы ушли дальше, поэтому я завершил прогулку. Возвращаемся к обычному радио.",
+            Notice.OFFLINE_NOTES to "Небольшое объявление: нет интернета, поэтому пока я читаю короткие заметки голосом телефона.",
+            Notice.DEGRADED_NOTES to "Небольшое объявление: OpenAI сейчас недоступен, поэтому пока я читаю короткие заметки голосом телефона.",
+        ),
+        "he" to mapOf(
+            Notice.ANSWER_FAILED to "סליחה, לא הצלחתי לענות כרגע. נסו שוב בעוד רגע.",
+            Notice.QUESTIONS_OFFLINE to "אין חיבור לאינטרנט, אז כרגע אני לא יכול לענות על שאלות. הסיפורים ממשיכים.",
+            Notice.QUESTIONS_NEED_KEY to "כדי לשאול שאלות צריך מפתח OpenAI. אפשר להוסיף אותו בהגדרות.",
+            Notice.TOUR_NO_GPS to "אני עדיין מחכה למיקום שלכם כדי לתכנן סיור.",
+            Notice.TOUR_TOO_FEW_SIGHTS to "עדיין אין מספיק אתרים בסביבה לסיור רגלי.",
+            Notice.TOUR_ABANDONED to "נראה שהמשכתם הלאה, אז סיימתי את הסיור. חוזרים לרדיו הרגיל.",
+            Notice.OFFLINE_NOTES to "הודעה קצרה: אין אינטרנט, אז בינתיים אקרא הערות קצרות בקול של הטלפון.",
+            Notice.DEGRADED_NOTES to "הודעה קצרה: אין כרגע גישה ל-OpenAI, אז בינתיים אקרא הערות קצרות בקול של הטלפון.",
+        ),
+        "de" to mapOf(
+            Notice.ANSWER_FAILED to "Entschuldigung, das konnte ich gerade nicht beantworten. Versuch es gleich noch einmal.",
+            Notice.QUESTIONS_OFFLINE to "Du bist offline, deshalb kann ich gerade keine Fragen beantworten. Die Geschichten gehen weiter.",
+            Notice.QUESTIONS_NEED_KEY to "Für Fragen braucht es einen OpenAI-Schlüssel. Du kannst ihn in den Einstellungen hinzufügen.",
+            Notice.TOUR_NO_GPS to "Ich warte noch auf deinen Standort, um eine Tour zu planen.",
+            Notice.TOUR_TOO_FEW_SIGHTS to "In der Nähe gibt es noch nicht genug Sehenswürdigkeiten für einen Rundgang.",
+            Notice.TOUR_ABANDONED to "Du bist wohl weitergezogen, also habe ich den Rundgang beendet. Zurück zum normalen Radio.",
+            Notice.OFFLINE_NOTES to "Kurze Durchsage: Du bist offline, deshalb lese ich vorerst kurze Notizen mit der Stimme des Telefons.",
+            Notice.DEGRADED_NOTES to "Kurze Durchsage: OpenAI ist gerade nicht erreichbar, deshalb lese ich vorerst kurze Notizen mit der Stimme des Telefons.",
+        ),
+        "es" to mapOf(
+            Notice.ANSWER_FAILED to "Lo siento, ahora no pude responder. Inténtalo de nuevo en un momento.",
+            Notice.QUESTIONS_OFFLINE to "No tienes conexión, así que ahora no puedo responder preguntas. Las historias siguen.",
+            Notice.QUESTIONS_NEED_KEY to "Para hacer preguntas hace falta una clave de OpenAI. Puedes añadirla en Ajustes.",
+            Notice.TOUR_NO_GPS to "Todavía espero tu ubicación para planear un recorrido.",
+            Notice.TOUR_TOO_FEW_SIGHTS to "Todavía no hay suficientes lugares cerca para un paseo.",
+            Notice.TOUR_ABANDONED to "Parece que has seguido tu camino, así que terminé el paseo. Volvemos a la radio.",
+            Notice.OFFLINE_NOTES to "Un aviso: no tienes conexión, así que por ahora leeré notas breves con la voz del teléfono.",
+            Notice.DEGRADED_NOTES to "Un aviso: no puedo conectar con OpenAI, así que por ahora leeré notas breves con la voz del teléfono.",
+        ),
+        "fr" to mapOf(
+            Notice.ANSWER_FAILED to "Désolé, je n'ai pas pu répondre pour l'instant. Réessayez dans un moment.",
+            Notice.QUESTIONS_OFFLINE to "Vous êtes hors ligne, je ne peux donc pas répondre aux questions pour l'instant. Les histoires continuent.",
+            Notice.QUESTIONS_NEED_KEY to "Les questions nécessitent une clé OpenAI. Vous pouvez l'ajouter dans les réglages.",
+            Notice.TOUR_NO_GPS to "J'attends encore votre position pour préparer une balade.",
+            Notice.TOUR_TOO_FEW_SIGHTS to "Il n'y a pas encore assez de curiosités à proximité pour une balade.",
+            Notice.TOUR_ABANDONED to "On dirait que vous êtes reparti, j'ai donc terminé la balade. Retour à la radio.",
+            Notice.OFFLINE_NOTES to "Petite annonce : vous êtes hors ligne, je lis donc pour l'instant de courtes notes avec la voix du téléphone.",
+            Notice.DEGRADED_NOTES to "Petite annonce : OpenAI est injoignable, je lis donc pour l'instant de courtes notes avec la voix du téléphone.",
+        ),
+    )
+
+    fun text(notice: Notice, language: String): String {
+        val base = language.substringBefore('-').lowercase()
+        return texts[base]?.get(notice) ?: texts.getValue("en").getValue(notice)
+    }
+
+    /** Languages with hand-written notices (others fall back to English). */
+    val languages: Set<String> get() = texts.keys
+}

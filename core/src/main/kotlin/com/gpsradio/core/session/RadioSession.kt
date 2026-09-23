@@ -81,6 +81,8 @@ import com.gpsradio.core.discovery.AreaInfoSource
 import com.gpsradio.core.discovery.OnThisDayClient
 import com.gpsradio.core.discovery.OnThisDaySource
 import com.gpsradio.core.editorial.Pacing
+import com.gpsradio.core.lang.Notices
+import com.gpsradio.core.lang.Notice
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Deferred
 import com.gpsradio.core.visit.Visits
@@ -765,6 +767,7 @@ class RadioSession(
             segment = s
             val bytes = timed(timeouts.speechMs, "Speech") { speech.synthesize(s.text, lang, cfg.style) }
             fallbackGate.onPrimarySuccess()
+            degradedAnnounced = false
             clearQuota()
             prepLatencyMs = prepLatencyMs * 0.7 + (clock() - started) * 0.3
             clearNotes(DEGRADED_NOTE, OFFLINE_NOTE)
@@ -818,6 +821,12 @@ class RadioSession(
         var segment = spoken?.takeIf { req.format == SegmentFormat.STORY }
             ?: fallbackNarrator!!.narrate(req.copy(format = SegmentFormat.STORY))
         // Say once, out loud, why the stories got shorter: the listener may not be looking at the screen.
+        if (!_state.value.quotaExhausted && !config().previewMode && !degradedAnnounced &&
+            (segment.language ?: req.language).let { langBase(it) == langBase(req.language) }
+        ) {
+            degradedAnnounced = true
+            segment = segment.copy(text = Notices.text(if (isOnline()) Notice.DEGRADED_NOTES else Notice.OFFLINE_NOTES, req.language) + " " + segment.text)
+        }
         if (_state.value.quotaExhausted && !quotaAnnounced && (segment.language ?: req.language).let { langBase(it) == langBase(req.language) }) {
             quotaAnnounced = true
             segment = segment.copy(text = quotaSpoken(req.language) + " " + segment.text)
@@ -936,6 +945,7 @@ class RadioSession(
             throw e
         } catch (e: Exception) {
             fail("Couldn't answer: ${e.message}")
+            if (isQuota(e)) announceText(quotaSpoken(sessionLanguage)) else announce(Notice.ANSWER_FAILED)
             endConversation()
             return
         } finally {
@@ -1363,6 +1373,8 @@ class RadioSession(
     // ---- out of OpenAI credit -------------------------------------------------------------------
 
     private var quotaAnnounced = false
+    /** The "offline / OpenAI unreachable, short notes for now" notice was spoken this episode. */
+    private var degradedAnnounced = false
 
     private fun isQuota(e: Throwable): Boolean =
         (e is OpenAiException && e.isQuotaExhausted) || QuotaErrors.matches(e.message)
@@ -1397,7 +1409,49 @@ class RadioSession(
         }
         _state.update { it.copy(status = Status(msg, StatusLevel.INFO, needsKey = preview, actionLabel = if (preview) "Add key" else null)) }
         addTranscript(TranscriptEntry(Speaker.SYSTEM, msg, clock()))
+        // They may have asked by voice without looking at the screen: say it too.
+        announce(if (preview) Notice.QUESTIONS_NEED_KEY else Notice.QUESTIONS_OFFLINE)
         return true
+    }
+
+    // ---- spoken notices: voice is the main channel (spec A §32) ------------------------------------
+
+    /** Speaks [notice] after whatever is playing now; skipped while stopped or paused. */
+    private fun announce(notice: Notice) = announceText(Notices.text(notice, sessionLanguage))
+
+    private fun announceText(text: String) {
+        val previous = speechJob
+        scope.launch {
+            previous?.join()
+            if (_state.value.radioState == RadioState.IDLE || _state.value.radioState == RadioState.PAUSED) return@launch
+            speakNotice(text)
+        }
+    }
+
+    /**
+     * The host's voice when OpenAI is usable, otherwise the phone's own voice (works offline and out of
+     * credit). Never fails the caller: a notice that can't be voiced stays on screen.
+     */
+    private suspend fun speakNotice(text: String) {
+        val lang = sessionLanguage
+        val style = config().style
+        val primaryOk = !onDeviceNow() && isOnline() && !config().previewMode && !_state.value.quotaExhausted
+        val bytes = try {
+            if (primaryOk) timed(timeouts.speechMs, "Speech") { speech.synthesize(text, lang, style) }
+            else fallbackSpeech?.let { f -> timed(timeouts.speechMs, "Speech") { f.synthesize(text, lang, style) } }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            runCatching { fallbackSpeech?.synthesize(text, lang, style) }.getOrNull()
+        } ?: return
+        try {
+            audio.play(bytes)
+            lastSpeechEndMs = clock()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Audio busy (e.g. a call): the notice is still on screen.
+        }
     }
 
     private fun fail(msg: String) {
@@ -1460,12 +1514,14 @@ class RadioSession(
         val loc = _state.value.location ?: processor.current
         if (loc == null) {
             setStatus("Waiting for GPS to plan a tour…")
+            announce(Notice.TOUR_NO_GPS)
             return
         }
         rerank()
         val plan = tourPlanner.plan(ranked, loc.point, minutes)
         if (plan == null) {
             setStatus("Not enough sights nearby for a $minutes-minute tour yet.")
+            announce(Notice.TOUR_TOO_FEW_SIGHTS)
             return
         }
         closeLive()
@@ -1521,6 +1577,7 @@ class RadioSession(
         if (tourAbandoned(t, loc, next)) {
             clearTour()
             setStatus(TOUR_ABANDONED)
+            announce(Notice.TOUR_ABANDONED)
             addTranscript(TranscriptEntry(Speaker.SYSTEM, TOUR_ABANDONED, clock()))
             return
         }

@@ -474,3 +474,26 @@ GPS Radio is not distributed through a store:
 |---|---|---|
 | PR-58 | Hours & fees | Report today's hours/closure and admission from a checked source; otherwise say unconfirmed. |
 | PR-59 | Detour details | Visit type, time to spend, walking effort and what to expect for suggested detours. |
+
+## 32. Voice First, in the Listener's Language
+
+- **Voice is the main channel.** Everything the listener needs to know is spoken; the screen repeats and adds detail, but is never the only place it appears. Spoken today:
+  - stories and answers;
+  - offers ("want the full story?", "want me to navigate there?");
+  - events today;
+  - hours and fees, and detour details;
+  - photo tips;
+  - "out of credit";
+  - "offline / OpenAI unreachable: short notes for now";
+  - "couldn't answer that";
+  - "questions need a connection / a key";
+  - "can't plan a tour yet";
+  - "tour ended".
+- **Language.** The host always speaks the selected language (Russian by default), even when the sources are in German, English or anything else. It translates the facts and keeps original place names.
+- **Notices without a model** are hand-written in Russian, English, Hebrew, German, Spanish and French, and read with the phone's own voice when OpenAI can't be used.
+- **Screen-only exceptions:** the app-update banner (never while driving) and settings.
+
+| ID | Capability | Requirement |
+|---|---|---|
+| PR-60 | Voice first | Every listener-relevant notice is spoken; the screen is secondary. |
+| PR-61 | Language | Narration, answers and notices in the selected language regardless of the source language. |

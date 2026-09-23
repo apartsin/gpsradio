@@ -724,3 +724,18 @@ The app is not in a store, so it manages its own releases and updates.
 - **Cache keys.** Every request sets `prompt_cache_key` (`gpsradio-narr-<lang>-<style>`, `gpsradio-conv[-search]-<lang>-<style>`, `gpsradio-events`, `gpsradio-visit`), so requests sharing a prefix are routed to the same cache.
 - **Measuring hits.** `ResponseResult.cachedTokens` reports `usage.input_tokens_details.cached_tokens`.
 - **Realtime.** The Realtime session sends its instructions once per conversation (`session.update`), and the server caches the conversation prefix itself.
+
+## 41. Voice-First Notices and Language
+
+- **Language:**
+  - The narration instructions start with `LANGUAGE: … must be in <language>, even when the facts are in another language`, and every narration/filler context carries `spoken_language`.
+  - This fixed a regression where the rule, at the end of a grown prompt, was ignored for Russian and Hebrew.
+  - Live evals cover Russian and Hebrew, German facts → Russian, and English visit data → Russian.
+- **Notices:**
+  - `core/lang/Notices` holds hand-written notice texts (ru, en, he, de, es, fr; English fallback).
+  - `RadioSession.announce()` speaks one after whatever is playing, and skips it while stopped or paused. It uses the host voice when OpenAI is usable, otherwise `fallbackSpeech` (on-device), and never fails the caller.
+  - Hooked up to: questions unavailable (offline or no key), a failed answer (the quota text when out of credit), a tour that can't be planned (no GPS or too few sights), and tour abandoned.
+  - The first on-device story of a degraded episode is prefixed with the offline/unreachable notice. It resets when OpenAI works again.
+- **Live evals:**
+  - A must-pass list (language, safety at the wheel, legend labelling, tragedy/dignity, no invented facts, hours or prices) fails the run on any miss.
+  - The judge-graded style cases need ≥ 85%.
