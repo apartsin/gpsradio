@@ -46,7 +46,7 @@ data class VisitInfo(
     /** One or two lines on what to expect (view, crowds, parking, facilities). */
     val expect: String? = null,
     val sourceUrl: String? = null,
-    /** "web" (checked online today) or "osm" (OpenStreetMap tags). */
+    /** "web" (checked online today), "osm" (OpenStreetMap tags), "mixed" (web plus OSM hours/admission), or "none". */
     val source: String = "web",
     val checkedMs: Long = 0,
 ) {
@@ -178,10 +178,12 @@ object OpeningHours {
         return any
     }
 
-    /** Whether [now] falls in one of today's intervals. */
+    /** Whether [now] falls in one of today's intervals (an interval ending after midnight, e.g. 18:00–02:00, included). */
     fun openAt(intervals: List<Pair<String, String>>, now: LocalTime): Boolean = intervals.any { (a, b) ->
         val start = LocalTime.parse(a.padStart(5, '0'))
-        if (b == "24:00") !now.isBefore(start) else now >= start && now < LocalTime.parse(b.padStart(5, '0'))
+        if (b == "24:00") return@any !now.isBefore(start)
+        val end = LocalTime.parse(b.padStart(5, '0'))
+        if (end.isAfter(start)) now >= start && now < end else now >= start || now < end
     }
 }
 

@@ -42,3 +42,27 @@ The reviewer checked every `when` over the extended enums in the app: all are ex
 | 12 | P2 | Plain `writeText` stores could lose the journal/favourites on a kill mid-write | Fixed: all stores write-then-rename |
 
 Also added in this round (a user request): out-of-credit (`insufficient_quota`) detection and notification (spec B §35).
+
+## Round 3 — 23 Sep 2026 (line-by-line review of 16 core/app files, HEAD 15910a4): NOT CLEAN → fixed
+Overall grade from the reviewer: "B: careful about grounding and failure modes; problems where features were bolted onto RadioSession and the live-voice path."
+
+| # | Sev | Finding | Status |
+|---|---|---|---|
+| 1 | P1 | Live voice: `response.create` sent right after a tool call, while the tool-calling response was still active; that error before the first audio was fatal, killing the conversation (and always-listening standby) | Fixed: follow-up requested on `response.done`; errors classified (setup/key/quota/handshake fatal, routine protocol errors not); a server close in always-listening mode is a normal end; tests |
+| 2 | P1 | Mic thread could read a released `AudioRecord` after a quick stop/start (crash), and busy-looped on read errors | Fixed: per-capture thread and stop flag, joined before release; breaks on errors |
+| 3 | P2 | A blank `reply` made the app speak the raw JSON | Fixed |
+| 4 | P2 | Events 4–8 were marked announced but never spoken | Fixed: announce ≤3 and mark only those |
+| 5 | P2 | Hours filled from OSM were presented as "checked online" | Fixed: `source = "mixed"`, and the prompt names the provenance |
+| 6 | P2 | Skipped visit checks (offline, budget) blocked the check for the rest of the day | Fixed: skipped checks aren't cached |
+| 8 | P2 | Echo guard only while NARRATING (notices, answers and host questions were unguarded) | Fixed: driven by the actual audio output (count of active plays); the leaked `MainScope` collector is removed |
+| 9 | P2 | The Jewish birthplace fact was appended after a long extract and cut by the fact budget | Fixed: prepended |
+| 10 | P2 | Quiz prompt text shipped although quizzes are off (and contradicted "never test knowledge") | Fixed: removed from all prompts (mechanics kept behind `Programme.Config.quizzes`) |
+| — | P2 | A notice could overlap a story (`announce()` not tracked) | Fixed: stored as the speech job |
+| — | P2 | `today()` used the system zone while events and visits use the injected zone | Fixed |
+| — | P2 | `onApiKeyChanged` didn't reset the backoff unless out of credit | Fixed |
+| — | P2 | A 401/403 was reported as "OpenAI is unreachable" | Fixed: "OpenAI didn't accept the API key" with Settings action; test updated |
+| — | P2 | Audio focus kept after the host finished (other apps stayed paused) | Fixed: released when the playback queue drains |
+| — | P2 | A teaser for a worth-a-stop place asked two questions | Fixed: no `road_trip` in teasers |
+| — | P2 | The widened non-stop radius never shrank | Fixed: reset once a refresh finds ≥ 8 places |
+| — | P3 | `stop()` left a stale offer; events from a previous town could be announced; "401" substring matching; overnight `openAt`; stale comments (GPS rates now match: walking 10 s / 15 m); photo-tip interval untested | Fixed (+ tests) |
+| — | refactor | Split `RadioSession` (2.2k lines) into visit/events/tour/live coordinators; shared `onStoryHeard()`/`conversationRequest()`; static Realtime instructions with context as messages; typed error codes; named magic numbers | Open: next round |

@@ -214,7 +214,13 @@ class LiveVoiceTest {
             c.server.trySend(RealtimeEvent.FunctionCall("call1", "web_search", """{"query":"castle opening hours"}""")); runCurrent()
             assertEquals(listOf("castle opening hours"), r.searches)
             assertTrue("function_call_output" in c.sent.last { it["type"]!!.jsonPrimitive.content == "conversation.item.create" }.toString())
+            // Only one response may be active: the follow-up is requested once the tool-calling response is done.
+            assertTrue("response.create" != c.types().last())
+            c.server.trySend(RealtimeEvent.ResponseDone); runCurrent()
             assertEquals("response.create", c.types().last())
+            // Routine protocol errors (nothing to cancel) don't end the conversation.
+            c.server.trySend(RealtimeEvent.Error("Cancellation failed: no active response found")); runCurrent()
+            assertTrue(s.state.value.live != null)
 
             // The host answers in audio; the listener interrupts (barge-in) and playback is flushed.
             // 2 s of audio arrived (48 bytes/ms), 1.5 s still queued: the listener heard 500 ms.

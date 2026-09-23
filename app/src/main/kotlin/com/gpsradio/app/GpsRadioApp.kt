@@ -27,9 +27,6 @@ import com.gpsradio.core.ai.RealtimeClient
 import com.gpsradio.core.session.LiveConversation
 import com.gpsradio.core.session.LiveHost
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.launch
 import com.gpsradio.core.discovery.AreaDiskCache
 import com.gpsradio.core.discovery.AreaInfoSource
 import com.gpsradio.core.discovery.DiscoveryService
@@ -109,6 +106,22 @@ open class GpsRadioApp : Application() {
         return { host, scope -> LiveConversation({ model -> realtime.connect(model) }, pcm, host, scope) }
     }
 
+    /**
+     * Always listening: whatever the radio plays through the speaker (stories, answers, notices, host
+     * questions) makes the mic require the listener to be clearly louder, so the phone never answers itself.
+     */
+    private fun audibleWhilePlaying(inner: AudioOutput): AudioOutput {
+        val playing = java.util.concurrent.atomic.AtomicInteger(0)
+        return AudioOutput { bytes ->
+            if (playing.incrementAndGet() == 1) livePcm?.setRadioAudible(true)
+            try {
+                inner.play(bytes)
+            } finally {
+                if (playing.decrementAndGet() == 0) livePcm?.setRadioAudible(false)
+            }
+        }
+    }
+
     private fun micGranted() =
         ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
 
@@ -146,7 +159,7 @@ open class GpsRadioApp : Application() {
             ),
             narrator = RadioAgent(openAi, models),
             speech = OpenAiSpeech(openAi, models),
-            audio = audioOutput(),
+            audio = audibleWhilePlaying(audioOutput()),
             historyStore = FileHistoryStore(this),
             config = {
                 settings.current.let {
@@ -186,12 +199,6 @@ open class GpsRadioApp : Application() {
             eventScout = eventScout(openAi, models),
             visitScout = visitScout(openAi, models),
         )
-        // Always listening: while a story or sting plays, the mic needs the listener to be clearly louder.
-        kotlinx.coroutines.MainScope().launch {
-            session.state.map { it.radioState == com.gpsradio.core.model.RadioState.NARRATING }
-                .distinctUntilChanged()
-                .collect { audible -> livePcm?.setRadioAudible(audible) }
-        }
     }
 
     /** Navigation handoff (spec A PR-10): let the user's maps app do the routing. */

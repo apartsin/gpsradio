@@ -154,8 +154,10 @@ class DegradedModeTest {
             assertTrue(text.contains("It dates from the 11th century."))
             assertFalse(text.contains("TV set"), "only the first three sentences")
             assertTrue(world.played.single().startsWith("DEVICE:$notice Quick note"))
-            assertEquals(RadioSession.DEGRADED_NOTE, s.state.value.status!!.text)
-            assertEquals(StatusLevel.INFO, s.state.value.status!!.level)
+            // A rejected key is named as such (with the fix), not reported as "OpenAI is unreachable".
+            assertEquals(RadioSession.KEY_REJECTED, s.state.value.status!!.text)
+            assertEquals(StatusLevel.ERROR, s.state.value.status!!.level)
+            assertTrue(s.state.value.status!!.needsKey)
             assertTrue(s.state.value.transcript.none { it.speaker == Speaker.SYSTEM })
         }
     }

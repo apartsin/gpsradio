@@ -169,12 +169,13 @@ class SegmentFormatsTest {
     @Test
     fun promptsCoverTheNewFormatsAndKeepTheGuardrails() {
         val p = RadioAgent.narrationInstructions("en-US", HostStyle.ENTERTAINING)
-        listOf("bumper", "quiz", "on_this_day", "station_id", "area").forEach { assertTrue("format \"$it\"" in p, it) }
-        assertTrue("ANSWER:" in p)
+        listOf("bumper", "on_this_day", "station_id", "area").forEach { assertTrue("format \"$it\"" in p, it) }
+        // Knowledge quizzes are off by product decision: no quiz instructions are paid for on every call.
+        assertTrue("format \"quiz\"" !in p)
         assertTrue("never joke about tragedies" in p && "Never invent or embellish facts" in p)
         assertTrue("never invent a local connection" in p)
         val c = RadioAgent.conversationInstructions("en-US", searchAvailable = false)
-        assertTrue("quiz.answer" in c)
+        assertTrue("quiz.answer" !in c && "never test the listener's knowledge" in c)
     }
 
     @Test

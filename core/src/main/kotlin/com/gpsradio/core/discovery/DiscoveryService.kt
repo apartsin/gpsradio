@@ -245,9 +245,9 @@ class DiscoveryService(
     }
 
     /**
-     * Film locations and historical events from Wikidata: enrich a place already found (same Wikidata
-     * item) or add it. Events without a Wikipedia article in the narration language or English
-     * are only added when they have a description, and with low relevance.
+     * Film locations, historical events and Jewish/Israeli birthplace connections from Wikidata: enrich a
+     * place already found (same Wikidata item or same name nearby) or add it. Events without a Wikipedia
+     * article in the narration language are only added when they have a description, with low relevance.
      */
     internal suspend fun addWikidata(
         places: List<PlaceCandidate>,
@@ -267,7 +267,8 @@ class DiscoveryService(
                 val c = out[i]
                 out[i] = c.copy(
                     features = c.features + PlaceFeature.JEWISH_HERITAGE, topics = c.topics + Topic.JEWISH,
-                    extract = listOfNotNull(c.extract, born).joinToString(" "), baseRelevance = min(1.0, c.baseRelevance + 0.1),
+                    // First, so the narration's fact budget (MAX_FACTS_CHARS) never cuts it off.
+                    extract = listOfNotNull(born, c.extract).joinToString(" "), baseRelevance = min(1.0, c.baseRelevance + 0.1),
                 )
             } else {
                 out += PlaceCandidate(

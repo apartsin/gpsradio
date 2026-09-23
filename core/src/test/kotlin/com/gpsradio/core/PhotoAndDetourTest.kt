@@ -131,6 +131,12 @@ class PhotoAndDetourTest {
         p.onFillerAired(SegmentFormat.PHOTO_TIP, "c", t0, "09-23")
         p.onStoryAired()
         assertEquals(Programme.Plan.None, p.next(sit(t0 + 10 * 60_000)), "same spot is not suggested twice")
+        // A different spot: not within 15 minutes of the last tip, but after that.
+        val other = rc(place("w", Geo.destination(here, 180.0, 200.0), name = "Old Bridge"), w)
+        fun sitOther(now: Long) = sit(now).copy(photoSpot = other)
+        assertTrue(p.next(sitOther(t0 + 10 * 60_000)) !is Programme.Plan.Filler || (p.next(sitOther(t0 + 10 * 60_000)) as Programme.Plan.Filler).format != SegmentFormat.PHOTO_TIP)
+        p.onStoryAired()
+        assertEquals(Programme.Plan.Filler(SegmentFormat.PHOTO_TIP, other), p.next(sitOther(t0 + 16 * 60_000)))
         assertTrue(SegmentFormat.PHOTO_TIP.isFiller)
         assertTrue(RadioAgent.targetSeconds(TravelMode.DRIVING, SegmentFormat.PHOTO_TIP) <= 30)
     }

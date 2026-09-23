@@ -15,8 +15,8 @@ import okhttp3.Request
 import java.util.Locale
 
 /**
- * Wikidata (keyless SPARQL): film and TV locations and dated historical events near a point
- * (spec A §29). Results are grounded: every film/event is a Wikidata item, and events carry their
+ * Wikidata (keyless SPARQL): film and TV locations, dated historical events, and birthplaces of notable
+ * Jewish or Israeli people near a point (spec A §29). Results are grounded: every film/event is a Wikidata item, and events carry their
  * Wikipedia article title so the story can use its intro as facts.
  */
 class WikidataClient(

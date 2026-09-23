@@ -29,12 +29,15 @@ class AndroidPcmAudio(private val context: Context) : PcmAudio {
 
     @Volatile private var capturing = false
     private var record: AudioRecord? = null
+    /** The current capture's thread and stop flag: a quick stop/start never lets an old thread read a released recorder. */
+    private var micThread: Thread? = null
+    private var micRunning: java.util.concurrent.atomic.AtomicBoolean? = null
     private var echo: AcousticEchoCanceler? = null
     private var noise: NoiseSuppressor? = null
 
     private val queue = LinkedBlockingQueue<ByteArray>()
     private val audioManager = context.getSystemService(AudioManager::class.java)
-    private var focus: AudioFocusRequest? = null
+    @Volatile private var focus: AudioFocusRequest? = null
 
     /** Until when the speaker is (roughly) still playing host audio; used by the echo gate. */
     @Volatile private var playingUntilMs = 0L
@@ -65,11 +68,18 @@ class AndroidPcmAudio(private val context: Context) : PcmAudio {
         rec.startRecording()
         // No audio focus for listening: an always-open mic must not duck or pause the radio. Focus is
         // taken only while the live host speaks (see play()).
-        thread(name = "live-mic", isDaemon = true) {
+        val running = java.util.concurrent.atomic.AtomicBoolean(true)
+        micRunning = running
+        micThread = thread(name = "live-mic", isDaemon = true) {
             val buf = ByteArray(chunkBytes)
-            while (capturing) {
-                val n = rec.read(buf, 0, buf.size)
-                if (n <= 0) continue
+            while (running.get()) {
+                val n = try {
+                    rec.read(buf, 0, buf.size)
+                } catch (_: IllegalStateException) {
+                    break // recorder released
+                }
+                if (n < 0) break // ERROR_DEAD_OBJECT / ERROR_INVALID_OPERATION: the recorder is gone
+                if (n == 0) continue
                 // Speech gate: only speech is sent (with a short preroll); while the radio or the host is
                 // audible, the listener must be clearly louder than the playback, so the phone never
                 // answers itself. Also saves mobile data in always-listening mode.
@@ -83,7 +93,12 @@ class AndroidPcmAudio(private val context: Context) : PcmAudio {
     override fun stopCapture() {
         if (!capturing) return
         capturing = false
-        record?.let { runCatching { it.stop() }; it.release() }
+        micRunning?.set(false)
+        record?.let { runCatching { it.stop() } } // unblocks a pending read
+        micThread?.let { t -> if (t !== Thread.currentThread()) runCatching { t.join(500) } }
+        micThread = null
+        micRunning = null
+        record?.let { runCatching { it.release() } }
         record = null
         echo?.release()
         noise?.release()
@@ -145,7 +160,12 @@ class AndroidPcmAudio(private val context: Context) : PcmAudio {
         player = thread(name = "live-speaker", isDaemon = true) {
             try {
                 while (true) {
-                    val chunk = queue.take()
+                    val chunk = queue.poll(500, java.util.concurrent.TimeUnit.MILLISECONDS)
+                    if (chunk == null) {
+                        // The host has finished speaking: give audio focus back so other apps' music resumes.
+                        if (focus != null && System.currentTimeMillis() > playingUntilMs) abandonFocus()
+                        continue
+                    }
                     t.write(chunk, 0, chunk.size)
                 }
             } catch (_: InterruptedException) {
@@ -157,6 +177,7 @@ class AndroidPcmAudio(private val context: Context) : PcmAudio {
     }
 
     /** Ducks or pauses other audio (music, podcasts) while the conversation is open. */
+    @Synchronized
     private fun requestFocus() {
         val req = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
             .setAudioAttributes(
@@ -167,6 +188,7 @@ class AndroidPcmAudio(private val context: Context) : PcmAudio {
         runCatching { audioManager.requestAudioFocus(req) }
     }
 
+    @Synchronized
     private fun abandonFocus() {
         focus?.let { runCatching { audioManager.abandonAudioFocusRequest(it) } }
         focus = null

@@ -134,7 +134,7 @@ data class DetourSuggestion(
     val placeId: String,
     val name: String,
     val minutes: Int,
-    /** "open until 17:00 · €8 · ~45 min visit · easy walk" once checked (spec A §31). */
+    /** e.g. "open 10:00–17:00 · adults €8 · ~45 min visit · easy walk", in the listener's language (spec A §31). */
     val visit: String? = null,
 ) {
     val label: String get() = Detours.label(minutes)
@@ -358,6 +358,7 @@ class RadioSession(
 
     fun stop() = scope.launch {
         endLive()
+        clearOffer()
         schedulerJob?.cancel()
         discoveryJob?.cancel()
         speechJob?.cancel()
@@ -378,7 +379,6 @@ class RadioSession(
 
     /** The key or its billing may have changed: probe OpenAI again right away. */
     fun onApiKeyChanged() = scope.launch {
-        if (!_state.value.quotaExhausted) return@launch
         clearQuota()
         fallbackGate.onPrimarySuccess()
         nextNarrationAllowedMs = 0
@@ -642,6 +642,8 @@ class RadioSession(
                 }
                 if (lang != lastRefreshLang) candidates.clear()
                 found.forEach { candidates[it.id] = it }
+                // A widened search (non-stop) found plenty: back to the normal radius for the next refresh.
+                if (found.size >= RADIUS_RESET_FOUND && radiusBoost > 1.0) radiusBoost = 1.0
                 // Old candidates decay: forget anything far outside the current search area.
                 candidates.values.removeAll { Geo.distanceM(ctx.point, it.point) > radius * 3.0 }
                 lastRefreshPoint = ctx.point
@@ -807,6 +809,10 @@ class RadioSession(
             segment = s
             val bytes = timed(timeouts.speechMs, "Speech") { speech.synthesize(s.text, lang, cfg.style) }
             fallbackGate.onPrimarySuccess()
+            if (keyRejected) {
+                keyRejected = false
+                clearNotes(KEY_REJECTED)
+            }
             degradedAnnounced = false
             deviceSkipped.clear()
             clearQuota()
@@ -815,6 +821,11 @@ class RadioSession(
             s to bytes
         } catch (e: Exception) {
             if (isQuota(e)) noteQuota()
+            if (e is OpenAiException && (e.status == 401 || e.status == 403) && !isQuota(e)) {
+                // A rejected key isn't an outage: say so (with the fix) instead of "OpenAI is unreachable".
+                keyRejected = true
+                _state.update { it.copy(status = Status(KEY_REJECTED, StatusLevel.ERROR, needsKey = true)) }
+            }
             // OpenAI unavailable: read the source notes on the device instead of going silent.
             if (!hasFallback || !FallbackGate.isOutage(e)) throw e
             fallbackGate.onPrimaryFailure()
@@ -858,7 +869,7 @@ class RadioSession(
 
     /** On-device notes and voice; [spoken] is model text that was generated but could not be voiced. */
     private suspend fun prepareOnDevice(req: NarrationRequest, spoken: Segment? = null): Pair<Segment, ByteArray> {
-        if (!config().previewMode && !_state.value.quotaExhausted) setStatus(if (isOnline()) DEGRADED_NOTE else OFFLINE_NOTE)
+        if (!config().previewMode && !_state.value.quotaExhausted && !keyRejected) setStatus(if (isOnline()) DEGRADED_NOTE else OFFLINE_NOTE)
         var segment = spoken?.takeIf { req.format == SegmentFormat.STORY }
             ?: fallbackNarrator!!.narrate(req.copy(format = SegmentFormat.STORY))
         // Say once, out loud, why the stories got shorter: the listener may not be looking at the screen.
@@ -1475,6 +1486,8 @@ class RadioSession(
     // ---- out of OpenAI credit -------------------------------------------------------------------
 
     private var quotaAnnounced = false
+    /** OpenAI answered 401/403: the key is wrong (not an outage). */
+    private var keyRejected = false
     /** Places skipped while on-device because their notes aren't in the listener's language (told once online). */
     private val deviceSkipped = HashSet<String>()
     /** The "offline / OpenAI unreachable, short notes for now" notice was spoken this episode. */
@@ -1525,7 +1538,8 @@ class RadioSession(
 
     private fun announceText(text: String) {
         val previous = speechJob
-        scope.launch {
+        // Stored as the speech job: the scheduler waits for it, so a story never starts over a notice.
+        speechJob = scope.launch {
             previous?.join()
             if (_state.value.radioState == RadioState.IDLE || _state.value.radioState == RadioState.PAUSED) return@launch
             speakNotice(text)
@@ -1563,7 +1577,7 @@ class RadioSession(
             noteQuota()
             return
         }
-        val keyProblem = "API key" in msg || "401" in msg
+        val keyProblem = "API key" in msg || Regex("\\b(401|403)\\b").containsMatchIn(msg) && "OpenAI" in msg
         val friendly = if (keyProblem) "OpenAI didn't accept the API key. Check it in Settings." else msg
         _state.update { it.copy(status = Status(friendly, StatusLevel.ERROR, needsKey = keyProblem)) }
         addTranscript(TranscriptEntry(Speaker.SYSTEM, friendly, clock()))
@@ -1939,7 +1953,8 @@ class RadioSession(
                             ),
                         )
                         SegmentFormat.EVENTS -> {
-                            val due = eventsToAnnounce(clock())
+                            // The segment names at most three; the rest stay due for a later one.
+                            val due = eventsToAnnounce(clock()).take(3)
                             // Announced once, even if this segment fails (no retry loop on a flaky model).
                             due.forEach { announcedEvents += it.id }
                             if (due.isEmpty()) throw IllegalStateException("no events to announce")
@@ -2038,7 +2053,7 @@ class RadioSession(
         while (visitLookupTimes.isNotEmpty() && now - visitLookupTimes.first() > 3_600_000L) visitLookupTimes.removeFirst()
         val scout = visitScout
         if (scout == null || cfg.previewMode || !isOnline() || onDeviceNow() || visitLookupTimes.size >= VISIT_LOOKUPS_PER_HOUR) {
-            visitCache[place.id] = osm ?: VisitInfo(source = "none", checkedMs = now)
+            // Not cached: a check skipped now (offline, budget) must still happen later today.
             return CompletableDeferred(osm)
         }
         visitLookupTimes.addLast(now)
@@ -2052,10 +2067,14 @@ class RadioSession(
                 null
             }
             // The web check wins; OSM fills what it couldn't confirm.
+            val filledFromOsm = web != null && osm != null &&
+                ((web.hoursToday == null && osm.hoursToday != null) || (web.admission == null && osm.admission != null))
             val merged = web?.copy(
                 openToday = web.openToday ?: osm?.openToday,
                 hoursToday = web.hoursToday ?: osm?.hoursToday,
                 admission = web.admission ?: osm?.admission,
+                // Provenance: the host must not say "according to their website" for OSM hours.
+                source = if (filledFromOsm) "mixed" else web.source,
             ) ?: osm
             visitCache[place.id] = merged ?: VisitInfo(source = "none", checkedMs = clock())
             refreshDetours()
@@ -2107,6 +2126,8 @@ class RadioSession(
         val since = now - eventsCheckedMs
         if (since < EVENTS_MIN_GAP_MS || (key == eventsKey && since < EVENTS_REFRESH_MS)) return
         eventsCheckedMs = now
+        // Moved to another town: its events replace the old ones (don't announce a concert 100 km back).
+        if (eventsKey != null && eventsKey != key) _state.update { it.copy(todayEvents = emptyList()) }
         eventsKey = key
         eventsJob = scope.launch {
             val found = try {
@@ -2122,7 +2143,7 @@ class RadioSession(
         }
     }
 
-    private fun today(): LocalDate = Instant.ofEpochMilli(clock()).atZone(ZoneId.systemDefault()).toLocalDate()
+    private fun today(): LocalDate = Instant.ofEpochMilli(clock()).atZone(zone()).toLocalDate()
 
     private fun dayKey(d: LocalDate) = "%02d-%02d".format(d.monthValue, d.dayOfMonth)
 
@@ -2156,6 +2177,9 @@ class RadioSession(
         const val VISIT_TIMEOUT_MS = 20_000L
         const val VISIT_WAIT_MS = 8_000L
 
+        /** A refresh that finds at least this many places resets a widened (non-stop) search radius. */
+        const val RADIUS_RESET_FOUND = 8
+
         const val EVENTS_REFRESH_MS = 3 * 3_600_000L
         const val EVENTS_MIN_GAP_MS = 45 * 60_000L
         /** Events are announced when they start within this time (or are running). */
@@ -2167,6 +2191,8 @@ class RadioSession(
         const val TOUR_ABANDONED = "Walking tour ended: looks like you've moved on. Back to the regular radio."
         const val TOUR_AWAY_M = 1_000.0
         const val TOUR_AWAY_MS = 5 * 60_000L
+
+        const val KEY_REJECTED = "OpenAI didn't accept the API key. Check it in Settings. Until then I'll read short notes with the phone's voice."
 
         const val DEGRADED_NOTE = "OpenAI is unreachable, so I'm reading quick notes with the on-device voice."
         const val OFFLINE_NOTE = "You're offline, so I'm reading quick notes with the on-device voice."

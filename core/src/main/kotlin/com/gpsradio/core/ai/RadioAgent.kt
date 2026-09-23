@@ -269,7 +269,14 @@ class RadioAgent(
             req.detourMinutes?.let { put("detour_minutes", it) }
             req.visit?.let { v ->
                 putJsonObject("visit") {
-                    put("checked", if (v.source == "osm") "OpenStreetMap listing" else "checked online today")
+                    put(
+                        "checked",
+                        when (v.source) {
+                            "osm" -> "OpenStreetMap listing"
+                            "mixed" -> "checked online today; hours or admission from the OpenStreetMap listing"
+                            else -> "checked online today"
+                        },
+                    )
                     v.openToday?.let { put("open_today", it) }
                     v.hoursToday?.let { put("hours_today", it) }
                     v.admission?.let { put("admission", it) }
@@ -544,6 +551,8 @@ class RadioAgent(
 
         /** The "road_trip" label and, for a worth-a-stop place, a rough detour description. */
         fun roadTripContext(req: NarrationRequest): Pair<String, String?>? {
+            // A teaser ends with "want the full story?"; the navigation offer belongs to the full story.
+            if (req.format == SegmentFormat.TEASER) return null
             val kind = req.roadTrip ?: return null
             return when (kind) {
                 RoadTripKind.VISIBLE -> "visible_from_road" to null
@@ -621,10 +630,6 @@ class RadioAgent(
             Short radio formats (keep them tight; the facts and humour rules above still apply):
             - format "bumper": a quick "did you know" bumper of about target_length_words words: ONE surprising fact from
               "facts", naming the place once. Vary the opener (not always "Did you know"). No question, no full story.
-            - format "quiz": ask ONE short, fair question whose answer is clearly in "facts" (offer two or three options when
-              that helps), and say they can answer out loud or wait for the answer. Then, on a final separate line, write
-              "ANSWER:" followed by one or two spoken sentences that reveal the answer (for example "The answer to our quiz: ...").
-              Never reveal the answer before that line.
             - format "on_this_day": about target_length_words words on "event": open with the date and year ("On this day in 1932..."),
               tell what happened and why it mattered, using only "event". Mention the listener's area only if the event is
               really about it; never invent a local connection. If the event involves deaths, war or disaster, be respectful: no humour.
@@ -765,9 +770,7 @@ class RadioAgent(
                 - $search
                 - Never invent places. If nothing suitable is known, say so briefly.
                 - You may ask ONE short clarifying or refining question when it genuinely helps (for example which place
-                  they mean, or where they are heading), but never quiz the listener repeatedly.
-                - If quiz is set, you just asked that quiz question: if the listener is answering it, say warmly whether they
-                  got it right and reveal the answer from quiz.answer (never mock a wrong guess); if they ask something else, answer that.
+                  they mean, or where they are heading), but never test the listener's knowledge.
                 - If they tell you about their trip (destination, purpose, time available, who is with them), put a short
                   summary in "trip_context"; otherwise null.
                 - Replies are spoken aloud: concise (usually 2–4 sentences, at most about 70 words), plain text, no lists,
@@ -870,8 +873,6 @@ class RadioAgent(
             - If pending_offer is set, you just asked whether they want to hear that story: a yes → radio_control accept_offer
               (say at most "Here we go"); a no → decline_offer and a light acknowledgement. If it starts with "directions to",
               you offered to navigate there: a yes → accept_offer ("Opening directions"); a no → decline_offer.
-            - If quiz is set, you just asked that quiz question: when they answer, say kindly whether they got it right and
-              reveal the answer from quiz.answer.
             - When they're done ("thanks", "that's all", "back to the radio"), say a short, varied goodbye and resume_radio.
 
             # Context (JSON)
@@ -931,7 +932,7 @@ class RadioAgent(
             val theme = str("theme")?.let { Topic.fromKey(it) }
             val action = ConversationAction.parse(str("action"))
             return ConversationReply(
-                reply = cleanForSpeech(str("reply") ?: text),
+                reply = cleanForSpeech(str("reply") ?: ""), // a blank reply stays blank (never the raw JSON)
                 // A theme without an action is still a request to set that theme.
                 action = if (action == ConversationAction.NONE && theme != null) ConversationAction.SET_THEME else action,
                 language = str("language"),

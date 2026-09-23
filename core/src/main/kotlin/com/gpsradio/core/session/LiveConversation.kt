@@ -75,6 +75,8 @@ class LiveConversation(
     /** After a barge-in, drop leftover audio from the interrupted response until it is done. */
     private var dropStaleAudio = false
     private var toolRunning = false
+    /** A tool result was sent: ask for the host's follow-up once the current response is done. */
+    private var followUpDue = false
     /** The assistant message being played and how much of its audio arrived (24 kHz 16-bit mono = 48 bytes/ms). */
     private var currentItemId: String? = null
     private var receivedBytes = 0L
@@ -268,25 +270,40 @@ class LiveConversation(
                 // A tool may have ended the conversation (e.g. "back to the radio").
                 if (isOpen) {
                     conn.send(RealtimeProtocol.functionOutput(e.callId, output))
-                    conn.send(RealtimeProtocol.responseCreate())
+                    // Only one response may be active: the one that called the tool ends with response.done,
+                    // then the host continues with the tool's result.
+                    followUpDue = true
                 }
             }
             RealtimeEvent.ResponseDone -> {
                 lastActivityMs = clock()
                 speaking = false
                 dropStaleAudio = false
-                if (isOpen) host.onLiveState(LiveState.LISTENING)
+                if (followUpDue && isOpen) {
+                    followUpDue = false
+                    conn.send(RealtimeProtocol.responseCreate())
+                } else if (isOpen) {
+                    host.onLiveState(LiveState.LISTENING)
+                }
             }
-            is RealtimeEvent.Error -> {
-                // Before the host has spoken, an error means setup failed (bad key, rejected session.update):
-                // surface it. Later errors (e.g. a cancelled response) keep the conversation open.
-                val fatal = !gotFirstAudio || QuotaErrors.matches(e.message) || e.message.contains("API key") || e.message.startsWith("HTTP") || e.message.contains("failed")
-                if (fatal) fail(e.message)
-            }
+            is RealtimeEvent.Error -> if (isFatal(e.message)) fail(e.message)
             is RealtimeEvent.Closed -> if (isOpen) {
-                if (!gotFirstAudio) fail(e.reason.ifBlank { "connection closed" }) else end()
+                // Always listening: the server may close a long session (time limit); that's a normal end and the
+                // session reconnects. Closing before setup finished is a failure worth reporting.
+                if (!ready || (!gotFirstAudio && !persistent)) fail(e.reason.ifBlank { "connection closed" }) else end()
             }
         }
+    }
+
+    /**
+     * Setup failures (before the session is ready, a rejected key, no credit, a failed handshake, or a rejected
+     * session.update before the host ever spoke) end the conversation; routine protocol errors don't
+     * (a response.cancel with nothing to cancel, a response.create while one is still active).
+     */
+    private fun isFatal(message: String): Boolean {
+        if (!ready || QuotaErrors.matches(message) || message.contains("API key") || message.startsWith("HTTP")) return true
+        val benign = listOf("active response", "Cancellation failed", "no active response").any { message.contains(it, ignoreCase = true) }
+        return !benign && !gotFirstAudio && !persistent
     }
 
     /** Tell the server what was actually heard of the interrupted message (sent audio minus what's still queued). */

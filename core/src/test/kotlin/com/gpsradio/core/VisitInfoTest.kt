@@ -74,6 +74,10 @@ class VisitInfoTest {
         assertNull(OpeningHours.today("sunrise-sunset", wed))
         assertTrue(OpeningHours.openAt(listOf("09:00" to "17:00"), LocalTime.of(15, 0)))
         assertFalse(OpeningHours.openAt(listOf("09:00" to "17:00"), LocalTime.of(17, 0)))
+        // After midnight: a bar open 18:00–02:00.
+        assertTrue(OpeningHours.openAt(listOf("18:00" to "02:00"), LocalTime.of(23, 30)))
+        assertTrue(OpeningHours.openAt(listOf("18:00" to "02:00"), LocalTime.of(1, 0)))
+        assertFalse(OpeningHours.openAt(listOf("18:00" to "02:00"), LocalTime.of(12, 0)))
     }
 
     @Test
@@ -220,8 +224,8 @@ class VisitInfoTest {
             assertTrue((req.detourMinutes ?: 0) in 1..15)
             drive(s, t, 30)
             assertEquals(1, lookups, "one web check per place per day")
-            val card = s.state.value.detours.firstOrNull()
-            if (card != null) assertEquals("open 10:00–17:00 · adults €8 · ~45 min visit · easy walk", card.visit)
+            // The detour card (if the abbey is still ahead) shows the checked details; the story always had them.
+            s.state.value.detours.firstOrNull()?.let { card -> assertEquals("open 10:00–17:00 · adults €8 · ~45 min visit · easy walk", card.visit) }
         } finally {
             s.stop(); runCurrent()
         }

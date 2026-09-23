@@ -184,9 +184,10 @@ class RadioService : Service() {
             TravelMode.CYCLING -> LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 6_000)
                 .setMinUpdateDistanceMeters(20f)
                 .build()
-            // 10 s / 15 m is plenty for a ~400 m walking proximity scale, and kinder to the battery.
-            else -> LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 5_000)
-                .setMinUpdateDistanceMeters(8f)
+            // 10 s / 15 m is plenty for a ~400 m walking proximity scale (and a 40 m tour arrival radius at
+            // ~1.4 m/s), and kinder to the battery.
+            else -> LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 10_000)
+                .setMinUpdateDistanceMeters(15f)
                 .setMaxUpdateDelayMillis(0)
                 .build()
         }
