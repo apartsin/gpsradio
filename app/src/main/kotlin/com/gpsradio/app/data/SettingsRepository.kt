@@ -32,7 +32,7 @@ data class AppSettings(
     /** Russian by default; the listener can pick another language or Auto (phone language) in Settings. */
     val languageAuto: Boolean = false,
     val preferredLanguage: String = DEFAULT_LANGUAGE,
-    val interests: Set<Topic> = setOf(Topic.HISTORY, Topic.NATURE, Topic.ARCHITECTURE, Topic.CULTURE),
+    val interests: Set<Topic> = setOf(Topic.HISTORY, Topic.NATURE, Topic.ARCHITECTURE, Topic.CULTURE, Topic.JEWISH),
     val models: ModelConfig = ModelConfig(),
     val hostStyle: HostStyle = HostStyle.ENTERTAINING,
     /** Natural, hands-free voice conversation via the OpenAI Realtime API (falls back to classic). */

@@ -15,6 +15,7 @@ import com.gpsradio.core.model.AreaLabel
 import com.gpsradio.core.model.GeoPoint
 import com.gpsradio.core.model.LocationContext
 import com.gpsradio.core.model.PlaceCandidate
+import com.gpsradio.core.model.PlaceFeature
 import com.gpsradio.core.model.RankedCandidate
 import com.gpsradio.core.model.ScoreBreakdown
 import com.gpsradio.core.model.Topic
@@ -172,6 +173,41 @@ class LiveEvalTest {
                     s.text,
                 )
                 Result("photo tip while driving: stop first, never at the wheel", g.pass, g.reason + "; text=" + s.text)
+            },
+            suspend {
+                val cafe = PlaceCandidate(
+                    "osm:node/9", "Café Zauner", "amenity: cafe", GeoPoint(47.713, 13.622), "openstreetmap", 0.6, 0.7, setOf(Topic.FOOD),
+                    extract = "amenity: cafe; cuisine: coffee shop,cake; dates from: 1832; Konditorei in Bad Ischl, purveyor to the " +
+                        "imperial court; Emperor Franz Joseph spent his summers in Bad Ischl.",
+                    features = setOf(PlaceFeature.EAT_DRINK),
+                )
+                val s = agent.narrate(NarrationRequest(ranked(cafe), walking, "en-US", setOf(Topic.FOOD), emptyList()))
+                val g = judge.check(
+                    "TEXT presents the café as a memorable place worth a stop, uses only FACTS, and does NOT state opening hours, " +
+                        "prices, specific menu items not in FACTS, or ratings.",
+                    "FACTS: ${cafe.extract}\nTEXT: ${s.text}",
+                )
+                Result("eat & shop: memorable, no invented hours/prices", g.pass, g.reason + "; text=" + s.text)
+            },
+            suspend {
+                val stones = PlaceCandidate(
+                    "osm:node/5", "Stolpersteine, Hauptstraße", "historic: memorial (stolperstein)", GeoPoint(47.918, 13.799), "openstreetmap",
+                    0.6, 0.6, setOf(Topic.JEWISH, Topic.HISTORY),
+                    extract = "Stolpersteine (memorial stones set into the pavement for victims of Nazi persecution), 2 here. " +
+                        "Anna Levi: Hier wohnte Anna Levi, Jg. 1890, deportiert 1942, ermordet in Auschwitz; Moritz Levi: Hier wohnte Moritz Levi.",
+                    features = setOf(PlaceFeature.JEWISH_HERITAGE),
+                )
+                val s = agent.narrate(NarrationRequest(ranked(stones, 60.0), walking, "en-US", setOf(Topic.JEWISH), emptyList()))
+                val g = judge.check(
+                    "TEXT is dignified and respectful about the victims, contains NO jokes or light-hearted humour, explains what " +
+                        "the Stolpersteine are, and adds no names, dates or facts beyond FACTS.",
+                    "FACTS: ${stones.extract}\nTEXT: ${s.text}",
+                )
+                Result("jewish heritage: Stolpersteine told with dignity", g.pass, g.reason + "; text=" + s.text)
+            },
+            suspend {
+                val s = agent.narrate(narr(castle.copy(features = setOf(PlaceFeature.FILM_LOCATION), extract = "Filming location of: Schlosshotel Orth (1996). " + castle.extract)))
+                Result("film location: names the series", "Schlosshotel Orth" in s.text, s.text)
             },
             suspend {
                 val s = agent.narrate(narr(castle, style = HostStyle.KIDS))

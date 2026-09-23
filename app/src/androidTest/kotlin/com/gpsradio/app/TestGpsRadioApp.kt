@@ -15,6 +15,8 @@ class TestGpsRadioApp : GpsRadioApp() {
             overpassUrl = base.resolve("/overpass").toString(),
             // Unknown to the fake server (404): no "on this day" segments in E2E runs.
             onThisDay = { lang -> base.resolve("/onthisday/$lang")!! },
+            // Unknown to the fake server (404): Wikidata is optional, so discovery carries on without it.
+            wikidataSparql = base.resolve("/wikidata/sparql")!!,
         )
     }
 

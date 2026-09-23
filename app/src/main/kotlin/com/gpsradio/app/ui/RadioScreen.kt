@@ -1,5 +1,6 @@
 package com.gpsradio.app.ui
 
+import com.gpsradio.core.model.PlaceFeature
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material.icons.filled.PhotoCamera
 import com.gpsradio.core.session.DetourSuggestion
@@ -770,7 +771,8 @@ private fun NearbyRow(
         Column(Modifier.weight(1f)) {
             Text(c.place.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(
-                listOfNotNull("${RadioAgent.describeDistance(c.distanceM)} $direction", detour?.label).joinToString(" · "),
+                (listOfNotNull("${RadioAgent.describeDistance(c.distanceM)} $direction", detour?.label) + c.place.features.map(::featureLabel))
+                    .joinToString(" · "),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
@@ -842,4 +844,13 @@ private fun Saved(favorites: List<FavoritePlace>, a: RadioActions, journal: List
         }
         journalItems(journal, canRetell, a.journal)
     }
+}
+
+/** Short Nearby-list tag for what makes a place special (spec A §29). */
+fun featureLabel(f: PlaceFeature): String = when (f) {
+    PlaceFeature.FILM_LOCATION -> "🎬 filmed here"
+    PlaceFeature.HISTORIC_EVENT -> "📜 happened here"
+    PlaceFeature.EAT_DRINK -> "🍽 eat & drink"
+    PlaceFeature.SHOP -> "🛍 shop"
+    PlaceFeature.JEWISH_HERITAGE -> "✡ Jewish heritage"
 }

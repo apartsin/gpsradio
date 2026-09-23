@@ -89,7 +89,8 @@ class ProgrammeSessionTest {
     private fun TestScope.session(
         f: Fake,
         pacing: Pacing = Pacing.BALANCED,
-        programme: Programme = Programme(),
+        // Quiz mechanics stay covered here; the product ships with quizzes off (see Programme.Config.quizzes).
+        programme: Programme = Programme(Programme.Config(quizzes = true)),
         onThisDay: OnThisDaySource? = null,
         areaInfo: AreaInfoSource? = null,
         area: AreaLabel? = null,
@@ -154,7 +155,7 @@ class ProgrammeSessionTest {
     @Test
     fun quizAnsweredInConversationIsNotRevealedAgain() = runTest {
         val f = Fake(listOf(strong("a"), weak("w1")))
-        val s = session(f, programme = Programme(Programme.Config(bumperMinFactsChars = 10_000)))
+        val s = session(f, programme = Programme(Programme.Config(bumperMinFactsChars = 10_000, quizzes = true)))
         running(s) {
             s.onLocation(fix()); runCurrent()
             var t = 0

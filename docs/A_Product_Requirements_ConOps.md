@@ -418,3 +418,25 @@ GPS Radio is not distributed through a store:
 |---|---|---|
 | PR-50 | Photo tips | Suggest nearby/upcoming photo spots with a light tip; driving: viewpoints only, stop first. |
 | PR-51 | Drive-by detours | Offer worth-a-stop places within ~15 min detour with a one-tap/one-word navigation handoff. |
+
+## 29. More to Discover: Food & Shops, Film Locations, Historical Events, Jewish Heritage & Israel
+
+- **Places to eat, drink or shop that are worth remembering.** Only notable ones: those with a Wikipedia/Wikidata entry, heritage status or a historic tag, not every café. The host says what makes them special: history, a famous dish or product, a famous guest. It never invents opening hours, prices, menus or ratings.
+- **Film and TV locations** (Wikidata "filming location"), for example "Filming location of Schlosshotel Orth (1996)".
+- **Historical events that happened here** (Wikidata events with a date and coordinates, told from their Wikipedia article), opening with the year.
+- **Jewish heritage and connections to Israel.** It is a named feature and a topic chip ("Jewish & Israel"), on by default for new installs. It covers:
+  - synagogues and Jewish cemeteries;
+  - Stolpersteine, grouped per street, with the names they bear;
+  - places connected to Jewish history in Wikipedia (communities, the Holocaust, Israel);
+  - places near you that are the birthplace of notable Jewish or Israeli people (Wikidata).
+
+  The host is warm about living heritage and dignified about persecution, with no humour.
+- **No knowledge quizzes.** The host never tests the listener. Once per session, after a few stories and while it knows little about the listener's taste, it may ask what they would like more of (history, nature, food, film locations, Jewish heritage…). The answer is remembered.
+
+| ID | Capability | Requirement |
+|---|---|---|
+| PR-52 | Eat & shop | Notable places to eat, drink and shop; no invented hours, prices, menus or ratings. |
+| PR-53 | Film locations | Films and shows shot nearby, from Wikidata. |
+| PR-54 | Historical events | Dated events at nearby coordinates, grounded in their article. |
+| PR-55 | Jewish heritage & Israel | Synagogues, cemeteries, Stolpersteine, Jewish history and Israeli/Jewish people connected to nearby places. |
+| PR-56 | No quizzes | Knowledge quizzes are off; one optional preference question per session. |

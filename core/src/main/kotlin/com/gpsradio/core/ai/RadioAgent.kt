@@ -95,6 +95,12 @@ enum class HostLine(
             "(and optionally what they are in the mood for), so you can pick stories along the way.",
         "Looks like we're on the road! Where are we heading today? I'll pick stories along the way.",
     ),
+    PREFERENCE_QUESTION(
+        "In ONE short, friendly sentence, ask the listener what they would like more of on this trip (for example " +
+            "history, nature, food and shops, film locations, Jewish heritage) or anything you should skip. Ask about " +
+            "their taste only: never test their knowledge.",
+        "By the way, what would you like more of: history, nature, food, film locations? Or anything I should skip?",
+    ),
     TOUR_INTRO(
         "You are starting a short walking tour. Turn the draft into a lively spoken intro of at most three sentences. " +
             "Keep every stop name, the order, the duration and the first direction exactly; add nothing else factual.",
@@ -240,6 +246,10 @@ class RadioAgent(
                 put("road_trip", kind)
                 detour?.let { put("detour", it) }
             }
+            if (c.place.features.isNotEmpty()) {
+                putJsonArray("features") { c.place.features.forEach { add(JsonPrimitive(it.name.lowercase())) } }
+            }
+            c.place.eventYear?.let { put("event_year", it) }
             if (req.format == SegmentFormat.PHOTO_TIP) {
                 val sun = PhotoSpots.sun(req.location.point, req.location.timestampMs)
                 put("light", PhotoSpots.lightHint(sun, c.bearingDeg))
@@ -510,6 +520,17 @@ class RadioAgent(
               (for example "Want me to navigate there?"), mentioning "detour" if given. Never invent opening hours,
               parking, prices or access details, and do not offer more than once.
             - Respect listener_profile: lean into what they like, avoid what they avoid, follow their style wishes.
+            - "features" says what else makes the place special; bring it in, still using only "facts":
+              - eat_drink / shop: a memorable place to eat, drink or shop. Say what makes it unusual or worth remembering
+                (its history, a famous dish or product, a famous guest) and that it could be worth a stop. Never invent
+                opening hours, prices, menu items, ratings or whether it is open.
+              - film_location: name the films or shows filmed here as listed in the facts; describe scenes only if the
+                facts do. A light film-buff wink is welcome.
+              - historic_event: tell what happened here, opening with the year (event_year) and why it mattered.
+              - jewish_heritage: tell the Jewish history of the place or its connection to Israel and to Jewish people
+                as the facts give it (synagogues, communities, notable people, memorials). Be warm about living
+                heritage; for persecution and the Holocaust be dignified and respectful, with no humour, naming
+                victims only as the facts do.
             - format "arrival": the listener is now standing in front of the place and has just heard its story. In two to
               four sentences, tell them what to look for with their own eyes (a detail of the facade, a plaque, the view),
               using only "facts"; if the facts describe nothing visible, give one short extra detail instead. Do not retell the story.

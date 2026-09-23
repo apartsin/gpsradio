@@ -59,9 +59,14 @@ class WikipediaClient(
     }
 
     /** Intro extracts for up to 20 pages per call (API limit for exintro). */
-    suspend fun pages(lang: String, pageIds: List<Long>): List<Page> {
-        if (pageIds.isEmpty()) return emptyList()
-        return pageIds.chunked(20).flatMap { chunk ->
+    suspend fun pages(lang: String, pageIds: List<Long>): List<Page> = fetchPages(lang, "pageids", pageIds.map { it.toString() })
+
+    /** Like [pages], by article title (redirects followed). */
+    suspend fun pagesByTitle(lang: String, titles: List<String>): List<Page> = fetchPages(lang, "titles", titles.distinct())
+
+    private suspend fun fetchPages(lang: String, key: String, values: List<String>): List<Page> {
+        if (values.isEmpty()) return emptyList()
+        return values.chunked(20).flatMap { chunk ->
             val url = baseUrl(lang).newBuilder()
                 .addQueryParameter("action", "query")
                 .addQueryParameter("prop", "extracts|description|pageprops|pageimages")
@@ -72,7 +77,8 @@ class WikipediaClient(
                 .addQueryParameter("piprop", "thumbnail")
                 .addQueryParameter("pithumbsize", "640")
                 .addQueryParameter("pilimit", "20")
-                .addQueryParameter("pageids", chunk.joinToString("|"))
+                .addQueryParameter(key, chunk.joinToString("|"))
+                .apply { if (key == "titles") addQueryParameter("redirects", "1") }
                 .addQueryParameter("format", "json")
                 .addQueryParameter("formatversion", "2")
                 .build()

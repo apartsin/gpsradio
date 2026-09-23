@@ -8,7 +8,11 @@ import okhttp3.FormBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 
-/** OpenStreetMap Overpass: named historic sites, sights, and natural features around a point. */
+/**
+ * OpenStreetMap Overpass: named historic sites, sights and natural features around a point, plus
+ * notable places to eat, drink or shop (only those with a Wikipedia/Wikidata entry, heritage status
+ * or a historic tag, so the radio mentions places really worth remembering, not every café).
+ */
 class OverpassClient(
     private val http: OkHttpClient,
     private val userAgent: String,
@@ -37,8 +41,13 @@ class OverpassClient(
               node($a)["natural"~"^(peak|volcano|cave_entrance|spring|waterfall|rock|saddle)$"]["name"];
               nwr($a)["natural"="water"]["name"];
               nwr($a)["man_made"~"^(lighthouse|windmill|watermill|tower|observatory)$"]["name"];
+              nwr($a)["amenity"~"^(restaurant|cafe|pub|bar|biergarten|ice_cream)$"]["name"][~"^(wikidata|wikipedia|heritage|historic)$"~"."];
+              nwr($a)["shop"]["name"][~"^(wikidata|wikipedia|heritage|historic)$"~"."];
+              nwr($a)["religion"="jewish"]["name"];
             );
             out center tags $limit;
+            node(around:400,${center.lat},${center.lon})["memorial"="stolperstein"];
+            out tags 40;
         """.trimIndent()
     }
 

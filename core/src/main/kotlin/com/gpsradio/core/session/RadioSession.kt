@@ -258,6 +258,7 @@ class RadioSession(
     private var lastTeaserMs = 0L
     private var storiesSinceTeaser = 0
     private var tripAsked = false
+    private var preferencesAsked = false
     private var tripContext: String? = null
     private var live: LiveConversation? = null
     private val journal = Journal()
@@ -554,6 +555,7 @@ class RadioSession(
         }
         if (ranker.holdForPacing(_state.value.location, lastSpeechEndMs, now, config().pacing)) return
         if (maybeAskAboutTrip()) return
+        if (maybeAskPreferences()) return
         rerank()
         if (runProgramme(now)) return
         val pick = ranker.pickForAirtime(ranked, config().pacing) ?: return
@@ -1211,15 +1213,31 @@ class RadioSession(
         // The question needs a model to understand the answer.
         if (config().previewMode || !isOnline()) return false
         tripAsked = true
+        return askHost(HostLine.TRIP_QUESTION)
+    }
+
+    /**
+     * Once per session, after a few stories and while little is known about the listener's taste, ask
+     * what they'd like more of. The answer becomes memory through the conversation. Never a knowledge quiz.
+     */
+    private fun maybeAskPreferences(): Boolean {
+        val cfg = config()
+        if (preferencesAsked || !cfg.askPreferences || cfg.pacing == Pacing.NONSTOP || cfg.previewMode || !isOnline()) return false
+        if (recentTitles.size < 4 || memory.promptLines().size >= 3) return false
+        preferencesAsked = true
+        return askHost(HostLine.PREFERENCE_QUESTION)
+    }
+
+    private fun askHost(kind: HostLine): Boolean {
         if (liveVoiceEnabled) {
             // The live host asks in its natural voice and hears the answer hands-free.
-            openLive(opening = HostLine.TRIP_QUESTION.instruction)
+            openLive(opening = kind.instruction)
             return true
         }
         speechJob = scope.launch {
             try {
                 val cfg = config()
-                val line = timed(timeouts.narrationMs, "Host line") { narrator.hostLine(HostLine.TRIP_QUESTION, sessionLanguage, cfg.style) }
+                val line = timed(timeouts.narrationMs, "Host line") { narrator.hostLine(kind, sessionLanguage, cfg.style) }
                 val bytes = timed(timeouts.speechMs, "Speech") { speech.synthesize(line, sessionLanguage, cfg.style) }
                 addTranscript(TranscriptEntry(Speaker.RADIO, line, clock()))
                 setRadioState(RadioState.CONVERSING)

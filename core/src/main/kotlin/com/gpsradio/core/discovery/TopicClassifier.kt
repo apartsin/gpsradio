@@ -4,6 +4,13 @@ import com.gpsradio.core.model.Topic
 
 /** Cheap keyword/tag heuristics that map source metadata onto content categories (spec A §8). */
 object TopicClassifier {
+    /** OSM amenities that are places to eat or drink. */
+    val EAT_DRINK = setOf("restaurant", "cafe", "pub", "bar", "biergarten", "ice_cream", "fast_food")
+
+    /** Synagogues, Jewish cemeteries, Stolpersteine and other OSM features of Jewish heritage. */
+    fun isJewish(tags: Map<String, String>): Boolean =
+        tags["religion"] == "jewish" || tags["memorial"] == "stolperstein" || tags["denomination"]?.contains("jewish") == true
+
     private val keywords: Map<Topic, List<String>> = mapOf(
         Topic.HISTORY to listOf("history", "historic", "century", "founded", "medieval", "ancient", "roman", "castle", "ruins", "archaeolog", "monument", "memorial", "palace", "fortress", "abbey", "monastery"),
         Topic.LEGENDS to listOf("legend", "folklore", "myth", "ghost", "haunted", "saint", "miracle", "treasure"),
@@ -15,6 +22,12 @@ object TopicClassifier {
         Topic.FOOD to listOf("cuisine", "food", "wine", "vineyard", "cheese", "market", "brewery", "bakery", "restaurant", "dish"),
         Topic.UNUSUAL to listOf("unusual", "oldest", "smallest", "largest", "only", "mystery", "strange", "record", "curious"),
         Topic.ATTRACTIONS to listOf("tourist", "attraction", "viewpoint", "landmark", "square", "zoo", "garden"),
+        Topic.FILM to listOf("filmed", "filming location", "film set", "movie", "tv series", "television series"),
+        Topic.JEWISH to listOf(
+            "jewish", "jews", "judaism", "synagogue", "rabbi", "holocaust", "shoah", "yiddish", "hebrew", "israel", "israeli",
+            "zionis", "kosher", "ghetto", "torah", "hasid", "kibbutz", "sephardi", "ashkenaz", "stolperstein", "kristallnacht",
+            "righteous among the nations", "jerusalem", "tel aviv", "haifa",
+        ),
     )
 
     /**
@@ -51,6 +64,8 @@ object TopicClassifier {
         if (tags["natural"] != null || tags["leisure"] == "nature_reserve" || tags["boundary"] == "national_park") out += Topic.NATURE
         if (tags["building"] in setOf("cathedral", "church", "castle", "palace") || tags["amenity"] == "place_of_worship") out += Topic.ARCHITECTURE
         if (tags["man_made"] in setOf("lighthouse", "tower", "windmill", "watermill", "observatory")) out += Topic.INDUSTRY
+        if (tags["amenity"] in EAT_DRINK || tags["shop"] != null) out += Topic.FOOD
+        if (isJewish(tags)) { out += Topic.JEWISH; out += Topic.HISTORY }
         return out
     }
 }

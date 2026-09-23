@@ -232,7 +232,7 @@ private fun SettingsForm(
                 FilterChip(
                     selected = t in interests,
                     onClick = { interests = if (t in interests) interests - t else interests + t },
-                    label = { Text(t.key.replaceFirstChar { it.uppercase() }) },
+                    label = { Text(t.label) },
                 )
             }
         }

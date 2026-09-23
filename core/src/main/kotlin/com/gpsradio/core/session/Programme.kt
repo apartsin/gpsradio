@@ -44,6 +44,8 @@ class Programme(val config: Config = Config()) {
         val maxWidenSteps: Int = 3,
         /** At most one photo tip per this interval. */
         val photoGapMs: Long = 15 * 60_000L,
+        /** Knowledge quizzes; off by product decision (listeners don't want to be tested). */
+        val quizzes: Boolean = false,
     )
 
     /** What the session knows right now; [minGapMs] is the pacing-scaled gap for the travel mode. */
@@ -140,7 +142,7 @@ class Programme(val config: Config = Config()) {
         if (photoOk) s.photoSpot?.takeIf { it.place.id !in usedPlaceIds }?.let { options += Plan.Filler(SegmentFormat.PHOTO_TIP, it) }
         fresh(s, config.bumperMinFactsChars)?.let { options += Plan.Filler(SegmentFormat.BUMPER, it) }
         val quizOk = lastAired[SegmentFormat.QUIZ]?.let { s.nowMs - it >= config.quizGapMs } ?: true
-        if (quizOk) fresh(s, config.quizMinFactsChars)?.let { options += Plan.Filler(SegmentFormat.QUIZ, it) }
+        if (config.quizzes && quizOk) fresh(s, config.quizMinFactsChars)?.let { options += Plan.Filler(SegmentFormat.QUIZ, it) }
         if (!s.themeActive) freshFacet(s)?.let { options += Plan.Filler(SegmentFormat.AREA, areaFacet = it) }
         return options.minByOrNull { lastAired[it.format] ?: Long.MIN_VALUE }
     }

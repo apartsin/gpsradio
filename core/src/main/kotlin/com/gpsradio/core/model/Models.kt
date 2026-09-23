@@ -54,7 +54,7 @@ data class AreaLabel(
     val countryCode: String? = null,
 )
 
-enum class Topic(val key: String) {
+enum class Topic(val key: String, private val displayName: String? = null) {
     HISTORY("history"),
     LEGENDS("legends"),
     ARCHITECTURE("architecture"),
@@ -64,7 +64,14 @@ enum class Topic(val key: String) {
     WAR("war"),
     FOOD("food"),
     UNUSUAL("unusual"),
-    ATTRACTIONS("attractions");
+    ATTRACTIONS("attractions"),
+    /** Film and TV locations. */
+    FILM("film"),
+    /** Jewish heritage and connections to Israel (synagogues, memorials, people, history). */
+    JEWISH("jewish", "Jewish & Israel");
+
+    /** Chip label in Settings. */
+    val label: String get() = displayName ?: key.replaceFirstChar { it.uppercase() }
 
     companion object {
         fun fromKey(key: String): Topic? = entries.firstOrNull { it.key.equals(key.trim(), ignoreCase = true) }
@@ -92,7 +99,14 @@ data class PlaceCandidate(
     /** Real photo of the place (Wikipedia/Wikimedia Commons), when one exists. */
     val imageUrl: String? = null,
     val researchStatus: ResearchStatus = ResearchStatus.UNRESEARCHED,
+    /** What else makes it special (spec A §29): filmed here, a historical event, a memorable place to eat or shop. */
+    val features: Set<PlaceFeature> = emptySet(),
+    /** Year of the historical event, when [PlaceFeature.HISTORIC_EVENT]. */
+    val eventYear: Int? = null,
 )
+
+@Serializable
+enum class PlaceFeature { FILM_LOCATION, HISTORIC_EVENT, EAT_DRINK, SHOP, JEWISH_HERITAGE }
 
 data class ScoreBreakdown(
     val relevance: Double,

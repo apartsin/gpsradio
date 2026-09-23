@@ -103,6 +103,21 @@ class ProgrammeTest {
     }
 
     @Test
+    fun quizzesRotateInOnlyWhenEnabled() {
+        val p = Programme(Programme.Config(quizzes = true))
+        var now = t0
+        val formats = mutableListOf<SegmentFormat>()
+        repeat(3) {
+            val plan = p.next(sit(now = now, lastEnd = now - 120_000, otd = true, ranked = (1..6).map { rc("w$it") })) as Plan.Filler
+            formats += plan.format
+            p.onFillerAired(plan.format, plan.candidate?.place?.id, now, "09-23")
+            p.onStoryAired()
+            now += 20 * 60_000L
+        }
+        assertEquals(listOf(SegmentFormat.ON_THIS_DAY, SegmentFormat.BUMPER, SegmentFormat.QUIZ), formats)
+    }
+
+    @Test
     fun formatsRotate() {
         val p = Programme()
         var now = t0
@@ -114,8 +129,8 @@ class ProgrammeTest {
             p.onStoryAired()
             now += 20 * 60_000L
         }
-        // On this day first (once per day), then bumper and quiz alternate.
-        assertEquals(listOf(SegmentFormat.ON_THIS_DAY, SegmentFormat.BUMPER, SegmentFormat.QUIZ, SegmentFormat.BUMPER), formats)
+        // On this day first (once per day), then bumpers. No knowledge quizzes: listeners don't want to be tested.
+        assertEquals(listOf(SegmentFormat.ON_THIS_DAY, SegmentFormat.BUMPER, SegmentFormat.BUMPER, SegmentFormat.BUMPER), formats)
     }
 
     @Test
@@ -188,7 +203,7 @@ class ProgrammeTest {
 
     @Test
     fun quizNeedsRicherFactsAndAGapAndIsRevealedFirst() {
-        val p = Programme()
+        val p = Programme(Programme.Config(quizzes = true))
         // Enough for a bumper, not for a quiz.
         val medium = "x".repeat(150)
         p.onFillerAired(SegmentFormat.BUMPER, "b0", t0 - 3_600_000, "09-23")

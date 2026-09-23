@@ -257,4 +257,13 @@ class RadioContentTest {
         compose.onNodeWithText("Nearby").performClick()
         compose.onNodeWithContentDescription("Photo spot").assertIsDisplayed()
     }
+
+    @Test
+    fun nearbyShowsWhatMakesAPlaceSpecial() {
+        val special = ranked.copy(place = castle.copy(features = setOf(com.gpsradio.core.model.PlaceFeature.JEWISH_HERITAGE, com.gpsradio.core.model.PlaceFeature.FILM_LOCATION)))
+        show(RadioUiState(radioState = RadioState.RADIO, location = loc, nearby = listOf(special)))
+        compose.onNodeWithText("Nearby").performClick()
+        compose.onNodeWithText("Jewish heritage", substring = true).assertIsDisplayed()
+        compose.onNodeWithText("filmed here", substring = true).assertIsDisplayed()
+    }
 }

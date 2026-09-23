@@ -53,6 +53,8 @@ data class Endpoints(
     val overpassUrl: String = "https://overpass-api.de/api/interpreter",
     /** Wikipedia's keyless "on this day" feed for a language edition (the client appends MM/DD). */
     val onThisDay: (String) -> HttpUrl = { lang -> "https://$lang.wikipedia.org/api/rest_v1/feed/onthisday/events".toHttpUrl() },
+    /** Wikidata SPARQL: film locations, historical events, Jewish/Israeli connections (spec A §29). */
+    val wikidataSparql: HttpUrl = "https://query.wikidata.org/sparql".toHttpUrl(),
 )
 
 /**
@@ -126,6 +128,7 @@ open class GpsRadioApp : Application() {
                 OverpassClient(http, userAgent, ep.overpassUrl),
                 diskCache = AreaDiskCache(FileAreaCacheStore(this)),
                 isOnline = online,
+                wikidata = com.gpsradio.core.discovery.WikidataClient(http, userAgent, ep.wikidataSparql),
             ),
             narrator = RadioAgent(openAi, models),
             speech = OpenAiSpeech(openAi, models),
@@ -146,6 +149,7 @@ open class GpsRadioApp : Application() {
                         soundEffects = it.soundEffects,
                         pacing = it.pacing,
                         usingBuiltInKey = it.usingEmbeddedKey,
+                        askPreferences = true,
                     )
                 }
             },

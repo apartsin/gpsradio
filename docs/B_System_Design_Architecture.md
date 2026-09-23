@@ -661,3 +661,22 @@ The app is not in a store, so it manages its own releases and updates.
   - The offer card shows "Take a short detour to X?" with Navigate there / Not now.
   - The driving layout has a detour card with a 56 dp Navigate button, hidden while an offer is pending.
   - The Nearby list has a camera icon on photo spots and a detour label with a Navigate icon.
+
+## 38. Discovery Extras: Food & Shops, Film, Events, Jewish Heritage; Quizzes Off
+
+- **`PlaceCandidate.features`** is a set of `PlaceFeature` (FILM_LOCATION, HISTORIC_EVENT, EAT_DRINK, SHOP, JEWISH_HERITAGE), with `eventYear`. Both are serialisable with defaults, so the offline cache stays compatible. The narration context passes `features` and `event_year`, and the prompt has a rule per feature. That includes no invented hours, prices or menus for eat/shop, and no humour about persecution.
+- **Overpass**, in addition to the existing tags:
+  - `amenity∈{restaurant,cafe,pub,bar,biergarten,ice_cream}` or any `shop`, only with `wikidata|wikipedia|heritage|historic` (notable only);
+  - `religion=jewish`;
+  - `memorial=stolperstein` within 400 m, in a second `out` capped at 40.
+
+  `DiscoveryService.stolpersteine()` clusters stones within 120 m into one place ("Stolpersteine, <street>") whose facts are the names and inscriptions. `osmFacts` adds cuisine and opening date.
+- **`WikidataClient`** (keyless SPARQL, `wikibase:around`, `Endpoints.wikidataSparql`):
+  - `filmLocations` (P915 on films, series, episodes, documentaries);
+  - `events` (P585/P580 with coordinates, plus the Wikipedia sitelink);
+  - `jewishConnections` (P19 birthplaces of people with Israeli citizenship P27=Q801, Judaism P140=Q9268 or Jewish ethnicity P172=Q7325, and 8 or more sitelinks).
+
+  All three run in parallel with Wikipedia and OSM, capped at 8 km. They are optional: a failure is ignored and does not count towards partial-result caching.
+- **`addWikidata()`** merges the results. It enriches a known place (same Wikidata item or same name within 300 m) with features, topics, a relevance boost and facts ("Filming location of: …", "Birthplace of: …"), or adds a new place. New events take their facts from the Wikipedia intro (`WikipediaClient.pagesByTitle`), otherwise from the Wikidata description at low relevance.
+- **Topics:** there are two new topics, `FILM` and `JEWISH`, with a `Topic.label` for the chips ("Jewish & Israel"). `JEWISH` is in the default interests, and `TopicClassifier` has keyword and tag rules for both.
+- **Quizzes off:** `Programme.Config.quizzes = false` (the mechanics stay tested with it on). `HostLine.PREFERENCE_QUESTION` is asked once per session (`SessionConfig.askPreferences`, on in the app). It needs at least 4 stories heard, fewer than 3 remembered preferences, and a pacing other than Non-stop. It is spoken classically, or opened in the live voice. The answer becomes memory through the normal conversation flow.
