@@ -440,3 +440,18 @@ GPS Radio is not distributed through a store:
 | PR-54 | Historical events | Dated events at nearby coordinates, grounded in their article. |
 | PR-55 | Jewish heritage & Israel | Synagogues, cemeteries, Stolpersteine, Jewish history and Israeli/Jewish people connected to nearby places. |
 | PR-56 | No quizzes | Knowledge quizzes are off; one optional preference question per session. |
+
+## 30. Events Today Nearby
+
+"If you're back by the lake at eight tonight, there's an open-air jazz concert."
+- About every 3 hours per town, the app looks for public events happening now or within the next ~10 hours that a visitor would enjoy: concerts and live music, festivals, markets, fireworks, parades, open-air cinema, theatre, special exhibitions, notable games and fairs.
+- **Never** classes or courses (yoga, fitness, dance, cooking…), workshops, lectures, meetings, regular services or private events.
+- Every event needs a source link.
+- The host mentions new events promptly and once, as an invitation ("if you're back at…"), with the time and place. It never invents prices, tickets or line-ups.
+- A phone notification lists them.
+- The Nearby tab shows "Today nearby" with times, venues and links.
+- A Settings switch, "Events today nearby", is on by default.
+
+| ID | Capability | Requirement |
+|---|---|---|
+| PR-57 | Events today | Find visitor-worthy events today nearby (with sources), announce once, notify, list with links; exclude classes/meetings. |

@@ -70,6 +70,10 @@ open class GpsRadioApp : Application() {
     lateinit var updater: com.gpsradio.app.platform.AppUpdater
         private set
 
+    /** Events today nearby (OpenAI web search); tests return null so the fake server isn't asked. */
+    protected open fun eventScout(openAi: OpenAiClient, models: () -> com.gpsradio.core.ai.ModelConfig): com.gpsradio.core.events.EventScout? =
+        com.gpsradio.core.events.EventScout(openAi, models)
+
     /** Self-update source (the app isn't in a store); tests return null to disable it. */
     protected open fun updateClient(http: OkHttpClient): com.gpsradio.core.update.UpdateClient? =
         com.gpsradio.core.update.UpdateClient(http)
@@ -150,6 +154,7 @@ open class GpsRadioApp : Application() {
                         pacing = it.pacing,
                         usingBuiltInKey = it.usingEmbeddedKey,
                         askPreferences = true,
+                        localEvents = it.localEvents,
                     )
                 }
             },
@@ -167,6 +172,7 @@ open class GpsRadioApp : Application() {
             journalStore = FileJournalStore(this),
             onThisDay = OnThisDayClient(http, userAgent, ep.onThisDay),
             areaInfo = AreaInfoSource { lang, title -> wikipedia.articleByTitle(lang, title) },
+            eventScout = eventScout(openAi, models),
         )
     }
 

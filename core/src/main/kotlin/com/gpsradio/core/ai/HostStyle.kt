@@ -56,7 +56,9 @@ enum class SegmentFormat {
     /** A story about the current town or region, one facet (history, people, culture, geography) at a time. */
     AREA,
     /** A ~15 s photo tip: a photogenic spot nearby (or a viewpoint just off the road ahead) and the light. */
-    PHOTO_TIP;
+    PHOTO_TIP,
+    /** A short heads-up about public events today nearby ("if you're back at 8 pm…"). */
+    EVENTS;
 
     /** Everything except place stories, teasers and tour arrivals: segments that fill the gaps between stories. */
     val isFiller: Boolean get() = this != STORY && this != TEASER && this != ARRIVAL

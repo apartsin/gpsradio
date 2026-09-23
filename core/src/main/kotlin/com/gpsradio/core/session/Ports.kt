@@ -53,6 +53,8 @@ data class SessionConfig(
     val soundEffects: Boolean = true,
     /** How often the radio speaks: scales the speak threshold, segment gaps and fillers. */
     val pacing: Pacing = Pacing.BALANCED,
+    /** Look up public events today nearby (web search) and mention them (spec A §30). */
+    val localEvents: Boolean = false,
     /** Once per session, after a few stories, ask what the listener would like more of (never a knowledge quiz). */
     val askPreferences: Boolean = false,
     /** True when running on the app's built-in key rather than the listener's own (changes the out-of-credit advice). */

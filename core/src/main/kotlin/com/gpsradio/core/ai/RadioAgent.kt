@@ -11,6 +11,8 @@ import com.gpsradio.core.model.GeoPoint
 import com.gpsradio.core.model.LocationContext
 import com.gpsradio.core.model.RankedCandidate
 import com.gpsradio.core.model.RoadTripKind
+import com.gpsradio.core.events.EventScout
+import com.gpsradio.core.events.LocalEvent
 import com.gpsradio.core.editorial.Detours
 import com.gpsradio.core.editorial.PhotoSpots
 import com.gpsradio.core.model.SourceRef
@@ -59,6 +61,10 @@ interface Narrator {
             val f = req.areaFacet ?: throw IllegalArgumentException("an area story needs a facet")
             Segment(RadioAgent.firstSentences(f.facts, 3), null, f.area, RadioAgent.facetSources(f))
         }
+        SegmentFormat.EVENTS -> {
+            require(req.events.isNotEmpty()) { "events segment needs events" }
+            Segment(EventScout.spoken(req.events, req.nowMs, req.zone), null, "Today nearby", RadioAgent.eventLinks(req.events))
+        }
         else -> throw IllegalArgumentException("${req.format} needs a place; use narrate()")
     }
 }
@@ -82,6 +88,10 @@ data class FillerRequest(
     val areaToldFacets: List<String> = emptyList(),
     val profile: List<String> = emptyList(),
     val tripContext: String? = null,
+    /** For [SegmentFormat.EVENTS]: today's events nearby, soonest first, with the local time zone. */
+    val events: List<LocalEvent> = emptyList(),
+    val nowMs: Long = 0,
+    val zone: java.time.ZoneId = java.time.ZoneId.systemDefault(),
 )
 
 enum class HostLine(
@@ -302,6 +312,22 @@ class RadioAgent(
             }
             if (req.profile.isNotEmpty()) putJsonArray("listener_profile") { req.profile.forEach { add(JsonPrimitive(it)) } }
             req.tripContext?.let { put("trip", it) }
+            if (req.events.isNotEmpty()) {
+                put("local_time", EventScout.clock(req.nowMs, req.zone))
+                putJsonArray("events") {
+                    req.events.take(3).forEach { e ->
+                        add(buildJsonObject {
+                            put("title", e.title)
+                            put("category", e.category)
+                            put("venue", e.venue)
+                            put("starts", if (e.startMs <= req.nowMs) "now" else EventScout.clock(e.startMs, req.zone))
+                            e.endMs?.let { put("ends", EventScout.clock(it, req.zone)) }
+                            e.distanceKm?.let { put("distance_km", Math.round(it * 10) / 10.0) }
+                            put("why", e.why)
+                        })
+                    }
+                }
+            }
         }
         val res = openAi.respond(
             OpenAiClient.ResponseRequest(
@@ -314,9 +340,10 @@ class RadioAgent(
         val title = when (req.format) {
             SegmentFormat.ON_THIS_DAY -> "On this day"
             SegmentFormat.AREA -> req.areaFacet?.area ?: "Around here"
+            SegmentFormat.EVENTS -> "Today nearby"
             else -> "Station ID"
         }
-        val sources = req.event?.let(::eventSources) ?: req.areaFacet?.let(::facetSources).orEmpty()
+        val sources = req.event?.let(::eventSources) ?: req.areaFacet?.let(::facetSources) ?: eventLinks(req.events)
         return Segment(cleanForSpeech(res.text), null, title, sources)
     }
 
@@ -425,6 +452,7 @@ class RadioAgent(
                 SegmentFormat.AREA -> 40
                 SegmentFormat.ARRIVAL -> 25
                 SegmentFormat.PHOTO_TIP -> 15
+                SegmentFormat.EVENTS -> 25
             }
             return if (mode == TravelMode.DRIVING) s.coerceAtMost(30) else s
         }
@@ -443,6 +471,9 @@ class RadioAgent(
 
         fun firstSentences(text: String, n: Int): String =
             Regex("[^.!?]+[.!?]+").findAll(text).take(n).joinToString(" ") { it.value.trim() }.ifBlank { text.take(300) }
+
+        /** Source links of local events (each event has one). */
+        fun eventLinks(events: List<LocalEvent>): List<SourceRef> = events.take(3).map { SourceRef(it.title, it.url) }
 
         fun eventSources(e: OnThisDayEvent): List<SourceRef> = e.pages.mapNotNull { p -> p.url?.let { SourceRef(p.title, it) } }
 
@@ -555,6 +586,10 @@ class RadioAgent(
               "Photo tip" style phrase in the spoken language. No invented facts, no camera jargon. When travel_mode is
               driving: it is a viewpoint just off the road ahead; suggest pulling over there safely for a photo, and
               never suggest taking photos while driving.
+            - format "events": a quick heads-up about "events" happening today nearby (at most three, soonest first):
+              what, where and when ("at 8 pm", or "right now"), and one line from "why". Phrase it as an invitation for a
+              visitor, e.g. "If you're back by the lake at eight tonight, you'll catch…". Use only the given titles, venues
+              and times; never invent prices, tickets, line-ups or details.
             - format "area": a story about the town or region the listener is in (area_name), told from the angle in "facet"
               (overview, history, people, culture, geography) using only "facts". Pick the most vivid details for that angle;
               don't repeat what already_told_about_area covers. No directions needed: they are in it.

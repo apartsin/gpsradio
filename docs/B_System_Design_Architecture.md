@@ -680,3 +680,26 @@ The app is not in a store, so it manages its own releases and updates.
 - **`addWikidata()`** merges the results. It enriches a known place (same Wikidata item or same name within 300 m) with features, topics, a relevance boost and facts ("Filming location of: …", "Birthplace of: …"), or adds a new place. New events take their facts from the Wikipedia intro (`WikipediaClient.pagesByTitle`), otherwise from the Wikidata description at low relevance.
 - **Topics:** there are two new topics, `FILM` and `JEWISH`, with a `Topic.label` for the chips ("Jewish & Israel"). `JEWISH` is in the default interests, and `TopicClassifier` has keyword and tag rules for both.
 - **Quizzes off:** `Programme.Config.quizzes = false` (the mechanics stay tested with it on). `HostLine.PREFERENCE_QUESTION` is asked once per session (`SessionConfig.askPreferences`, on in the app). It needs at least 4 stories heard, fewer than 3 remembered preferences, and a pacing other than Non-stop. It is spoken classically, or opened in the live voice. The answer becomes memory through the normal conversation flow.
+
+## 39. Events Today Nearby
+
+- **Source:** `EventSource` (a port) and `EventScout`. There is no keyless worldwide events API, so this is one Responses call with `web_search` (`user_location` = the area) and a strict `local_events` JSON schema (title, category enum, venue, start/end local time, url, why, distance_km). The input carries the area, approximate coordinates, local time and weekday.
+- **Filter** (`EventScout.parse`, pure):
+  - a category from the enum, and a URL;
+  - the keyword blacklist (classes, courses, meetings, services, in EN/DE/RU), applied to the title and "why";
+  - running now, or starting within 10 h on today's local date;
+  - ≤ 25 km, de-duplicated and sorted.
+- **Session:** `maybeScoutEvents` runs on every tick and searches in the background (a timeout of 3× narration).
+  - It searches at most every 3 h per area and language, and ≥ 45 min apart even when driving through towns.
+  - It needs `SessionConfig.localEvents`, a key, being online, and not resting after an outage.
+  - Finished events are dropped. `RadioUiState.todayEvents` holds up to 8.
+- **Announcing:**
+  - An event is due when it starts within 3 h (or is running) and hasn't been announced.
+  - `Programme` plays the `EVENTS` filler ahead of stories (after the gap; not back-to-back fillers; not in dense driving).
+  - The narration uses the events with local times; the fallback is a plain template.
+  - Ids are marked announced before narrating, so a failure never loops.
+- **App:**
+  - The `RadioService` posts one notification per batch of new events ("events" channel, InboxStyle, taps open the app).
+  - The Nearby tab lists "Today nearby" above the places; tapping opens the source.
+  - There is a Settings switch. E2E disables the scout.
+- **Cost:** about one web-search call per area per 3 h while listening.

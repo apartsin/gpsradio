@@ -28,6 +28,9 @@ class TestGpsRadioApp : GpsRadioApp() {
 
     override fun areaLabeler(): AreaLabeler? = null
 
+    /** No event search against the fake OpenAI server. */
+    override fun eventScout(openAi: com.gpsradio.core.ai.OpenAiClient, models: () -> com.gpsradio.core.ai.ModelConfig): com.gpsradio.core.events.EventScout? = null
+
     /** No self-update checks against GitHub during E2E runs. */
     override fun updateClient(http: okhttp3.OkHttpClient): com.gpsradio.core.update.UpdateClient? = null
 

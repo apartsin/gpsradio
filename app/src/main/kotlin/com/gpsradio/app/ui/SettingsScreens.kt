@@ -155,6 +155,7 @@ private fun SettingsForm(
     var hostStyle by remember { mutableStateOf(initial.hostStyle) }
     var liveVoice by remember { mutableStateOf(initial.liveVoice) }
     var soundEffects by remember { mutableStateOf(initial.soundEffects) }
+    var localEvents by remember { mutableStateOf(initial.localEvents) }
     var pacing by remember { mutableStateOf(initial.pacing) }
     var showKey by remember { mutableStateOf(false) }
 
@@ -226,6 +227,21 @@ private fun SettingsForm(
             )
         }
 
+        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Events today nearby", style = MaterialTheme.typography.titleSmall)
+                Text(
+                    "Concerts, festivals, markets and more happening today, found with web search. No classes or meetings.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            Switch(
+                checked = localEvents,
+                onCheckedChange = { localEvents = it },
+                modifier = Modifier.semantics { contentDescription = "Events today nearby" },
+            )
+        }
+
         Text("What are you into?", style = MaterialTheme.typography.titleSmall)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Topic.entries.forEach { t ->
@@ -256,6 +272,7 @@ private fun SettingsForm(
             hostStyle = hostStyle,
             liveVoice = liveVoice,
             soundEffects = soundEffects,
+            localEvents = localEvents,
             pacing = pacing,
             // Adding a key ends the keyless preview.
             previewMode = initial.previewMode && apiKey.isBlank(),

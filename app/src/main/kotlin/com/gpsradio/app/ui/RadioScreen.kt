@@ -1,5 +1,8 @@
 package com.gpsradio.app.ui
 
+import androidx.compose.ui.platform.LocalUriHandler
+import com.gpsradio.core.events.EventScout
+import com.gpsradio.core.events.LocalEvent
 import com.gpsradio.core.model.PlaceFeature
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material.icons.filled.PhotoCamera
@@ -741,6 +744,15 @@ private fun Nearby(state: RadioUiState, starredIds: Set<String>, a: RadioActions
         return
     }
     LazyColumn(modifier = Modifier.padding(top = 8.dp)) {
+        if (state.todayEvents.isNotEmpty()) {
+            item(key = "events-header") {
+                Text("Today nearby", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(vertical = 4.dp))
+            }
+            items(state.todayEvents, key = { "event:" + it.id }) { e -> EventRow(e) }
+            item(key = "places-header") {
+                Text("Places", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 12.dp, bottom = 4.dp))
+            }
+        }
         items(state.nearby, key = { it.place.id }) { c ->
             NearbyRow(
                 c, RadioAgent.describeDirection(c, loc), c.place.id in starredIds, a,
@@ -853,4 +865,33 @@ fun featureLabel(f: PlaceFeature): String = when (f) {
     PlaceFeature.EAT_DRINK -> "🍽 eat & drink"
     PlaceFeature.SHOP -> "🛍 shop"
     PlaceFeature.JEWISH_HERITAGE -> "✡ Jewish heritage"
+}
+
+/** An event today nearby; tapping opens its source page (tickets, programme). */
+@Composable
+private fun EventRow(e: LocalEvent) {
+    val uri = LocalUriHandler.current
+    val now = System.currentTimeMillis()
+    val time = if (e.startMs <= now) "Now" else EventScout.clock(e.startMs, java.time.ZoneId.systemDefault())
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = 56.dp)
+            .clickable(onClickLabel = "Open ${e.title}") { runCatching { uri.openUri(e.url) } }
+            .padding(vertical = 6.dp)
+            .testTag("event"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(time, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary, modifier = Modifier.width(64.dp))
+        Column(Modifier.weight(1f)) {
+            Text(e.title, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(
+                listOfNotNull(e.venue.ifBlank { null }, e.distanceKm?.let { "%.1f km".format(it) }, e.why.ifBlank { null }).joinToString(" · "),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
 }

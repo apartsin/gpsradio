@@ -266,4 +266,17 @@ class RadioContentTest {
         compose.onNodeWithText("Jewish heritage", substring = true).assertIsDisplayed()
         compose.onNodeWithText("filmed here", substring = true).assertIsDisplayed()
     }
+
+    @Test
+    fun nearbyListsEventsTodayAboveThePlaces() {
+        val event = com.gpsradio.core.events.LocalEvent(
+            "Jazz on the Lake", "concert", "Esplanade", System.currentTimeMillis() + 3_600_000, null, "https://example.org/jazz", "Open-air, free", 1.2,
+        )
+        show(RadioUiState(radioState = RadioState.RADIO, location = loc, nearby = listOf(ranked), todayEvents = listOf(event)))
+        compose.onNodeWithText("Nearby").performClick()
+        compose.onNodeWithText("Today nearby").assertIsDisplayed()
+        compose.onNodeWithText("Jazz on the Lake").assertIsDisplayed()
+        compose.onNodeWithText("Esplanade · 1.2 km · Open-air, free").assertIsDisplayed()
+        compose.onNodeWithText("Ort Castle").assertIsDisplayed()
+    }
 }

@@ -69,6 +69,8 @@ class Programme(val config: Config = Config()) {
         val areaFacets: List<AreaFacet> = emptyList(),
         /** The best photogenic spot for a photo tip right now (see PhotoSpots.suitable), if any. */
         val photoSpot: RankedCandidate? = null,
+        /** Events today nearby that haven't been announced yet: time-sensitive, so they go before stories. */
+        val eventsDue: Boolean = false,
     )
 
     sealed interface Plan {
@@ -120,6 +122,8 @@ class Programme(val config: Config = Config()) {
         if (storiesSinceStationId >= config.stationIdEveryStories && s.recentTitles.size >= config.stationIdMinTitles) {
             return Plan.Filler(SegmentFormat.STATION_ID)
         }
+        // "Tonight at eight…" loses its value if it waits for a quiet moment.
+        if (s.eventsDue) return Plan.Filler(SegmentFormat.EVENTS)
         if (s.storyReady) return Plan.None
         if (nonstop) {
             val plan = relaxed(s)?.let { Plan.RelaxedStory(it) }

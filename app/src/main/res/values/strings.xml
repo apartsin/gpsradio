@@ -2,6 +2,9 @@
     <string name="app_name">GPS Radio</string>
     <string name="notification_channel">Radio playback</string>
     <string name="alerts_channel">Alerts</string>
+    <string name="events_channel">Events today nearby</string>
+    <string name="events_title">Today nearby: worth coming back for</string>
+    <string name="events_now">Now</string>
     <string name="quota_title">OpenAI credit ran out</string>
     <string name="quota_text_builtin">The app\'s built-in credit is used up. Tap to add your own OpenAI key; until then you hear short on-device notes.</string>
     <string name="quota_text_own">Your OpenAI key is out of credit. Top up at platform.openai.com or tap to add another key; until then you hear short on-device notes.</string>

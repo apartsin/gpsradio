@@ -41,6 +41,8 @@ data class AppSettings(
     val previewMode: Boolean = false,
     /** Short stings before stories and answers, and a blip when listening starts. */
     val soundEffects: Boolean = true,
+    /** Concerts, festivals, markets… today nearby: spoken heads-up and a notification. */
+    val localEvents: Boolean = true,
     /** How often the radio speaks: chatty, balanced, rare or non-stop. */
     val pacing: Pacing = Pacing.BALANCED,
 ) {
@@ -91,6 +93,7 @@ class SettingsRepository(context: Context) {
             putBoolean(KEY_LIVE_VOICE, next.liveVoice)
             putBoolean(KEY_PREVIEW, next.previewMode)
             putBoolean(KEY_SOUND_EFFECTS, next.soundEffects)
+            putBoolean(KEY_LOCAL_EVENTS, next.localEvents)
             putString(KEY_PACING, next.pacing.key)
         }
         _settings.value = next.copy(apiKey = next.apiKey.trim())
@@ -116,6 +119,7 @@ class SettingsRepository(context: Context) {
             liveVoice = plain.getBoolean(KEY_LIVE_VOICE, d.liveVoice),
             previewMode = plain.getBoolean(KEY_PREVIEW, d.previewMode),
             soundEffects = plain.getBoolean(KEY_SOUND_EFFECTS, d.soundEffects),
+            localEvents = plain.getBoolean(KEY_LOCAL_EVENTS, d.localEvents),
             pacing = Pacing.fromKey(plain.getString(KEY_PACING, null)),
         )
     }
@@ -161,6 +165,7 @@ class SettingsRepository(context: Context) {
         const val KEY_LIVE_VOICE = "live_voice"
         const val KEY_PREVIEW = "preview_mode"
         const val KEY_SOUND_EFFECTS = "sound_effects"
+        const val KEY_LOCAL_EVENTS = "local_events"
         const val KEY_PACING = "pacing"
     }
 }

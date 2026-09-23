@@ -81,6 +81,8 @@ import com.gpsradio.core.discovery.AreaInfoSource
 import com.gpsradio.core.discovery.OnThisDayClient
 import com.gpsradio.core.discovery.OnThisDaySource
 import com.gpsradio.core.editorial.Pacing
+import com.gpsradio.core.events.LocalEvent
+import com.gpsradio.core.events.EventSource
 import com.gpsradio.core.model.RoadTripKind
 import com.gpsradio.core.editorial.PhotoSpots
 import com.gpsradio.core.editorial.Detours
@@ -157,6 +159,8 @@ data class RadioUiState(
     val journal: List<JournalEntry> = emptyList(),
     /** The OpenAI key is out of credit (billing limit reached): the listener must top up or add a key. */
     val quotaExhausted: Boolean = false,
+    /** Public events today nearby, soonest first (spec A §30). */
+    val todayEvents: List<LocalEvent> = emptyList(),
 )
 
 /**
@@ -212,6 +216,9 @@ class RadioSession(
     private val onThisDay: OnThisDaySource? = null,
     /** Articles about the current town/region for area stories; null leaves that format out. */
     private val areaInfo: AreaInfoSource? = null,
+    /** Finds events today nearby (web search); null leaves them out. */
+    private val eventScout: EventSource? = null,
+    private val zone: () -> ZoneId = { ZoneId.systemDefault() },
 ) {
     data class Timeouts(
         val narrationMs: Long = 25_000,
@@ -543,6 +550,7 @@ class RadioSession(
         }
         // Retries and refresh requests must not depend on new fixes: stationary phones get none.
         if (s.radioState != RadioState.IDLE) processor.current?.let { maybeRefresh(it) }
+        if (s.radioState != RadioState.IDLE) maybeScoutEvents(now)
         // During a walking tour only the tour's stops air (on arrival).
         if (tour != null) return tourTick()
 
@@ -1671,6 +1679,7 @@ class RadioSession(
             speakThreshold = ranker.thresholdFor(cfg.pacing),
             areaFacets = areaFacets,
             photoSpot = ranked.firstOrNull { it.breakdown.novelty > 0.0 && it.place.id !in mentionedIds && PhotoSpots.suitable(it, loc) },
+            eventsDue = eventsToAnnounce(now).isNotEmpty(),
         )
         return when (val plan = programme.next(situation)) {
             Programme.Plan.None -> false
@@ -1740,6 +1749,15 @@ class RadioSession(
                                 areaToldFacets = programme.toldFacets, profile = memory.promptLines(), tripContext = tripContext,
                             ),
                         )
+                        SegmentFormat.EVENTS -> {
+                            val due = eventsToAnnounce(clock())
+                            // Announced once, even if this segment fails (no retry loop on a flaky model).
+                            due.forEach { announcedEvents += it.id }
+                            if (due.isEmpty()) throw IllegalStateException("no events to announce")
+                            narrator.narrateFiller(
+                                FillerRequest(plan.format, lang, loc, _state.value.area, cfg.style, events = due, nowMs = clock(), zone = zone()),
+                            )
+                        }
                         SegmentFormat.STATION_ID -> narrator.narrateFiller(
                             FillerRequest(
                                 plan.format, lang, loc, _state.value.area, cfg.style, recap = recentTitles.toList(),
@@ -1810,6 +1828,47 @@ class RadioSession(
         }
     }
 
+    // ---- local events today (spec A §30) --------------------------------------------------------
+
+    private var eventsCheckedMs = Long.MIN_VALUE / 2
+    private var eventsKey: String? = null
+    private var eventsJob: Job? = null
+    private val announcedEvents = HashSet<String>()
+
+    /** Events still worth mentioning: running now, or starting within the next 3 h, not yet announced. */
+    private fun eventsToAnnounce(now: Long): List<LocalEvent> = _state.value.todayEvents.filter { e ->
+        e.id !in announcedEvents && e.startMs <= now + EVENTS_ANNOUNCE_AHEAD_MS && (e.endMs ?: (e.startMs + 3 * 3_600_000L)) > now
+    }
+
+    /** Searches at most every 3 h per area, and at least 45 min apart even when driving through towns. */
+    private fun maybeScoutEvents(now: Long) {
+        // Drop events that are over.
+        val live = _state.value.todayEvents.filter { (it.endMs ?: (it.startMs + 3 * 3_600_000L)) > now }
+        if (live.size != _state.value.todayEvents.size) _state.update { it.copy(todayEvents = live) }
+        val scout = eventScout ?: return
+        val cfg = config()
+        if (!cfg.localEvents || cfg.previewMode || !isOnline() || onDeviceNow() || eventsJob?.isActive == true) return
+        val area = _state.value.area ?: return
+        val loc = _state.value.location ?: return
+        val key = listOfNotNull(area.city, area.region, area.countryCode).joinToString("|") + "|" + langBase(sessionLanguage)
+        val since = now - eventsCheckedMs
+        if (since < EVENTS_MIN_GAP_MS || (key == eventsKey && since < EVENTS_REFRESH_MS)) return
+        eventsCheckedMs = now
+        eventsKey = key
+        eventsJob = scope.launch {
+            val found = try {
+                timed(timeouts.narrationMs * 3, "Events") { scout.find(area, loc.point, clock(), zone(), sessionLanguage) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (isQuota(e)) noteQuota()
+                return@launch
+            }
+            val merged = (_state.value.todayEvents + found).distinctBy { it.id }.sortedBy { it.startMs }.take(8)
+            _state.update { it.copy(todayEvents = merged) }
+        }
+    }
+
     private fun today(): LocalDate = Instant.ofEpochMilli(clock()).atZone(ZoneId.systemDefault()).toLocalDate()
 
     private fun dayKey(d: LocalDate) = "%02d-%02d".format(d.monthValue, d.dayOfMonth)
@@ -1838,6 +1897,11 @@ class RadioSession(
             "fr" -> "Petite annonce : le crédit OpenAI est épuisé. Ajoutez une clé dans les réglages ; en attendant, je lis de courtes notes."
             else -> "Quick note: the OpenAI credit has run out. Add a key in Settings; until then I'll read short notes."
         }
+
+        const val EVENTS_REFRESH_MS = 3 * 3_600_000L
+        const val EVENTS_MIN_GAP_MS = 45 * 60_000L
+        /** Events are announced when they start within this time (or are running). */
+        const val EVENTS_ANNOUNCE_AHEAD_MS = 3 * 3_600_000L
 
         /** On start, a fix older than this is dropped rather than narrated from. */
         const val STALE_FIX_ON_START_MS = 2 * 60_000L

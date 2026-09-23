@@ -53,6 +53,8 @@ class RadioService : Service() {
     private var modeWatcher: kotlinx.coroutines.Job? = null
     private var stateWatcher: kotlinx.coroutines.Job? = null
     private var quotaWatcher: kotlinx.coroutines.Job? = null
+    private var eventsWatcher: kotlinx.coroutines.Job? = null
+    private val notifiedEvents = HashSet<String>()
     private lateinit var mediaSession: MediaSessionCompat
 
     private val session get() = (application as GpsRadioApp).session
@@ -132,6 +134,11 @@ class RadioService : Service() {
             session.state.map { it.quotaExhausted }
                 .distinctUntilChanged()
                 .collect { exhausted -> if (exhausted) notifyQuota() else cancelQuotaNotice() }
+        }
+        if (eventsWatcher == null) eventsWatcher = scope.launch {
+            session.state.map { s -> s.todayEvents }
+                .distinctUntilChanged()
+                .collect { events -> notifyEvents(events) }
         }
         if (modeWatcher == null) modeWatcher = scope.launch {
             session.state.map { it.location?.travelMode ?: TravelMode.UNKNOWN }
@@ -256,6 +263,38 @@ class RadioService : Service() {
         runCatching { NotificationManagerCompat.from(this).notify(QUOTA_NOTIFICATION_ID, n) }
     }
 
+    /** One notification per batch of newly found events today nearby (spec A §30). */
+    @SuppressLint("MissingPermission")
+    private fun notifyEvents(events: List<com.gpsradio.core.events.LocalEvent>) {
+        val fresh = events.filter { it.id !in notifiedEvents }
+        if (fresh.isEmpty()) return
+        notifiedEvents += fresh.map { it.id }
+        val nm = getSystemService(NotificationManager::class.java)
+        nm.createNotificationChannel(
+            NotificationChannel(EVENTS_CHANNEL_ID, getString(R.string.events_channel), NotificationManager.IMPORTANCE_DEFAULT),
+        )
+        val zone = java.time.ZoneId.systemDefault()
+        val now = System.currentTimeMillis()
+        val lines = fresh.take(4).map { e ->
+            val time = if (e.startMs <= now) getString(R.string.events_now) else com.gpsradio.core.events.EventScout.clock(e.startMs, zone)
+            listOf(time, e.title, e.venue).filter { it.isNotBlank() }.joinToString(" · ")
+        }
+        val open = PendingIntent.getActivity(
+            this, 5, Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP), PendingIntent.FLAG_IMMUTABLE,
+        )
+        val style = NotificationCompat.InboxStyle().also { st -> lines.forEach(st::addLine) }
+        val n = NotificationCompat.Builder(this, EVENTS_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_radio)
+            .setContentTitle(getString(R.string.events_title))
+            .setContentText(lines.first())
+            .setStyle(style)
+            .setCategory(NotificationCompat.CATEGORY_EVENT)
+            .setContentIntent(open)
+            .setAutoCancel(true)
+            .build()
+        runCatching { NotificationManagerCompat.from(this).notify(EVENTS_NOTIFICATION_ID, n) }
+    }
+
     private fun cancelQuotaNotice() {
         runCatching { NotificationManagerCompat.from(this).cancel(QUOTA_NOTIFICATION_ID) }
     }
@@ -297,6 +336,8 @@ class RadioService : Service() {
         private const val NOTIFICATION_ID = 1
         private const val ALERTS_CHANNEL_ID = "alerts"
         private const val QUOTA_NOTIFICATION_ID = 2
+        private const val EVENTS_CHANNEL_ID = "events"
+        private const val EVENTS_NOTIFICATION_ID = 3
         private const val ACTION_STOP = "com.gpsradio.app.STOP"
         private const val ACTION_PAUSE = "com.gpsradio.app.PAUSE"
         private const val ACTION_RESUME = "com.gpsradio.app.RESUME"
