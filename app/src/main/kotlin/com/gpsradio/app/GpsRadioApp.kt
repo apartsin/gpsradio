@@ -14,6 +14,9 @@ import com.gpsradio.app.platform.FileAreaCacheStore
 import com.gpsradio.app.platform.NetworkMonitor
 import com.gpsradio.app.platform.FileFavoritesStore
 import com.gpsradio.app.platform.FileInterestStore
+import com.gpsradio.app.platform.FileJournalStore
+import com.gpsradio.app.platform.Stings
+import com.gpsradio.core.session.StingPlayer
 import com.gpsradio.app.platform.FileMemoryStore
 import com.gpsradio.app.platform.GeocoderAreaLabeler
 import com.gpsradio.app.platform.MediaAudioOutput
@@ -70,6 +73,8 @@ open class GpsRadioApp : Application() {
 
     /** Network state for offline-aware scheduling; tests may force online/offline. */
     protected open fun isOnline(): () -> Boolean = NetworkMonitor(this)::isOnline
+    /** Earcons synthesized in code; tests may return null to keep audio silent. */
+    protected open fun stingPlayer(): StingPlayer? = Stings()
 
     /** Natural hands-free voice (OpenAI Realtime); tests return null to use the classic pipeline. */
     protected open fun liveFactory(http: OkHttpClient, baseUrl: String): ((LiveHost, CoroutineScope) -> LiveConversation)? {
@@ -126,6 +131,7 @@ open class GpsRadioApp : Application() {
                         transcriptionModel = it.models.transcriptionModel,
                         // Without a key the radio can only read notes aloud on the device.
                         previewMode = !it.hasApiKey,
+                        soundEffects = it.soundEffects,
                     )
                 }
             },
@@ -139,6 +145,8 @@ open class GpsRadioApp : Application() {
             fallbackNarrator = NarrationFallback(),
             fallbackSpeech = fallbackSpeech(),
             isOnline = online,
+            stings = stingPlayer(),
+            journalStore = FileJournalStore(this),
         )
     }
 

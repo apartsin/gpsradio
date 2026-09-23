@@ -48,6 +48,8 @@ data class SessionConfig(
      * never called; questions are unavailable. Needs the session's fallback narrator and speech.
      */
     val previewMode: Boolean = false,
+    /** Short stings before stories and answers, and a blip when listening starts. */
+    val soundEffects: Boolean = true,
 )
 
 class OpenAiSpeech(

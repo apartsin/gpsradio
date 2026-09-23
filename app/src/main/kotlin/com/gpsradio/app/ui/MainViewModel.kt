@@ -10,6 +10,9 @@ import android.content.Intent
 import android.net.Uri
 import com.gpsradio.core.favorites.FavoritePlace
 import com.gpsradio.core.favorites.ShareText
+import com.gpsradio.core.journal.JournalEntry
+import com.gpsradio.core.journal.JournalGpx
+import com.gpsradio.core.journal.JournalText
 import com.gpsradio.core.model.TravelMode
 import com.gpsradio.core.session.RadioSession
 import com.gpsradio.core.session.RadioUiState
@@ -116,6 +119,43 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val p = placeSnapshot(id) ?: return null
         val label = Uri.encode(p.name)
         return Intent(Intent.ACTION_VIEW, Uri.parse("geo:${p.point.lat},${p.point.lon}?q=${p.point.lat},${p.point.lon}($label)"))
+    }
+
+    /** Walking mini-tour of about [minutes]. */
+    fun startTour(minutes: Int) {
+        session.startTour(minutes)
+    }
+
+    fun endTour() {
+        session.endTour()
+    }
+
+    /** "Tell me again" from the journal. */
+    fun retell(entry: JournalEntry) {
+        session.retell(entry.placeId, entry.name)
+    }
+
+    /** Share one journal entry: name, first sentence and links. */
+    fun journalShareIntent(entry: JournalEntry): Intent {
+        val send = Intent(Intent.ACTION_SEND)
+            .setType("text/plain")
+            .putExtra(Intent.EXTRA_SUBJECT, JournalText.subject(entry))
+            .putExtra(Intent.EXTRA_TEXT, JournalText.share(entry))
+        return Intent.createChooser(send, "Share ${entry.name}")
+    }
+
+    /**
+     * A day's journal as GPX, sent as text through the share sheet (no FileProvider needed: works with
+     * any mail, chat, notes or cloud app; the subject carries the .gpx file name).
+     */
+    fun journalGpxIntent(day: String): Intent? {
+        val entries = radio.value.journal.filter { it.day == day }
+        if (entries.isEmpty()) return null
+        val send = Intent(Intent.ACTION_SEND)
+            .setType("text/plain")
+            .putExtra(Intent.EXTRA_SUBJECT, JournalGpx.fileName(day))
+            .putExtra(Intent.EXTRA_TEXT, JournalGpx.build(entries, "GPS Radio journal $day"))
+        return Intent.createChooser(send, "Export $day as GPX")
     }
 
     fun forgetMemory(id: String) {

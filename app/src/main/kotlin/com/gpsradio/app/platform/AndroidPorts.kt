@@ -12,6 +12,7 @@ import com.gpsradio.core.model.GeoPoint
 import com.gpsradio.core.session.AreaLabeler
 import com.gpsradio.core.editorial.InterestStore
 import com.gpsradio.core.favorites.FavoritesStore
+import com.gpsradio.core.journal.JournalStore
 import com.gpsradio.core.memory.MemoryStore
 import com.gpsradio.core.session.HistoryStore
 import kotlinx.coroutines.Dispatchers
@@ -73,6 +74,13 @@ class NetworkMonitor(context: Context) {
         val caps = cm.getNetworkCapabilities(cm.activeNetwork ?: return false) ?: return false
         caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
     }.getOrDefault(true)
+}
+
+/** Trip journal of heard stories; stays on the device (excluded from backups). */
+class FileJournalStore(context: Context) : JournalStore {
+    private val file = File(context.filesDir, "journal.json")
+    override fun load(): String? = file.takeIf { it.exists() }?.readText()
+    override fun save(serialized: String) = file.writeText(serialized)
 }
 
 /** On-device reverse geocoding to a coarse city/region/country label for localized web search. */

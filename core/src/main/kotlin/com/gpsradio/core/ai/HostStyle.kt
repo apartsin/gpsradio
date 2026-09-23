@@ -43,4 +43,6 @@ enum class SegmentFormat {
     STORY,
     /** A one or two sentence hook that ends by asking whether the listener wants the full story. */
     TEASER,
+    /** A short second chapter on arrival at a tour stop: what to look for, standing in front of it. */
+    ARRIVAL,
 }

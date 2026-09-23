@@ -42,6 +42,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -143,6 +145,7 @@ private fun SettingsForm(
     var realtimeModel by remember { mutableStateOf(initial.models.realtimeModel) }
     var hostStyle by remember { mutableStateOf(initial.hostStyle) }
     var liveVoice by remember { mutableStateOf(initial.liveVoice) }
+    var soundEffects by remember { mutableStateOf(initial.soundEffects) }
     var showKey by remember { mutableStateOf(false) }
 
     Column(
@@ -194,6 +197,18 @@ private fun SettingsForm(
             Switch(checked = liveVoice, onCheckedChange = { liveVoice = it })
         }
 
+        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Sound effects", style = MaterialTheme.typography.titleSmall)
+                Text("A short station sting before stories, a chime before answers.", style = MaterialTheme.typography.bodySmall)
+            }
+            Switch(
+                checked = soundEffects,
+                onCheckedChange = { soundEffects = it },
+                modifier = Modifier.semantics { contentDescription = "Sound effects" },
+            )
+        }
+
         Text("What are you into?", style = MaterialTheme.typography.titleSmall)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Topic.entries.forEach { t ->
@@ -223,6 +238,7 @@ private fun SettingsForm(
             interests = interests,
             hostStyle = hostStyle,
             liveVoice = liveVoice,
+            soundEffects = soundEffects,
             // Adding a key ends the keyless preview.
             previewMode = initial.previewMode && apiKey.isBlank(),
             models = initial.models.copy(
