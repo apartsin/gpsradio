@@ -4,7 +4,7 @@ Product Requirements & Concept of Operations
 
 Working specification • Version 0.3 (living document) • 23 September 2026
 
-> This Markdown file is the maintained spec. `source/A_Product_Requirements_Concept_of_Operations_v0.2.docx` is the original snapshot. Changes since v0.2: app-only MVP with the user's own key (§17), preference memory (§14), photos and map (§15), activity-aware programming (§16), roadmap (§18).
+> This Markdown file is the maintained spec. `source/A_Product_Requirements_Concept_of_Operations_v0.2.docx` is the original snapshot. Changes since v0.2: app-only MVP with the user's own key (§17), preference memory (§14), photos and map (§15), activity-aware programming (§16), roadmap (§18), guide personality and humour (§19), refining questions and story offers (§20), natural voice conversation (§21), favourites and sharing (§22), distribution (§23).
 
 ## 1. Product Vision
 
@@ -286,3 +286,64 @@ These come from the product brainstorm (23 Sep 2026) and are ordered by value fo
 10. Walking mini-tours ("give me 30 minutes"), with an extra chapter on arrival at each stop.
 
 Also considered: hands-free barge-in with voice activity detection, a family quiz mode, trip journal and sharing, export of a trip, a cost meter.
+
+## 19. The Host: A Knowledgeable, Entertaining Guide
+
+OpenAI is responsible for the whole on-air experience: how stories are told, how the host sounds and how conversation feels. The host should sound like a natural, knowledgeable local guide, not an encyclopedia.
+
+- Every segment blends a **story**, one **memorable fun fact**, and the **historical and cultural context** that makes the place matter.
+- Each segment opens with a hook: the most surprising, specific or human detail.
+- **Content-related humour is welcome**: a wry aside, a playful comparison, a gentle pun. Humour must never add facts, and there are no jokes about tragedies, victims, war or disasters.
+- Legends and disputed claims are labelled as such.
+- The listener chooses a **host style**: *Witty guide* (default), *Documentary*, *Family & kids*, or *Late-night chill*. The style shapes the wording and the voice's delivery.
+
+| ID | Capability | Requirement |
+|---|---|---|
+| PR-30 | Guide persona | Narration and answers mix story, fun fact and context in a natural spoken style. |
+| PR-31 | Humour with guardrails | Light, content-related humour; never on tragic topics; never at the expense of accuracy. |
+| PR-32 | Host styles | Selectable host personality that applies to text and voice. |
+
+## 20. Refining Questions and Story Offers
+
+The host occasionally asks the listener short questions, as a real guide would:
+
+- **Story offers.** For a rich story, the host may first give a one or two sentence teaser and ask "Want the full story?". A yes tells it. A no skips it without asking again, and without penalising the topic. No answer means "not now".
+- **Trip question.** The first time the listener starts driving in a session, the host asks where they're heading. The answer becomes trip context that shapes later stories, for example connecting places to the destination.
+- **Clarifying questions.** In conversation the host may ask one short clarifying question when it genuinely helps, never repeatedly.
+- Answers work by voice (hands-free when natural voice is on), by a spoken yes or no, or by on-screen buttons.
+
+| ID | Capability | Requirement |
+|---|---|---|
+| PR-33 | Story offers | Offer rich stories as a teaser plus question; honour yes, no and silence. |
+| PR-34 | Trip context | Ask drivers about their trip once per session and use the answer. |
+| PR-35 | Clarifying questions | Allow at most one short refining question when useful. |
+
+## 21. Natural Voice Conversation
+
+Conversation should feel like talking to a person, as in ChatGPT's voice mode.
+
+- **Tap the mic once** to talk hands-free: the host hears when you stop speaking, replies in a natural voice, and **can be interrupted mid-sentence**. The conversation closes by itself after a short silence, or when you say "continue", tap again or say "back to the radio".
+- The live host can **search the web**, **control the radio** (skip, pause, language, theme, navigate, save a place), **remember preferences**, and **note trip details**.
+- If natural voice is unavailable (turned off, no mic permission, connection failure), the classic path is used: hold the mic, transcribe, answer, speak.
+
+| ID | Capability | Requirement |
+|---|---|---|
+| PR-36 | Hands-free voice | Speech-to-speech conversation with automatic turn-taking and interruption. |
+| PR-37 | Voice tools | The live host can search, control the radio, remember and set trip context. |
+| PR-38 | Fallback | Classic push-to-talk remains available and is used automatically when live voice fails. |
+
+## 22. Favourites and Sharing
+
+- **Star** any place from the Now card, the Nearby list, the driving screen, or by voice ("save this for later"). Starred places keep their name, summary, photo and links, even after leaving the area.
+- The **Saved** tab lists starred places, each with Share, Navigate and Remove.
+- **Share** uses the standard Android share sheet: place name, a short summary, a Wikipedia link and a map link.
+
+| ID | Capability | Requirement |
+|---|---|---|
+| PR-39 | Favourites | Star and un-star places; persist them; review them later. |
+| PR-40 | Share | Share a place through the system share sheet with a summary and links. |
+
+## 23. Distribution
+
+- Every push publishes the newest APK at a permanent direct link: `https://github.com/apartsin/gpsradio/releases/download/latest/gpsradio.apk`.
+- All builds share one signing key, so a new build installs as an update over the old one.

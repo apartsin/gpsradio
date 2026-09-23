@@ -4,7 +4,7 @@ System Design, Architecture & Internal Interface Specification
 
 Working specification • Version 0.3 (living document) • 23 September 2026
 
-> This Markdown file is the maintained spec. `source/B_System_Design_Architecture_Internal_Specification_v0.2.docx` is the original snapshot. Changes since v0.2: the MVP is app-only (§3 note, doc C), plus §22–§27 (memory, images and map, activity detection, latency plan, test strategy, implementation status).
+> This Markdown file is the maintained spec. `source/B_System_Design_Architecture_Internal_Specification_v0.2.docx` is the original snapshot. Changes since v0.2: the MVP is app-only (§3 note, doc C), plus §22–§32 (memory, images and map, activity detection, latency plan, test strategy, implementation status, natural voice, prompts and host styles, offers and trip question, favourites and share, UI and distribution).
 
 ## 1. Design Objectives
 
@@ -451,17 +451,101 @@ No test layer needs a real phone or a real OpenAI key.
 | Live smoke test (optional, planned) | CI, runs only when the repository secret `OPENAI_API_KEY` is set | One real narration and one real answer against the live APIs, to catch API or model drift. The key never enters the repo. |
 | Manual field test | The owner's phone, with their own key | Real GPS, audio routing, Bluetooth, battery. |
 
-## 27. Implementation Status (23 Sep 2026)
+## 27. Implementation Status (updated 23 Sep 2026)
 
 | Area | Status |
 |---|---|
 | Location processing, travel mode, refresh policy | Done (speed-based); activity recognition planned |
-| Discovery (Wikipedia + OSM), merge, cache, photos | Done |
-| Editorial ranker, heard history | Done |
-| Narration, conversation with web search, structured actions | Done |
-| Voice: push-to-talk, TTS | Done; streaming and Realtime planned (§25) |
-| Listener memory | Done |
-| Photo + map panel | Done |
-| Multilingual (selection, switching by voice, cross-language sources) | Done |
-| Tests: core, Robolectric UI, emulator E2E | Done; live smoke test planned |
-| Review findings (`D_Code_Review_2026-09-23.md`) | P1 fixes in progress |
+| Discovery (Wikipedia + OSM), merge, cache, photos, gallery | Done |
+| Editorial ranker, heard history, teasers | Done |
+| Narration and conversation (search on demand), host styles, humour rules | Done |
+| Natural voice (Realtime), tools, barge-in; classic push-to-talk fallback | Done (needs field testing on devices) |
+| Listener memory; favourites; share | Done |
+| Photo pager + map panel; driving layout; media session controls | Done |
+| Tests: core JVM, Robolectric UI, emulator E2E, key-gated live smoke test | Done |
+| Review findings (docs D, F) | Fixed, or listed as planned |
+
+## 28. Natural Voice: OpenAI Realtime
+
+**Transport.** A WebSocket to `wss://api.openai.com/v1/realtime?model=gpt-realtime`, authorised with the user's key (app-only, see doc C). OkHttp handles the connection (`RealtimeClient`). The event builders and parser live in `RealtimeProtocol`, which accepts both GA and beta event names.
+
+**Session setup.** On `session.created` the app sends `session.update` with:
+- `type: realtime`, instructions, and `output_modalities: [audio]`;
+- input: `audio/pcm` at 24 kHz, transcription with `gpt-4o-mini-transcribe`, and `server_vad` turn detection (650 ms silence, `create_response`, `interrupt_response`);
+- output: `audio/pcm` at 24 kHz, with the configured voice;
+- four function tools.
+
+**Loop (`LiveConversation`).**
+- The mic streams 100 ms `input_audio_buffer.append` chunks.
+- `response.output_audio.delta` chunks are played as they arrive.
+- `input_audio_buffer.speech_started` flushes local playback, which is how barge-in works.
+- Transcripts from both sides go to the transcript view and the conversation history.
+- `response.function_call_arguments.done` runs the tool and sends `function_call_output`, then `response.create`.
+- After 25 s of silence the conversation closes and the radio resumes.
+
+**Tools.**
+
+| Tool | What it does |
+|---|---|
+| `web_search(query)` | A Responses call with `web_search`; returns 2–4 speakable sentences. |
+| `radio_control(action, language?, theme?, entity_id?)` | resume, pause, skip, change language, set/clear theme, navigate, accept/decline an offer, star a place. |
+| `remember(category, text, topic?, forget_text?)` | Adds to or removes from listener memory. |
+| `set_trip(summary)` | Records trip context. |
+
+**Instructions.** They embed the persona, the rules and the current context JSON (location, active story, nearby places, profile, trip, pending offer). The session is short-lived, so the context stays fresh.
+
+**Android audio (`AndroidPcmAudio`).**
+- Capture: `AudioRecord` with the `VOICE_COMMUNICATION` source, 24 kHz mono 16-bit, `AcousticEchoCanceler` and `NoiseSuppressor`. Echo cancellation stops the host's own voice from triggering an interruption.
+- Playback: a streaming `AudioTrack` fed by a queue on its own thread, which is flushed on barge-in.
+- The foreground service adds the `microphone` type when record permission is granted, so hands-free answers work with the screen off.
+
+**Where it opens.**
+- Tapping the mic in natural-voice mode.
+- After a teaser, to hear yes or no.
+- For the road-trip question, which the live host asks in its own voice.
+
+Typed questions are routed into an open live session. If the connection fails, the transcript shows a note and the classic path remains.
+
+## 29. Prompt Design and Host Styles
+
+- `HostStyle` (persona and voice direction) is applied to narration, conversation, live instructions and TTS `instructions` (`gpt-4o-mini-tts`).
+- Narration rules:
+  - facts only from the provided facts;
+  - a hook first;
+  - story, one fun fact, and context;
+  - direction mentioned once;
+  - speech-like sentences;
+  - humour guardrails;
+  - `format: teaser` produces a hook plus the question.
+- Conversation rules add: one clarifying question at most, `pending_offer` handling, `trip_context` capture, and `star_place`.
+- Static rules sit in `instructions` so prefix caching works. Per-turn context goes in a trailing developer message; facts are capped at 1,500 characters.
+
+## 30. Story Offers and the Trip Question
+
+**Teasers.** A candidate qualifies when its facts are at least 900 characters and at least 8 minutes have passed since the last teaser. It is then offered only after 2 or more regular stories. Rich candidates are not prefetched, so the teaser can happen.
+
+**After a teaser.**
+- The session sets `pendingOffer`, marks the place as mentioned but not heard, and opens a 25 s answer window (a live listening window when natural voice is on).
+- The answer is handled by, in order:
+  1. a local yes/no fast path in several languages;
+  2. the offer card's buttons;
+  3. the model's `accept_offer` / `decline_offer` actions.
+- Yes narrates the full story. No marks the place heard, so it isn't offered again, with no topic penalty. Silence clears the offer.
+
+**Trip question.** Asked the first time a session detects driving, via `HostLine.TRIP_QUESTION` (spoken by the live host when available). The answer arrives through `trip_context` or `set_trip` and is passed into narration and conversation.
+
+## 31. Favourites and Share
+
+- `FavoritePlace` holds id, name, category, point, summary (first sentences, ≤280 characters), url, image and time saved. It is persisted as JSON in app-private storage (`FileFavoritesStore`, excluded from backup).
+- `RadioSession.toggleFavorite` / `removeFavorite` handle the UI, and `STAR_PLACE` handles voice.
+- `ShareText.build` produces the name, summary, "Read more" link and an OpenStreetMap link. The app sends it with `Intent.ACTION_SEND` through the chooser.
+
+## 32. UI and Distribution
+
+- **Screens.**
+  - *Idle*: a large Play button, plus the Saved tab.
+  - *Running (walk/still)*: status card (ON AIR pill, equalizer, mode chips, severity-coloured status); offer card; tabs Now (photo pager, map inset, Star/Share/Navigate, story card), Transcript, Nearby (with stars) and Saved; controls Repeat, Pause/Back to radio, Skip, Nearby; and a mic plus text field.
+  - *Driving*: a large photo, the place name, Star and Navigate, a 104 dp mic, and Pause/Back and Skip at 72 dp.
+- **Notification.** MediaStyle, with a media session for lock-screen, headset and car Bluetooth controls.
+- **Icon.** An adaptive launcher icon (pin, amber on-air light, broadcast arcs) with a themed monochrome layer.
+- **Distribution.** A committed debug signing key keeps updates installable. CI publishes the `latest` GitHub release containing `gpsradio.apk`.
