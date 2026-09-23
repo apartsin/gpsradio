@@ -10,6 +10,11 @@ on:
 permissions:
   contents: write
 
+# One run per branch at a time; a newer push supersedes an older run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -45,11 +50,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cp app/build/outputs/apk/debug/app-debug.apk gpsradio.apk
-          gh release delete latest --yes --cleanup-tag || true
-          gh release create latest gpsradio.apk \
-            --title "GPS Radio – latest build" \
-            --notes "Built from ${GITHUB_REF_NAME} @ ${GITHUB_SHA::7}. Install on Android 8.0+ (allow installs from your browser). Enter your own OpenAI API key on first launch." \
-            --target "$GITHUB_SHA"
+          NOTES="Built from ${GITHUB_REF_NAME} @ ${GITHUB_SHA::7}. Install on Android 8.0+ (allow installs from your browser). Enter your own OpenAI API key on first launch."
+          gh release view latest >/dev/null 2>&1 || gh release create latest --title "GPS Radio – latest build" --notes "$NOTES" --target "$GITHUB_SHA"
+          gh release upload latest gpsradio.apk --clobber
+          gh release edit latest --notes "$NOTES"
 
       - uses: actions/upload-artifact@v4
         if: failure()

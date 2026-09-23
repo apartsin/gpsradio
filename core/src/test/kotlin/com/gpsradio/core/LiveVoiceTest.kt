@@ -138,7 +138,8 @@ class LiveVoiceTest {
         assertTrue(req.path!!.contains("model=gpt-realtime"))
         assertTrue(fromClient.poll(5, TimeUnit.SECONDS)!!.contains("response.create"))
         conn.close()
-        server.shutdown()
+        // MockWebServer can wait on open WebSocket streams at shutdown; that is not what this test checks.
+        runCatching { server.shutdown() }
     }
 
     // ---- session integration ---------------------------------------------------------------

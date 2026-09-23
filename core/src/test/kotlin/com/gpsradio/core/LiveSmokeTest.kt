@@ -15,6 +15,7 @@ import com.gpsradio.core.model.LocationContext
 import com.gpsradio.core.model.Topic
 import com.gpsradio.core.model.TravelMode
 import com.gpsradio.core.session.OpenAiSpeech
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import org.junit.jupiter.api.Assumptions.assumeTrue
@@ -58,5 +59,41 @@ class LiveSmokeTest {
 
         val audio = OpenAiSpeech(openAi, { models }).synthesize(segment.text.take(200), "en-US")
         assertTrue(audio.size > 1_000, "expected MP3 audio bytes")
+    }
+
+    /** The natural-voice path: our session.update must be accepted and the model must answer in audio. */
+    @Test
+    fun realtimeVoiceSessionSpeaks() = runBlocking {
+        assumeTrue(key != null, "OPENAI_API_KEY not set; live smoke test skipped")
+        val http = OkHttpClient.Builder().readTimeout(0, TimeUnit.SECONDS).build()
+        val conn = com.gpsradio.core.ai.RealtimeClient(http, { key!! }).connect(ModelConfig().realtimeModel)
+        var audioBytes = 0
+        var transcript: String? = null
+        val errors = mutableListOf<String>()
+        // Handle events until the first spoken response completes (or the socket closes / 60 s pass).
+        kotlinx.coroutines.withTimeoutOrNull(60_000) {
+            conn.events.first { e ->
+                when (e) {
+                    com.gpsradio.core.ai.RealtimeEvent.SessionReady -> {
+                        conn.send(
+                            com.gpsradio.core.ai.RealtimeProtocol.sessionUpdate(
+                                "You are a friendly radio host. Keep it to one short sentence.",
+                                ModelConfig().ttsVoice, ModelConfig().transcriptionModel, com.gpsradio.core.ai.RealtimeProtocol.tools,
+                            ),
+                        )
+                        conn.send(com.gpsradio.core.ai.RealtimeProtocol.responseCreate("Say hello to the listener in Gmunden."))
+                    }
+                    is com.gpsradio.core.ai.RealtimeEvent.AudioDelta -> audioBytes += e.pcm.size
+                    is com.gpsradio.core.ai.RealtimeEvent.AssistantTranscript -> transcript = e.text
+                    is com.gpsradio.core.ai.RealtimeEvent.Error -> errors += e.message
+                    else -> Unit
+                }
+                (e == com.gpsradio.core.ai.RealtimeEvent.ResponseDone && audioBytes > 0) || e is com.gpsradio.core.ai.RealtimeEvent.Closed
+            }
+        }
+        conn.close()
+        println("REALTIME: ${audioBytes} bytes of audio; transcript: $transcript; errors: $errors")
+        assertTrue(errors.isEmpty(), "realtime errors: $errors")
+        assertTrue(audioBytes > 10_000, "expected spoken audio from the realtime model")
     }
 }
