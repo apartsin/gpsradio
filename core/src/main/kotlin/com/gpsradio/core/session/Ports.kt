@@ -85,7 +85,7 @@ class OpenAiSpeech(
             text = text,
             model = m.ttsModel,
             voice = m.ttsVoice,
-            instructions = style.voiceDirection + " Language: ${Languages.displayName(language)}.",
+            instructions = style.voiceDirection + " " + TALKING_NOT_READING + " Language: ${Languages.displayName(language)}.",
         )
         synchronized(cache) { cache[key] = bytes }
         return bytes
@@ -94,3 +94,8 @@ class OpenAiSpeech(
     override suspend fun transcribe(audio: ByteArray, fileName: String, mimeType: String, prompt: String?): String =
         openAi.transcribe(audio, fileName, mimeType, models().transcriptionModel, prompt)
 }
+
+/** Delivery for every TTS clip (spec A §34): a host talking, never someone reading a text aloud. */
+const val TALKING_NOT_READING =
+    "Deliver it as spontaneous, casual talk, as if telling a friend off the top of your head: conversational " +
+        "intonation, natural emphasis and little pauses. Never sound like reading a text or an announcement."

@@ -85,6 +85,24 @@ class LiveEvalTest {
     private data class Result(val name: String, val pass: Boolean, val detail: String)
 
     private companion object {
+        /** Longest run of consecutive words (case-insensitive, punctuation ignored) shared by [a] and [b]. */
+        fun longestSharedRun(a: String, b: String): Int {
+            fun words(t: String) = t.lowercase().split(Regex("[^\\p{L}\\p{N}]+")).filter { it.isNotBlank() }
+            val x = words(a); val y = words(b)
+            var best = 0
+            val prev = IntArray(y.size + 1)
+            for (i in 1..x.size) {
+                var diag = 0
+                for (j in 1..y.size) {
+                    val up = prev[j]
+                    prev[j] = if (x[i - 1] == y[j - 1]) diag + 1 else 0
+                    if (prev[j] > best) best = prev[j]
+                    diag = up
+                }
+            }
+            return best
+        }
+
         /** Name fragments of cases that must always pass. */
         val CRITICAL = listOf("language", "Russian", "Hebrew", "tragedy", "dignity", "never at the wheel", "legend", "no invented", "offer:")
         const val PASS_RATE = 0.85
@@ -131,6 +149,26 @@ class LiveEvalTest {
                 val stock = listOf("right here, where you", "imagine standing", "timeless legacy", "making you wonder").filter { it in s.text.lowercase() }
                 val g = judge.check("TEXT contains at least one concrete fun or surprising fact and some historical or cultural context.", s.text)
                 Result("story: hook + fun fact + context, no stock phrases", stock.isEmpty() && g.pass, "stock=$stock; ${g.reason}")
+            },
+            suspend {
+                // Retell, don't read (spec A §34): no long stretch copied from the facts, and it sounds like talk.
+                val s = agent.narrate(narr(castle))
+                val copied = longestSharedRun(s.text, castle.extract.orEmpty())
+                val g = judge.check(
+                    "TEXT sounds like a person casually telling a friend about the place in their own words (spoken, relaxed, " +
+                        "addressing the listener), NOT like an encyclopedia entry or a text being read aloud.",
+                    "FACTS: ${castle.extract}\nTEXT: ${s.text}",
+                )
+                Result("story: retold casually, not read out", copied < 8 && g.pass, "copied run=$copied words; ${g.reason}; text=${s.text}")
+            },
+            suspend {
+                val s = agent.narrate(narr(castle, lang = "ru-RU"))
+                val g = judge.check(
+                    "TEXT is Russian in a relaxed spoken register (like a friendly radio host talking), not bookish, official " +
+                        "or encyclopedic Russian, and not a word-for-word translation of FACTS.",
+                    "FACTS: ${castle.extract}\nTEXT: ${s.text}",
+                )
+                Result("story: Russian retold casually, not translated word for word", g.pass, g.reason + "; text=" + s.text)
             },
             suspend {
                 val s = agent.narrate(narr(lake))

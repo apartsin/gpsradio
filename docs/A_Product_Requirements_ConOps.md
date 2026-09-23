@@ -529,3 +529,21 @@ If something can't be put into the listener's language, it is **left out rather 
 Proper names (places, bands, venues) keep their original form.
 
 *Not yet translated:* the app's own screen labels and status messages. They are English today; making them Russian is a separate UI localization task.
+
+## 34. Retold, Not Read Out
+
+The host narrates; it never reads a text aloud. Wikipedia, OpenStreetMap, web results and other sources are research material only.
+
+- **Own words.** Every story, answer and short segment is retold in the host's own words, in casual spoken language. That is how people actually talk, in every language: in Russian, for example, relaxed conversational Russian rather than bookish or official. Sentences from a source are never copied, and a translation is never word for word.
+- **Spoken shape.**
+  - The most interesting part comes first, with one idea per sentence.
+  - The host addresses the listener directly and reacts to the facts now and then.
+  - Dates and numbers are used only when they matter, rounded when that sounds more natural.
+  - Encyclopedia filler (full titles, lists of dates, administrative details) is left out.
+  - Grounding is unchanged: every fact still comes from the sources (§ facts rules).
+- **Delivery.** Every text-to-speech clip is voiced as spontaneous talk with conversational intonation, never as reading or an announcement. The live voice follows the same rule.
+- **Evals.**
+  - A story must not share a run of 8 or more consecutive words with its source.
+  - A judge must rate it as casual talk rather than an encyclopedia entry.
+  - A Russian story must be in a relaxed spoken register and not a word-for-word translation.
+- **Exception.** The on-device fallback (offline, or no OpenAI key) has no model to retell with, so it can only read short notes that are already in the listener's language (§32).

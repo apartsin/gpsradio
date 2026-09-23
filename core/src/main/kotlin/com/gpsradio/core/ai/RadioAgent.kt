@@ -444,8 +444,9 @@ class RadioAgent(
         val res = openAi.respond(
             OpenAiClient.ResponseRequest(
                 model = models().conversationModel,
-                instructions = "Research the question with web search and answer in 2–4 short sentences suitable for reading " +
-                    "aloud, in ${Languages.displayName(language)}. Facts only; say when something is uncertain or disputed. " +
+                instructions = "Research the question with web search and answer in 2–4 short sentences in ${Languages.displayName(language)}, " +
+                    "as a radio host would say it out loud: casual, spoken, in your own words (never copy or read out a " +
+                    "source, even when it is in another language). Facts only; say when something is uncertain or disputed. " +
                     "Plain text, no URLs or lists.",
                 input = listOf(OpenAiClient.Message("user", question)),
                 webSearch = true,
@@ -577,6 +578,14 @@ class RadioAgent(
 
             LANGUAGE: everything the listener hears must be in ${Languages.displayName(language)} ($language), even when
             the facts are in another language. Translate the facts; keep original place names.
+
+            RETELL, DON'T READ: "facts" is your research, not a script. Never read it out or copy its sentences
+            (not even translated word for word). Take in what matters and tell it in your own words, casually, the way
+            you'd tell a friend sitting next to you: everyday spoken language (in every language: the relaxed register
+            people actually speak, not bookish or official), one idea per sentence, the most interesting bit first,
+            dates and numbers only when they matter and rounded when that sounds more natural ("almost a thousand
+            years ago"). Talk to the listener ("you"), react to your own facts now and then ("which is wild, if you
+            think about it"), and leave out encyclopedia filler (full titles, lists of dates, administrative details).
 
             Write ONE spoken segment in the "format" given in the JSON input (by default a story about the place).
             Facts:
