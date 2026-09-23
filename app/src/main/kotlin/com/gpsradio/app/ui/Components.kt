@@ -18,7 +18,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
+import androidx.compose.material.icons.filled.Chair
+import androidx.compose.material.icons.filled.DirectionsCar
+import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material3.Card
+import androidx.compose.material3.Icon
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -32,6 +38,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
@@ -71,10 +78,7 @@ fun StatusCard(state: RadioUiState, onMode: (TravelMode?) -> Unit, onFixKey: () 
             }
             val loc = state.location
             if (loc != null) {
-                val mode = (state.modeOverride ?: loc.travelMode).name.lowercase().replaceFirstChar { it.uppercase() }
-                val speed = if (loc.speedMps > 0.5) " · ${(loc.speedMps * 3.6).toInt()} km/h" else ""
-                val theme = state.theme?.let { " · ${it.key} stories" } ?: ""
-                Text("$mode$speed$theme", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                ModeBadge(state)
             } else if (state.radioState != RadioState.IDLE) {
                 Text("Waiting for GPS…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
@@ -103,6 +107,48 @@ fun StatusCard(state: RadioUiState, onMode: (TravelMode?) -> Unit, onFixKey: () 
                     if (st.needsKey) TextButton(onClick = onFixKey) { Text("Open Settings") }
                 }
             }
+        }
+    }
+}
+
+/** What the travel mode means for the listener, in plain words. */
+data class ModeInfo(val icon: ImageVector, val title: String, val detail: String)
+
+fun modeInfo(mode: TravelMode): ModeInfo = when (mode) {
+    TravelMode.DRIVING -> ModeInfo(Icons.Default.DirectionsCar, "Driving mode", "Looking ahead along the road · fewer, shorter stories · hands-free")
+    TravelMode.WALKING -> ModeInfo(Icons.AutoMirrored.Filled.DirectionsWalk, "Walking mode", "Very local stories · things you can see around you")
+    TravelMode.STATIONARY -> ModeInfo(Icons.Default.Chair, "Standing still", "Deeper stories about what's around you")
+    TravelMode.UNKNOWN -> ModeInfo(Icons.Default.Explore, "Detecting your pace…", "Walk or drive and the radio adapts")
+}
+
+/**
+ * A prominent badge that makes the current mode obvious: icon, name, what it means, and whether
+ * it was detected automatically or set by the listener.
+ */
+@Composable
+fun ModeBadge(state: RadioUiState) {
+    val loc = state.location ?: return
+    val mode = state.modeOverride ?: loc.travelMode
+    val info = modeInfo(mode)
+    val driving = mode == TravelMode.DRIVING
+    val container = if (driving) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.secondaryContainer
+    val onContainer = if (driving) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onSecondaryContainer
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(container)
+            .padding(horizontal = 10.dp, vertical = 6.dp)
+            .semantics(mergeDescendants = true) {},
+    ) {
+        Icon(info.icon, null, tint = onContainer, modifier = Modifier.size(28.dp))
+        Column(Modifier.padding(start = 10.dp).weight(1f)) {
+            val how = if (state.modeOverride != null) "set by you" else "auto"
+            val speed = if (loc.speedMps > 0.5) " · ${(loc.speedMps * 3.6).toInt()} km/h" else ""
+            Text("${info.title}$speed", color = onContainer, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+            Text("${info.detail} · $how", color = onContainer, style = MaterialTheme.typography.labelSmall)
+            state.theme?.let { Text("Theme: ${it.key} stories", color = onContainer, style = MaterialTheme.typography.labelSmall) }
         }
     }
 }

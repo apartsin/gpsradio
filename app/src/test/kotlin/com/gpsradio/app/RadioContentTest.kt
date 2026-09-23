@@ -71,7 +71,8 @@ class RadioContentTest {
         compose.onNodeWithText("ON AIR", substring = true).assertIsDisplayed()
         compose.onNodeWithText("The castle rises from the lake.").assertIsDisplayed()
         compose.onNodeWithText("Source: Ort Castle").assertIsDisplayed()
-        compose.onNodeWithText("Walking · 4 km/h").assertIsDisplayed()
+        compose.onNodeWithText("Walking mode · 4 km/h").assertIsDisplayed()
+        compose.onNodeWithText("Very local stories", substring = true).assertIsDisplayed()
     }
 
     @Test
@@ -186,6 +187,8 @@ class RadioContentTest {
             RadioActions(onSkip = { skipped = true }),
         )
         compose.onNodeWithText("Ort Castle").assertIsDisplayed()
+        compose.onNodeWithText("Driving mode · 79 km/h").assertIsDisplayed()
+        compose.onNodeWithText("Looking ahead along the road", substring = true).assertIsDisplayed()
         compose.onNodeWithContentDescription("Hold to ask a question").assertIsDisplayed()
         compose.onNodeWithTag("askField").assertDoesNotExist()
         compose.onNodeWithContentDescription("Skip").performClick()
