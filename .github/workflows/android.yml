@@ -137,7 +137,9 @@ jobs:
           cp "gpsradio-${VERSION}.apk" gpsradio.apk
           # Make sure the versioned release exists (the build job's publish step may have hit a GitHub hiccup).
           gh release view "$TAG" >/dev/null 2>&1 || retry gh release create "$TAG" --title "GPS Radio ${VERSION}" --notes "GPS Radio ${VERSION} (${GITHUB_SHA::7})" --target "$GITHUB_SHA"
-          retry gh release upload "$TAG" "gpsradio-${VERSION}.apk" --clobber
+          # The build job usually uploaded it already (same artifact); re-uploading can fail with 422 "already exists".
+          gh release view "$TAG" --json assets --jq '.assets[].name' | grep -qx "gpsradio-${VERSION}.apk" \
+            || retry gh release upload "$TAG" "gpsradio-${VERSION}.apk" --clobber
           echo "$VERSION" > version.txt
           OLD=""
           if gh release view latest >/dev/null 2>&1; then
