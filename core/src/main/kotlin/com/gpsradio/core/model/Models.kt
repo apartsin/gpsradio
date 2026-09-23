@@ -103,6 +103,10 @@ data class PlaceCandidate(
     val features: Set<PlaceFeature> = emptySet(),
     /** Year of the historical event, when [PlaceFeature.HISTORIC_EVENT]. */
     val eventYear: Int? = null,
+    /** OSM `opening_hours`, verbatim (evaluated by OpeningHours). */
+    val openingHours: String? = null,
+    /** Admission from OSM: the `charge` value, "paid entry" or "free". */
+    val fee: String? = null,
 )
 
 @Serializable

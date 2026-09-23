@@ -52,6 +52,8 @@ jobs:
       # build is being made and tested.
       - name: Publish versioned build
         if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/claude/android-app-mvp')
+        # A GitHub API hiccup here must not fail the build: promote falls back to the build artifact.
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -62,8 +64,9 @@ jobs:
           NOTES="GPS Radio ${VERSION}, built from ${GITHUB_REF_NAME} @ ${GITHUB_SHA::7}: ${SUBJECT}
 
           Testing build: emulator tests are still running. The tested build is always at https://github.com/apartsin/gpsradio/releases/download/latest/gpsradio.apk"
-          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --prerelease --title "GPS Radio ${VERSION} (testing)" --notes "$NOTES" --target "$GITHUB_SHA"
-          gh release upload "$TAG" "gpsradio-${VERSION}.apk" --clobber
+          retry() { for i in 1 2 3; do "$@" && return 0; echo "retry $i: $*"; sleep $((i * 10)); done; return 1; }
+          gh release view "$TAG" >/dev/null 2>&1 || retry gh release create "$TAG" --prerelease --title "GPS Radio ${VERSION} (testing)" --notes "$NOTES" --target "$GITHUB_SHA"
+          retry gh release upload "$TAG" "gpsradio-${VERSION}.apk" --clobber
 
       - uses: actions/upload-artifact@v4
         if: failure()
@@ -119,12 +122,22 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
     steps:
+      # The APK built (and tested) in this run; doesn't depend on the versioned release existing.
+      - uses: actions/download-artifact@v4
+        with:
+          name: gpsradio-debug-apk
+          path: artifact
+
       - name: Promote to latest (keep the old one as previous)
         run: |
           VERSION="0.5.${GITHUB_RUN_NUMBER}"
           TAG="v${VERSION}"
-          gh release download "$TAG" -p "gpsradio-${VERSION}.apk"
+          retry() { for i in 1 2 3; do "$@" && return 0; echo "retry $i: $*"; sleep $((i * 10)); done; return 1; }
+          cp artifact/app-debug.apk "gpsradio-${VERSION}.apk"
           cp "gpsradio-${VERSION}.apk" gpsradio.apk
+          # Make sure the versioned release exists (the build job's publish step may have hit a GitHub hiccup).
+          gh release view "$TAG" >/dev/null 2>&1 || retry gh release create "$TAG" --title "GPS Radio ${VERSION}" --notes "GPS Radio ${VERSION} (${GITHUB_SHA::7})" --target "$GITHUB_SHA"
+          retry gh release upload "$TAG" "gpsradio-${VERSION}.apk" --clobber
           echo "$VERSION" > version.txt
           OLD=""
           if gh release view latest >/dev/null 2>&1; then
@@ -146,7 +159,7 @@ jobs:
             --arg commit "${GITHUB_SHA::7}" --arg notes "$SUBJECT" \
             '{version:$v, build:$b, apk:$apk, sha256:$sha, size:$size, commit:$commit, notes:$notes}' > update.json
           cat update.json
-          gh release upload latest gpsradio.apk version.txt update.json --clobber
+          retry gh release upload latest gpsradio.apk version.txt update.json --clobber
           gh release edit latest --title "GPS Radio – latest tested build" --notes "GPS Radio ${VERSION} (${GITHUB_SHA::7}), passed unit, UI and emulator tests. Install on Android 8.0+ (allow installs from your browser). Any GPS Radio build installs over any other, forward or back, keeping your settings. Previous tested build: https://github.com/${GH_REPO}/releases/download/previous/gpsradio.apk"
           gh release edit "$TAG" --prerelease=false --title "GPS Radio ${VERSION}"
 

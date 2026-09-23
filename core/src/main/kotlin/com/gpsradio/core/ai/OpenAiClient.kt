@@ -6,6 +6,7 @@ import com.gpsradio.core.net.HttpException
 import com.gpsradio.core.net.fetchBytes
 import com.gpsradio.core.net.fetchString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonArray
@@ -65,9 +66,20 @@ class OpenAiClient(
         /** JSON schema for structured output, or null for free text. */
         val jsonSchema: Pair<String, JsonObject>? = null,
         val maxOutputTokens: Int? = null,
+        /**
+         * Routes requests that share a long static prefix (the instructions) to the same cache, so
+         * OpenAI's automatic prompt caching hits more often (cheaper, faster).
+         */
+        val cacheKey: String? = null,
     )
 
-    data class ResponseResult(val text: String, val citations: List<SourceRef>)
+    data class ResponseResult(
+        val text: String,
+        val citations: List<SourceRef>,
+        /** Input tokens served from OpenAI's prompt cache (usage.input_tokens_details.cached_tokens). */
+        val cachedTokens: Int = 0,
+        val inputTokens: Int = 0,
+    )
 
     suspend fun respond(req: ResponseRequest): ResponseResult {
         val body = buildJsonObject {
@@ -103,6 +115,7 @@ class OpenAiClient(
                     })
                 })
             }
+            req.cacheKey?.let { put("prompt_cache_key", it) }
             val reasoning = isReasoningModel(req.model)
             if (reasoning) put("reasoning", buildJsonObject { put("effort", "low") })
             // For reasoning models the cap also covers hidden reasoning tokens; leave generous room.
@@ -208,7 +221,10 @@ class OpenAiClient(
                 val reason = (root["incomplete_details"] as? JsonObject)?.get("reason")?.jsonPrimitive?.contentOrNull
                 throw OpenAiException(200, "Model returned no text (status: $status${reason?.let { ", reason: $it" } ?: ""})")
             }
-            return ResponseResult(text.toString().trim(), cites.values.toList())
+            val usage = root["usage"] as? JsonObject
+            val cached = ((usage?.get("input_tokens_details") as? JsonObject)?.get("cached_tokens") as? JsonPrimitive)?.contentOrNull?.toIntOrNull() ?: 0
+            val input = (usage?.get("input_tokens") as? JsonPrimitive)?.contentOrNull?.toIntOrNull() ?: 0
+            return ResponseResult(text.toString().trim(), cites.values.toList(), cached, input)
         }
 
         private fun JsonArray?.orEmpty(): List<kotlinx.serialization.json.JsonElement> = this ?: emptyList()

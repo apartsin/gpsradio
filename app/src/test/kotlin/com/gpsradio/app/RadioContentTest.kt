@@ -223,13 +223,14 @@ class RadioContentTest {
             RadioUiState(
                 radioState = RadioState.RADIO,
                 location = loc.copy(travelMode = TravelMode.DRIVING, speedMps = 22.0),
-                detours = listOf(DetourSuggestion("abbey", "Lambach Abbey", 6)),
+                detours = listOf(DetourSuggestion("abbey", "Lambach Abbey", 6, "open 09:00–17:00 · adults €8 · ~45 min visit · easy walk")),
             ),
             RadioActions(onNavigate = { navigated += it }),
         )
         compose.onNodeWithTag("detourCard").assertIsDisplayed()
         compose.onNodeWithText("Lambach Abbey").assertIsDisplayed()
         compose.onNodeWithText("about 6 min detour").assertIsDisplayed()
+        compose.onNodeWithText("open 09:00–17:00 · adults €8 · ~45 min visit · easy walk").assertIsDisplayed()
         compose.onNodeWithText("Navigate").performClick()
         assertEquals(listOf("abbey"), navigated)
     }

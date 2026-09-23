@@ -813,6 +813,7 @@ private fun DetourCard(d: DetourSuggestion, a: RadioActions) {
                 Text("Detour ahead", style = MaterialTheme.typography.labelLarge)
                 Text(d.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(d.label, style = MaterialTheme.typography.bodyMedium)
+                d.visit?.let { Text(it, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis) }
             }
             Button(onClick = { a.onNavigate(d.placeId) }, modifier = Modifier.heightIn(min = 56.dp)) {
                 Icon(Icons.Default.Directions, contentDescription = null)

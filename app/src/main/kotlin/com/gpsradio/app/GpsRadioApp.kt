@@ -74,6 +74,10 @@ open class GpsRadioApp : Application() {
     protected open fun eventScout(openAi: OpenAiClient, models: () -> com.gpsradio.core.ai.ModelConfig): com.gpsradio.core.events.EventScout? =
         com.gpsradio.core.events.EventScout(openAi, models)
 
+    /** Hours, admission and visit details (OpenAI web search); tests return null (OSM tags only). */
+    protected open fun visitScout(openAi: OpenAiClient, models: () -> com.gpsradio.core.ai.ModelConfig): com.gpsradio.core.visit.VisitSource? =
+        com.gpsradio.core.visit.VisitScout(openAi, models)
+
     /** Self-update source (the app isn't in a store); tests return null to disable it. */
     protected open fun updateClient(http: OkHttpClient): com.gpsradio.core.update.UpdateClient? =
         com.gpsradio.core.update.UpdateClient(http)
@@ -173,6 +177,7 @@ open class GpsRadioApp : Application() {
             onThisDay = OnThisDayClient(http, userAgent, ep.onThisDay),
             areaInfo = AreaInfoSource { lang, title -> wikipedia.articleByTitle(lang, title) },
             eventScout = eventScout(openAi, models),
+            visitScout = visitScout(openAi, models),
         )
     }
 

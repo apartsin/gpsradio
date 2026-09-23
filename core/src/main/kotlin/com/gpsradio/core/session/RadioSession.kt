@@ -81,6 +81,11 @@ import com.gpsradio.core.discovery.AreaInfoSource
 import com.gpsradio.core.discovery.OnThisDayClient
 import com.gpsradio.core.discovery.OnThisDaySource
 import com.gpsradio.core.editorial.Pacing
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Deferred
+import com.gpsradio.core.visit.Visits
+import com.gpsradio.core.visit.VisitSource
+import com.gpsradio.core.visit.VisitInfo
 import com.gpsradio.core.events.LocalEvent
 import com.gpsradio.core.events.EventSource
 import com.gpsradio.core.model.RoadTripKind
@@ -122,7 +127,13 @@ data class Status(
 enum class OfferKind { STORY, DETOUR }
 
 /** A drive-by detour off the road ahead (spec A §28). */
-data class DetourSuggestion(val placeId: String, val name: String, val minutes: Int) {
+data class DetourSuggestion(
+    val placeId: String,
+    val name: String,
+    val minutes: Int,
+    /** "open until 17:00 · €8 · ~45 min visit · easy walk" once checked (spec A §31). */
+    val visit: String? = null,
+) {
     val label: String get() = Detours.label(minutes)
 }
 
@@ -218,6 +229,8 @@ class RadioSession(
     private val areaInfo: AreaInfoSource? = null,
     /** Finds events today nearby (web search); null leaves them out. */
     private val eventScout: EventSource? = null,
+    /** Checks today's hours, admission and what a visit involves (web search); null uses OSM tags only. */
+    private val visitScout: VisitSource? = null,
     private val zone: () -> ZoneId = { ZoneId.systemDefault() },
 ) {
     data class Timeouts(
@@ -640,12 +653,14 @@ class RadioSession(
                 pacing = config().pacing,
             ),
         )
+        // The next story is likely the best candidate: check its hours/fees in the background.
+        ranked.firstOrNull()?.let { ensureVisit(it) }
         // Only push a new list to the UI when it visibly changed (order or ~10 m distance steps).
         val top = ranked.take(25)
         val key = top.map { it.place.id to (it.distanceM / 10).toInt() }
         if (key != lastNearbyKey) {
             lastNearbyKey = key
-            val detours = Detours.ahead(ranked, loc).map { (r, min) -> DetourSuggestion(r.place.id, r.place.name, min) }
+            val detours = detourSuggestions(loc)
             val photos = top.filter { PhotoSpots.isPhotogenic(it.place) }.map { it.place.id }.toSet()
             _state.update { it.copy(nearby = top, detours = detours, photoSpotIds = photos) }
         }
@@ -733,11 +748,17 @@ class RadioSession(
         val started = clock()
         // Describe distance/direction from where the listener will be when the audio starts, not from now.
         val (atPlayback, rel) = projectForPlayback(c, loc, prepLatencyMs.toLong())
-        val request = NarrationRequest(
+        val base = NarrationRequest(
             rel, atPlayback, lang, cfg.interests, recentTitles.toList(), memory.promptLines(),
             style = cfg.style, format = format, tripContext = tripContext,
         )
-        if (onDeviceNow()) return prepareOnDevice(request)
+        if (onDeviceNow()) return prepareOnDevice(base)
+        val request = if (format == SegmentFormat.STORY) {
+            base.copy(
+                visit = visitFor(c),
+                detourMinutes = c.takeIf { it.roadTrip == RoadTripKind.WORTH_A_STOP }?.let { Detours.minutes(atPlayback, it.place.point) },
+            )
+        } else base
         var segment: Segment? = null
         return try {
             val s = timed(timeouts.narrationMs, "Narration") { narrator.narrate(request) }
@@ -1828,6 +1849,70 @@ class RadioSession(
         }
     }
 
+    // ---- visit info: hours, admission, what a visit involves (spec A §31) -------------------------
+
+    private val visitCache = HashMap<String, VisitInfo>()
+    private val visitJobs = HashMap<String, Deferred<VisitInfo?>>()
+    private val visitLookupTimes = ArrayDeque<Long>()
+
+    private fun sameDay(a: Long, b: Long) =
+        Instant.ofEpochMilli(a).atZone(zone()).toLocalDate() == Instant.ofEpochMilli(b).atZone(zone()).toLocalDate()
+
+    /** Starts (or reuses) today's lookup for [c]; null when the place isn't worth checking. */
+    private fun ensureVisit(c: RankedCandidate): Deferred<VisitInfo?>? {
+        val place = c.place
+        if (!Visits.worthChecking(place, c.roadTrip)) return null
+        visitCache[place.id]?.takeIf { sameDay(it.checkedMs, clock()) }?.let { return CompletableDeferred(it.takeIf { v -> v.source != "none" }) }
+        visitJobs[place.id]?.takeIf { it.isActive }?.let { return it }
+        val now = clock()
+        val osm = Visits.fromOsm(place, now, zone())
+        val cfg = config()
+        while (visitLookupTimes.isNotEmpty() && now - visitLookupTimes.first() > 3_600_000L) visitLookupTimes.removeFirst()
+        val scout = visitScout
+        if (scout == null || cfg.previewMode || !isOnline() || onDeviceNow() || visitLookupTimes.size >= VISIT_LOOKUPS_PER_HOUR) {
+            visitCache[place.id] = osm ?: VisitInfo(source = "none", checkedMs = now)
+            return CompletableDeferred(osm)
+        }
+        visitLookupTimes.addLast(now)
+        val job = scope.async {
+            val web = try {
+                withTimeoutOrNull(VISIT_TIMEOUT_MS) { scout.lookup(place, _state.value.area, clock(), zone()) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (isQuota(e)) noteQuota()
+                null
+            }
+            // The web check wins; OSM fills what it couldn't confirm.
+            val merged = web?.copy(
+                openToday = web.openToday ?: osm?.openToday,
+                hoursToday = web.hoursToday ?: osm?.hoursToday,
+                admission = web.admission ?: osm?.admission,
+            ) ?: osm
+            visitCache[place.id] = merged ?: VisitInfo(source = "none", checkedMs = clock())
+            refreshDetours()
+            merged
+        }
+        visitJobs[place.id] = job
+        return job
+    }
+
+    /** Waits briefly for the visit check (usually prefetched); never blocks a story for long. */
+    private suspend fun visitFor(c: RankedCandidate): VisitInfo? =
+        ensureVisit(c)?.let { withTimeoutOrNull(VISIT_WAIT_MS) { it.await() } }
+
+    private fun detourSuggestions(loc: LocationContext): List<DetourSuggestion> =
+        Detours.ahead(ranked, loc).map { (r, min) ->
+            // Prefetch so the detour card (and the story's offer) can say hours, fee and effort.
+            ensureVisit(r)
+            DetourSuggestion(r.place.id, r.place.name, min, visitCache[r.place.id]?.takeIf { it.source != "none" }?.summary()?.ifBlank { null })
+        }
+
+    private fun refreshDetours() {
+        val loc = _state.value.location ?: return
+        _state.update { it.copy(detours = detourSuggestions(loc)) }
+    }
+
     // ---- local events today (spec A §30) --------------------------------------------------------
 
     private var eventsCheckedMs = Long.MIN_VALUE / 2
@@ -1897,6 +1982,11 @@ class RadioSession(
             "fr" -> "Petite annonce : le crédit OpenAI est épuisé. Ajoutez une clé dans les réglages ; en attendant, je lis de courtes notes."
             else -> "Quick note: the OpenAI credit has run out. Add a key in Settings; until then I'll read short notes."
         }
+
+        /** Web checks of hours/fees: at most this many per hour, each at most this long; stories wait at most VISIT_WAIT_MS. */
+        const val VISIT_LOOKUPS_PER_HOUR = 20
+        const val VISIT_TIMEOUT_MS = 20_000L
+        const val VISIT_WAIT_MS = 8_000L
 
         const val EVENTS_REFRESH_MS = 3 * 3_600_000L
         const val EVENTS_MIN_GAP_MS = 45 * 60_000L

@@ -161,6 +161,8 @@ class DiscoveryService(
             if (linked >= 0) {
                 val c = out[linked]
                 out[linked] = c.copy(
+                    openingHours = c.openingHours ?: tags["opening_hours"],
+                    fee = c.fee ?: osmFee(tags),
                     topics = c.topics + osmTopics,
                     sourceConfidence = min(1.0, c.sourceConfidence + 0.05),
                     imageUrl = c.imageUrl ?: osmImage(tags),
@@ -185,6 +187,8 @@ class DiscoveryService(
                 imageUrl = osmImage(tags),
                 researchStatus = ResearchStatus.READY,
                 features = features,
+                openingHours = tags["opening_hours"],
+                fee = osmFee(tags),
             )
         }
         return out
@@ -226,6 +230,13 @@ class DiscoveryService(
             )
         }
     }
+
+    private fun osmFee(tags: Map<String, String>): String? =
+        tags["charge"] ?: when (tags["fee"]) {
+            "yes" -> "paid entry"
+            "no" -> "free"
+            else -> null
+        }
 
     private fun osmFeatures(tags: Map<String, String>): Set<PlaceFeature> = buildSet {
         if (TopicClassifier.isJewish(tags)) add(PlaceFeature.JEWISH_HERITAGE)

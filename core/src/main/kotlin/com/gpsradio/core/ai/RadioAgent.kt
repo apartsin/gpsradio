@@ -12,6 +12,7 @@ import com.gpsradio.core.model.LocationContext
 import com.gpsradio.core.model.RankedCandidate
 import com.gpsradio.core.model.RoadTripKind
 import com.gpsradio.core.events.EventScout
+import com.gpsradio.core.visit.VisitInfo
 import com.gpsradio.core.events.LocalEvent
 import com.gpsradio.core.editorial.Detours
 import com.gpsradio.core.editorial.PhotoSpots
@@ -157,6 +158,10 @@ data class NarrationRequest(
     val tripContext: String? = null,
     /** Road-trip category while driving; WORTH_A_STOP ends the story with an offer to navigate there. */
     val roadTrip: RoadTripKind? = candidate.roadTrip,
+    /** Today's hours, admission and what a visit involves, when checked (web or OSM); null when unknown. */
+    val visit: VisitInfo? = null,
+    /** Detour length there and back, minutes, for a worth-a-stop place. */
+    val detourMinutes: Int? = null,
 )
 
 data class ConversationTurn(val fromUser: Boolean, val text: String)
@@ -261,6 +266,20 @@ class RadioAgent(
                 putJsonArray("features") { c.place.features.forEach { add(JsonPrimitive(it.name.lowercase())) } }
             }
             c.place.eventYear?.let { put("event_year", it) }
+            req.detourMinutes?.let { put("detour_minutes", it) }
+            req.visit?.let { v ->
+                putJsonObject("visit") {
+                    put("checked", if (v.source == "osm") "OpenStreetMap listing" else "checked online today")
+                    v.openToday?.let { put("open_today", it) }
+                    v.hoursToday?.let { put("hours_today", it) }
+                    v.admission?.let { put("admission", it) }
+                    v.visitType?.let { put("visit_type", it) }
+                    v.visitMinutes?.let { put("time_to_spend_min", it) }
+                    v.walkEffort?.let { put("walk_effort", it) }
+                    v.walkNote?.let { put("walk_note", it) }
+                    v.expect?.let { put("what_to_expect", it) }
+                }
+            }
             if (req.format == SegmentFormat.PHOTO_TIP) {
                 val sun = PhotoSpots.sun(req.location.point, req.location.timestampMs)
                 put("light", PhotoSpots.lightHint(sun, c.bearingDeg))
@@ -273,6 +292,7 @@ class RadioAgent(
         val request = OpenAiClient.ResponseRequest(
             model = models().narrationModel,
             instructions = narrationInstructions(req.language, req.style),
+            cacheKey = narrationCacheKey(req.language, req.style),
             input = listOf(OpenAiClient.Message("user", context.toString())),
             jsonSchema = if (structuredNarration) "radio_story" to storySchema else null,
             maxOutputTokens = 900,
@@ -338,6 +358,7 @@ class RadioAgent(
             OpenAiClient.ResponseRequest(
                 model = models().narrationModel,
                 instructions = narrationInstructions(req.language, req.style),
+                cacheKey = narrationCacheKey(req.language, req.style),
                 input = listOf(OpenAiClient.Message("user", context.toString())),
                 maxOutputTokens = 500,
             ),
@@ -361,6 +382,7 @@ class RadioAgent(
         val base = OpenAiClient.ResponseRequest(
             model = models().conversationModel,
             instructions = conversationInstructions(req.language, searchAvailable = false, style = req.style),
+            cacheKey = "gpsradio-conv-${req.language}-${req.style.key}",
             input = input,
             webSearch = false,
             userArea = req.area,
@@ -374,7 +396,11 @@ class RadioAgent(
 
         onSearching()
         val searched = respondStructured(
-            base.copy(instructions = conversationInstructions(req.language, searchAvailable = true, style = req.style), webSearch = true),
+            base.copy(
+                instructions = conversationInstructions(req.language, searchAvailable = true, style = req.style),
+                webSearch = true,
+                cacheKey = "gpsradio-conv-search-${req.language}-${req.style.key}",
+            ),
         )
         return parseReply(searched.text).copy(needsSearch = false, sources = searched.citations)
     }
@@ -434,6 +460,12 @@ class RadioAgent(
 
     companion object {
         private val json = Json { ignoreUnknownKeys = true }
+
+        /**
+         * Prompt caching: the long static rules live in `instructions` (identical for a language and host
+         * style), per-request data goes last in `input`. Requests with the same key share OpenAI's cache.
+         */
+        fun narrationCacheKey(language: String, style: HostStyle) = "gpsradio-narr-$language-${style.key}"
 
         /** Enough for a rich story; keeps per-call tokens (and cost) bounded. */
         const val MAX_FACTS_CHARS = 1500
@@ -557,14 +589,19 @@ class RadioAgent(
             - travel_mode "driving": keep it short (never over target_length_words) and never ask the driver to look at a screen.
             - road_trip "visible_from_road": help them spot it from the car in a glance ("the peak on your right"), without
               asking the driver to look away from the road for long.
-            - road_trip "worth_a_stop": after the story, end with ONE short, low-pressure offer to take them there
-              (for example "Want me to navigate there?"), mentioning "detour" if given. Never invent opening hours,
-              parking, prices or access details, and do not offer more than once.
+            - road_trip "worth_a_stop": before the offer, say in one or two short sentences what the detour involves,
+              using "detour_minutes" and "visit": a quick look or a proper visit, how long to spend, whether there's a
+              walk and how hard it is, and what to expect. Then end with ONE short, low-pressure offer to take them
+              there (for example "Want me to navigate there?"). Do not offer more than once.
+            - "visit" holds practical facts ("checked" says from where). Mention today's hours or "closed today" and the
+              admission briefly and naturally ("open until five, eight euros for adults, according to their website").
+              If "visit" is missing or a value is absent, don't guess: say at most that hours or prices couldn't be
+              confirmed. Never invent opening hours, prices, parking, access or walking details.
             - Respect listener_profile: lean into what they like, avoid what they avoid, follow their style wishes.
             - "features" says what else makes the place special; bring it in, still using only "facts":
               - eat_drink / shop: a memorable place to eat, drink or shop. Say what makes it unusual or worth remembering
-                (its history, a famous dish or product, a famous guest) and that it could be worth a stop. Never invent
-                opening hours, prices, menu items, ratings or whether it is open.
+                (its history, a famous dish or product, a famous guest) and that it could be worth a stop. Hours and prices
+                only from "visit"; never invent opening hours, prices, menu items, ratings or whether it is open.
               - film_location: name the films or shows filmed here as listed in the facts; describe scenes only if the
                 facts do. A light film-buff wink is welcome.
               - historic_event: tell what happened here, opening with the year (event_year) and why it mattered.

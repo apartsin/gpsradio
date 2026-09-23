@@ -703,3 +703,24 @@ The app is not in a store, so it manages its own releases and updates.
   - The Nearby tab lists "Today nearby" above the places; tapping opens the source.
   - There is a Settings switch. E2E disables the scout.
 - **Cost:** about one web-search call per area per 3 h while listening.
+
+## 40. Visit Info (Hours, Admission, Detour Details) and Prompt Caching
+
+**Visit info** (`core/visit`):
+- `PlaceCandidate.openingHours` and `fee` come from the OSM tags `opening_hours` and `charge`/`fee`.
+- `OpeningHours.today()` evaluates the common forms ("24/7", day ranges and lists, several time ranges, "off", later rules win). It returns null for anything it doesn't understand (PH, months, sunrise), so the app never guesses.
+- `VisitScout` makes one Responses call with `web_search` and a strict `visit_info` schema: open_today, hours_today, admission, visit_type, visit_minutes, walk_effort, walk_note, expect, source_url. Hours, admission and open/closed are dropped unless the result carries a source URL.
+- `Visits.worthChecking` decides which places get checked: worth-a-stop detours, eat/drink/shop, places with OSM hours/fee, and paid-sight categories.
+- **Session:**
+  - At most one check per place per local day; failures are cached too.
+  - At most 20 web checks per hour, each with a 20 s timeout.
+  - The top candidate and detours are prefetched in the background. A story waits at most 8 s for its check. The web result wins and OSM fills the gaps.
+  - The narration context gets `visit` (with `checked`: web or OSM listing) and `detour_minutes`. The prompt reports hours/closure and admission with their source, describes the detour (visit type, time, walk effort, what to expect) before the navigation offer, and says "couldn't be confirmed" rather than guessing.
+  - `DetourSuggestion.visit` holds the one-line summary for the card.
+
+**Prompt caching:** OpenAI caches the longest identical prompt prefix of 1,024 tokens or more automatically. Cached input is billed at a large discount and processed faster.
+- **Static rules first.** All static rules are in `instructions`, which is identical for a given language and host style. Everything per request (place, facts, location, time, visit info) goes last in `input`. Narration instructions are about 2.3k tokens and conversation about 1.5k, so both are cacheable after the first call.
+- **No per-call data in instructions.** Nothing in the instructions changes per call: no times, coordinates or counters. The rules for every feature (photo tips, events, visit info, Jewish heritage…) are always present, rather than added only when relevant, because conditional rules would change the prefix and break the cache.
+- **Cache keys.** Every request sets `prompt_cache_key` (`gpsradio-narr-<lang>-<style>`, `gpsradio-conv[-search]-<lang>-<style>`, `gpsradio-events`, `gpsradio-visit`), so requests sharing a prefix are routed to the same cache.
+- **Measuring hits.** `ResponseResult.cachedTokens` reports `usage.input_tokens_details.cached_tokens`.
+- **Realtime.** The Realtime session sends its instructions once per conversation (`session.update`), and the server caches the conversation prefix itself.

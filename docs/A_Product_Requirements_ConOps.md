@@ -455,3 +455,22 @@ GPS Radio is not distributed through a store:
 | ID | Capability | Requirement |
 |---|---|---|
 | PR-57 | Events today | Find visitor-worthy events today nearby (with sources), announce once, notify, list with links; exclude classes/meetings. |
+
+## 31. Opening Hours, Admission and What a Visit Involves
+
+- For places you might actually visit, the host checks today's opening hours and admission once per day and reports them briefly, with where they came from ("open until five, eight euros for adults, according to their website"). Or it says they couldn't be confirmed. It never guesses. This covers detours, places to eat or shop, and sights that usually have tickets (museums, castles, zoos, caves, towers).
+- Sources, in order:
+  - a web check with the official site first;
+  - the OpenStreetMap `opening_hours` and `fee`/`charge` tags, evaluated on the phone for today.
+- **Detours** also say what the stop involves:
+  - drive-by, short stop, proper visit, walk or hike;
+  - how long to spend;
+  - whether there's a walk, and how hard it is ("15 min uphill on gravel");
+  - what to expect.
+
+  The detour card shows it in one line, e.g. "open 10:00–17:00 · adults €8 · ~45 min visit · easy walk".
+
+| ID | Capability | Requirement |
+|---|---|---|
+| PR-58 | Hours & fees | Report today's hours/closure and admission from a checked source; otherwise say unconfirmed. |
+| PR-59 | Detour details | Visit type, time to spend, walking effort and what to expect for suggested detours. |

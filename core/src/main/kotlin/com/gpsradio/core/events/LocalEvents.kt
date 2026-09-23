@@ -70,6 +70,7 @@ class EventScout(
                 userArea = area,
                 jsonSchema = "local_events" to schema,
                 maxOutputTokens = 1500,
+                cacheKey = "gpsradio-events",
             ),
         )
         return parse(res.text, nowMs, zone)
