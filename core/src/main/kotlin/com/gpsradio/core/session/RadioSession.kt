@@ -81,6 +81,9 @@ import com.gpsradio.core.discovery.AreaInfoSource
 import com.gpsradio.core.discovery.OnThisDayClient
 import com.gpsradio.core.discovery.OnThisDaySource
 import com.gpsradio.core.editorial.Pacing
+import com.gpsradio.core.model.RoadTripKind
+import com.gpsradio.core.editorial.PhotoSpots
+import com.gpsradio.core.editorial.Detours
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -113,6 +116,14 @@ data class Status(
     val actionLabel: String? = null,
 )
 
+/** What the pending offer leads to on "yes": the full story, or directions to the place. */
+enum class OfferKind { STORY, DETOUR }
+
+/** A drive-by detour off the road ahead (spec A §28). */
+data class DetourSuggestion(val placeId: String, val name: String, val minutes: Int) {
+    val label: String get() = Detours.label(minutes)
+}
+
 data class RadioUiState(
     val radioState: RadioState = RadioState.IDLE,
     val location: LocationContext? = null,
@@ -128,6 +139,11 @@ data class RadioUiState(
     val favorites: List<FavoritePlace> = emptyList(),
     /** Name of a story the radio offered ("want to hear it?") and is waiting for an answer about. */
     val pendingOffer: String? = null,
+    val pendingOfferKind: OfferKind = OfferKind.STORY,
+    /** While driving: worth-a-stop places a few minutes off the road ahead, best first. */
+    val detours: List<DetourSuggestion> = emptyList(),
+    /** Nearby places that make a good photo (viewpoints, waterfalls, castles…). */
+    val photoSpotIds: Set<String> = emptySet(),
     val tripContext: String? = null,
     /** Non-null while a live voice conversation is open. */
     val live: LiveState? = null,
@@ -238,6 +254,7 @@ class RadioSession(
     private var storyPlayback: Pair<String, Long>? = null
     private val galleries = HashMap<String, List<String>>()
     private var pendingOffer: PlaceCandidate? = null
+    private var offerKind = OfferKind.STORY
     private var lastTeaserMs = 0L
     private var storiesSinceTeaser = 0
     private var tripAsked = false
@@ -618,7 +635,9 @@ class RadioSession(
         val key = top.map { it.place.id to (it.distanceM / 10).toInt() }
         if (key != lastNearbyKey) {
             lastNearbyKey = key
-            _state.update { it.copy(nearby = top) }
+            val detours = Detours.ahead(ranked, loc).map { (r, min) -> DetourSuggestion(r.place.id, r.place.name, min) }
+            val photos = top.filter { PhotoSpots.isPhotogenic(it.place) }.map { it.place.id }.toSet()
+            _state.update { it.copy(nearby = top, detours = detours, photoSpotIds = photos) }
         }
     }
 
@@ -681,6 +700,8 @@ class RadioSession(
                 lastSpeechEndMs = clock()
                 setRadioState(RadioState.RADIO)
                 rerank()
+                // The story ended with "want me to navigate there?": take a yes as directions.
+                if (c.roadTrip == RoadTripKind.WORTH_A_STOP && segment.text.trimEnd().endsWith("?")) offerDetour(c.place)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -873,7 +894,7 @@ class RadioSession(
                         profile = memory.promptLines(),
                         style = config().style,
                         tripContext = tripContext,
-                        pendingOffer = pendingOffer?.name,
+                        pendingOffer = pendingOffer?.let { if (offerKind == OfferKind.DETOUR) "directions to ${it.name} (a short detour)" else it.name },
                         tour = tourSummary(),
                         quiz = programme.pendingQuiz,
                     ),
@@ -1023,7 +1044,7 @@ class RadioSession(
         profile = memory.promptLines(),
         style = config().style,
         tripContext = tripContext,
-        pendingOffer = pendingOffer?.name,
+        pendingOffer = pendingOffer?.let { if (offerKind == OfferKind.DETOUR) "directions to ${it.name} (a short detour)" else it.name },
         tour = tourSummary(),
         quiz = programme.pendingQuiz,
     )
@@ -1141,12 +1162,36 @@ class RadioSession(
 
     private fun clearOffer() {
         pendingOffer = null
-        _state.update { it.copy(pendingOffer = null) }
+        offerKind = OfferKind.STORY
+        _state.update { it.copy(pendingOffer = null, pendingOfferKind = OfferKind.STORY) }
+    }
+
+    /** After a worth-a-stop story (which ends with "want me to navigate there?"), wait for the answer. */
+    private fun offerDetour(place: PlaceCandidate) {
+        pendingOffer = place
+        offerKind = OfferKind.DETOUR
+        engagedUntilMs = clock() + if (config().pacing == Pacing.NONSTOP) NONSTOP_QUIZ_PAUSE_MS * 2 else offerWindowMs
+        _state.update { it.copy(radioState = RadioState.CONVERSING, pendingOffer = place.name, pendingOfferKind = OfferKind.DETOUR) }
+        if (liveVoiceEnabled) openLive(opening = null)
+    }
+
+    /** Hands navigation to the listener's maps app (detour card, Nearby list). */
+    fun navigateTo(placeId: String) = scope.launch {
+        val place = candidates[placeId] ?: return@launch
+        if (pendingOffer?.id == placeId) clearOffer()
+        addTranscript(TranscriptEntry(Speaker.SYSTEM, "Directions to ${place.name} opened in your maps app.", clock(), place.id))
+        onNavigate(place)
     }
 
     private fun acceptOffer(offer: PlaceCandidate) {
+        val kind = offerKind
         clearOffer()
         engagedUntilMs = 0
+        if (kind == OfferKind.DETOUR) {
+            addTranscript(TranscriptEntry(Speaker.SYSTEM, "Directions to ${offer.name} opened in your maps app.", clock(), offer.id))
+            onNavigate(offer)
+            return endConversation()
+        }
         val c = ranked.firstOrNull { it.place.id == offer.id } ?: return endConversation()
         speakStory(c, allowTeaser = false)
     }
@@ -1607,6 +1652,7 @@ class RadioSession(
             themeActive = _state.value.theme != null,
             speakThreshold = ranker.thresholdFor(cfg.pacing),
             areaFacets = areaFacets,
+            photoSpot = ranked.firstOrNull { it.breakdown.novelty > 0.0 && it.place.id !in mentionedIds && PhotoSpots.suitable(it, loc) },
         )
         return when (val plan = programme.next(situation)) {
             Programme.Plan.None -> false

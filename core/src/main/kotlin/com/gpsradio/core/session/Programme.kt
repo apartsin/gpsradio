@@ -42,6 +42,8 @@ class Programme(val config: Config = Config()) {
         val relaxedFactor: Double = 0.5,
         /** Non-stop: how many times the discovery radius may be widened per session. */
         val maxWidenSteps: Int = 3,
+        /** At most one photo tip per this interval. */
+        val photoGapMs: Long = 15 * 60_000L,
     )
 
     /** What the session knows right now; [minGapMs] is the pacing-scaled gap for the travel mode. */
@@ -63,6 +65,8 @@ class Programme(val config: Config = Config()) {
         val speakThreshold: Double = 2.4,
         /** Facets of the current town/region with grounded facts, in telling order. */
         val areaFacets: List<AreaFacet> = emptyList(),
+        /** The best photogenic spot for a photo tip right now (see PhotoSpots.suitable), if any. */
+        val photoSpot: RankedCandidate? = null,
     )
 
     sealed interface Plan {
@@ -128,10 +132,12 @@ class Programme(val config: Config = Config()) {
         return rotation(s) ?: Plan.None
     }
 
-    /** Bumper, quiz, on this day and area stories, rotated: the format aired longest ago (or never) goes first. */
+    /** Bumper, quiz, on this day, photo tips and area stories, rotated: the format aired longest ago (or never) goes first. */
     private fun rotation(s: Situation): Plan.Filler? {
         val options = ArrayList<Plan.Filler>()
         if (s.onThisDayAvailable && !s.themeActive && onThisDayDoneFor != s.dayKey) options += Plan.Filler(SegmentFormat.ON_THIS_DAY)
+        val photoOk = lastAired[SegmentFormat.PHOTO_TIP]?.let { s.nowMs - it >= config.photoGapMs } ?: true
+        if (photoOk) s.photoSpot?.takeIf { it.place.id !in usedPlaceIds }?.let { options += Plan.Filler(SegmentFormat.PHOTO_TIP, it) }
         fresh(s, config.bumperMinFactsChars)?.let { options += Plan.Filler(SegmentFormat.BUMPER, it) }
         val quizOk = lastAired[SegmentFormat.QUIZ]?.let { s.nowMs - it >= config.quizGapMs } ?: true
         if (quizOk) fresh(s, config.quizMinFactsChars)?.let { options += Plan.Filler(SegmentFormat.QUIZ, it) }

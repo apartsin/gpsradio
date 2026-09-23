@@ -120,7 +120,7 @@ class ProgrammeSessionTest {
 
     /** Below the speak threshold, but nearby with rich facts: bumper and quiz material. */
     private fun weak(id: String, bearing: Double = 90.0, d: Double = 300.0) =
-        place(id, Geo.destination(here, bearing, d), relevance = 0.1, topics = emptySet()).copy(extract = facts)
+        place(id, Geo.destination(here, bearing, d), relevance = 0.1, topics = emptySet()).copy(extract = facts, category = "museum")
 
     private fun isFiller(text: String) = text.substringBefore(' ').let { f ->
         SegmentFormat.entries.firstOrNull { it.name == f }?.isFiller == true
@@ -223,7 +223,7 @@ class ProgrammeSessionTest {
     fun nonstopKeepsTalkingWithDistinctGroundedSegmentsAndShortGaps() = runTest {
         // Nothing qualifies even for non-stop: far, thin-relevance places only.
         fun faint(id: String, bearing: Double, d: Double = 1_400.0) =
-            place(id, Geo.destination(here, bearing, d), relevance = 0.1, topics = emptySet())
+            place(id, Geo.destination(here, bearing, d), relevance = 0.1, topics = emptySet()).copy(category = "museum")
                 .copy(sourceConfidence = 0.3, extract = facts)
         val f = Fake(listOf(faint("v1", 0.0), faint("v2", 120.0), faint("v3", 240.0)))
         f.extraWhenWide = listOf(faint("far1", 60.0, d = 2_500.0))

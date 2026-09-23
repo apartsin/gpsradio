@@ -403,3 +403,18 @@ GPS Radio is not distributed through a store:
 | PR-47 | Version info | Show version, build and date in Settings. |
 | PR-48 | Self-update | Check for tested builds (auto, at most every 6 h, and on demand), download with integrity check, install via the system installer. |
 | PR-49 | Safe releases | "latest" moves only after all tests pass; "previous" and per-build releases stay available. |
+
+## 28. Photo Tips and Drive-By Detours
+
+- **Photo tips.** The radio points out photogenic scenery: viewpoints, waterfalls, lakes, castles, bridges and lighthouses.
+  - It says what makes the shot and where to stand, plus one light tip based on the sun's actual position (golden hour, backlight, side light).
+  - Walking: spots within about 600 m. Driving: only designated viewpoints just off the road ahead, with advice to pull over. Never a photo at the wheel.
+  - At most one tip every 15 minutes. The Nearby list marks photo spots with a camera icon, and "where's a good photo?" works in conversation.
+- **Drive-by detours.** While driving, "worth a stop" places a few minutes off the road ahead are suggested as small diversions.
+  - After such a story the host asks "Want me to navigate there?". A spoken or tapped yes opens the maps app.
+  - The driving screen shows the best detour ahead with its minutes and a large Navigate button.
+
+| ID | Capability | Requirement |
+|---|---|---|
+| PR-50 | Photo tips | Suggest nearby/upcoming photo spots with a light tip; driving: viewpoints only, stop first. |
+| PR-51 | Drive-by detours | Offer worth-a-stop places within ~15 min detour with a one-tap/one-word navigation handoff. |

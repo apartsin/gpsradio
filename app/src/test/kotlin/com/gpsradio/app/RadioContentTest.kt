@@ -28,6 +28,8 @@ import com.gpsradio.core.session.RadioUiState
 import com.gpsradio.core.session.Status
 import com.gpsradio.core.session.StatusLevel
 import com.gpsradio.core.session.FocusPlace
+import com.gpsradio.core.session.DetourSuggestion
+import com.gpsradio.core.session.OfferKind
 import com.gpsradio.core.favorites.FavoritePlace
 import androidx.compose.ui.test.onAllNodesWithText
 import org.junit.Assert.assertEquals
@@ -212,5 +214,47 @@ class RadioContentTest {
         compose.onNodeWithContentDescription("End voice conversation").performClick()
         assertEquals(1, toggles)
         compose.onNodeWithText("Just talk · tap to end").assertExists()
+    }
+
+    @Test
+    fun drivingShowsTheDetourAheadWithABigNavigateButton() {
+        val navigated = mutableListOf<String>()
+        show(
+            RadioUiState(
+                radioState = RadioState.RADIO,
+                location = loc.copy(travelMode = TravelMode.DRIVING, speedMps = 22.0),
+                detours = listOf(DetourSuggestion("abbey", "Lambach Abbey", 6)),
+            ),
+            RadioActions(onNavigate = { navigated += it }),
+        )
+        compose.onNodeWithTag("detourCard").assertIsDisplayed()
+        compose.onNodeWithText("Lambach Abbey").assertIsDisplayed()
+        compose.onNodeWithText("about 6 min detour").assertIsDisplayed()
+        compose.onNodeWithText("Navigate").performClick()
+        assertEquals(listOf("abbey"), navigated)
+    }
+
+    @Test
+    fun detourOfferCardNavigatesOnYes() {
+        val answers = mutableListOf<Boolean>()
+        show(
+            RadioUiState(
+                radioState = RadioState.CONVERSING, location = loc.copy(travelMode = TravelMode.DRIVING, speedMps = 22.0),
+                pendingOffer = "Lambach Abbey", pendingOfferKind = OfferKind.DETOUR,
+            ),
+            RadioActions(onAnswerOffer = { answers += it }),
+        )
+        compose.onNodeWithText("Take a short detour to Lambach Abbey?").assertIsDisplayed()
+        compose.onNodeWithText("Navigate there").performClick()
+        assertEquals(listOf(true), answers)
+        // The detour card is hidden while the offer is pending (one question at a time).
+        compose.onNodeWithTag("detourCard").assertDoesNotExist()
+    }
+
+    @Test
+    fun nearbyMarksPhotoSpots() {
+        show(RadioUiState(radioState = RadioState.RADIO, location = loc, nearby = listOf(ranked), photoSpotIds = setOf(castle.id)))
+        compose.onNodeWithText("Nearby").performClick()
+        compose.onNodeWithContentDescription("Photo spot").assertIsDisplayed()
     }
 }

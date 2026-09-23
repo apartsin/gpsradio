@@ -1,5 +1,9 @@
 package com.gpsradio.app.ui
 
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material.icons.filled.PhotoCamera
+import com.gpsradio.core.session.DetourSuggestion
+import com.gpsradio.core.session.OfferKind
 import com.gpsradio.app.platform.UpdateState
 import com.gpsradio.core.update.UpdateInfo
 import android.Manifest
@@ -299,7 +303,7 @@ fun RadioContent(
             if (approximateOnly && running) PreciseLocationCard(onRequestPrecise)
             // Never distract the driver with an update prompt.
             if (!driving) UpdateBanner(update, onInstallUpdate, onAllowInstalls)
-            state.pendingOffer?.let { OfferCard(it, actions.onAnswerOffer) }
+            state.pendingOffer?.let { OfferCard(it, state.pendingOfferKind, actions.onAnswerOffer) }
             if (!running) {
                 IdleContent(state, actions, starredIds, Modifier.weight(1f))
             } else if (driving) {
@@ -380,13 +384,17 @@ private fun PreciseLocationCard(onRequest: () -> Unit) {
 }
 
 @Composable
-private fun OfferCard(placeName: String, onAnswer: (Boolean) -> Unit) {
-    Card(Modifier.fillMaxWidth()) {
+private fun OfferCard(placeName: String, kind: OfferKind, onAnswer: (Boolean) -> Unit) {
+    val detour = kind == OfferKind.DETOUR
+    Card(Modifier.fillMaxWidth().testTag("offerCard")) {
         Column(Modifier.padding(12.dp)) {
-            Text("Want the full story about $placeName?", style = MaterialTheme.typography.titleSmall)
+            Text(
+                if (detour) "Take a short detour to $placeName?" else "Want the full story about $placeName?",
+                style = MaterialTheme.typography.titleSmall,
+            )
             Text("Just say \"yes\" or \"not now\" — or tap.", style = MaterialTheme.typography.labelMedium)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
-                Button(onClick = { onAnswer(true) }) { Text("Yes, tell it") }
+                Button(onClick = { onAnswer(true) }) { Text(if (detour) "Navigate there" else "Yes, tell it") }
                 OutlinedButton(onClick = { onAnswer(false) }) { Text("Not now") }
             }
         }
@@ -432,6 +440,7 @@ private fun DrivingContent(
                 }
             }
         }
+        if (state.pendingOffer == null && state.detours.isNotEmpty()) DetourCard(state.detours.first(), a)
         Spacer(Modifier.weight(1f))
         MicButton(recording, a, size = 104, liveMode = liveMode, live = state.live)
         Text(micHint(recording, liveMode, state.live), style = MaterialTheme.typography.labelLarge)
@@ -732,13 +741,24 @@ private fun Nearby(state: RadioUiState, starredIds: Set<String>, a: RadioActions
     }
     LazyColumn(modifier = Modifier.padding(top = 8.dp)) {
         items(state.nearby, key = { it.place.id }) { c ->
-            NearbyRow(c, RadioAgent.describeDirection(c, loc), c.place.id in starredIds, a)
+            NearbyRow(
+                c, RadioAgent.describeDirection(c, loc), c.place.id in starredIds, a,
+                photoSpot = c.place.id in state.photoSpotIds,
+                detour = state.detours.firstOrNull { it.placeId == c.place.id },
+            )
         }
     }
 }
 
 @Composable
-private fun NearbyRow(c: RankedCandidate, direction: String, starred: Boolean, a: RadioActions) {
+private fun NearbyRow(
+    c: RankedCandidate,
+    direction: String,
+    starred: Boolean,
+    a: RadioActions,
+    photoSpot: Boolean = false,
+    detour: DetourSuggestion? = null,
+) {
     Row(
         Modifier
             .fillMaxWidth()
@@ -750,15 +770,41 @@ private fun NearbyRow(c: RankedCandidate, direction: String, starred: Boolean, a
         Column(Modifier.weight(1f)) {
             Text(c.place.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(
-                "${RadioAgent.describeDistance(c.distanceM)} $direction",
+                listOfNotNull("${RadioAgent.describeDistance(c.distanceM)} $direction", detour?.label).joinToString(" · "),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
         }
+        if (photoSpot) Icon(Icons.Default.PhotoCamera, "Photo spot", Modifier.padding(horizontal = 4.dp).size(20.dp), tint = MaterialTheme.colorScheme.tertiary)
+        if (detour != null) {
+            IconButton(onClick = { a.onNavigate(c.place.id) }) { Icon(Icons.Default.Directions, "Navigate to ${c.place.name}") }
+        }
         IconButton(onClick = { a.onToggleStar(c.place.id) }) {
             Icon(if (starred) Icons.Default.Star else Icons.Default.StarBorder, if (starred) "Remove ${c.place.name} from saved" else "Save ${c.place.name}")
+        }
+    }
+}
+
+/** Driving: the best drive-by detour ahead, with one big button to hand off navigation. */
+@Composable
+private fun DetourCard(d: DetourSuggestion, a: RadioActions) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
+        modifier = Modifier.fillMaxWidth().testTag("detourCard"),
+    ) {
+        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Detour ahead", style = MaterialTheme.typography.labelLarge)
+                Text(d.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(d.label, style = MaterialTheme.typography.bodyMedium)
+            }
+            Button(onClick = { a.onNavigate(d.placeId) }, modifier = Modifier.heightIn(min = 56.dp)) {
+                Icon(Icons.Default.Directions, contentDescription = null)
+                Spacer(Modifier.width(6.dp))
+                Text("Navigate")
+            }
         }
     }
 }

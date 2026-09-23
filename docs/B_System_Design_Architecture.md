@@ -638,3 +638,26 @@ The app is not in a store, so it manages its own releases and updates.
   - `AppUpdater` (app) checks on app resume at most every 6 h, or on demand in Settings.
   - Installing first asks for "Install unknown apps" if needed, then downloads into the app cache and commits a `PackageInstaller` session. On Android 12+ it sets `USER_ACTION_NOT_REQUIRED`, so later updates need no tap. `InstallResultReceiver` starts the confirmation screen when Android asks for one and reports failures, such as a signature conflict.
   - A banner offers the update on the radio screen, but never while driving. Nothing installs without a tap.
+
+## 37. Photo Tips and Drive-By Detours
+
+- **`PhotoSpots`** (core/editorial):
+  - `isPhotogenic`, a regex over OSM tags, description and name; `isViewpoint`.
+  - `suitable(r, loc)`:
+    - walking or cycling: ≤ 600 m; stationary: ≤ 900 m;
+    - driving: viewpoints only, 0.3–8 km ahead and ≤ 1.5 km off the route line.
+  - `sun()`, an on-device NOAA-style sun position (±1°), and `lightHint()`, which describes the phase (blue/golden hour, midday, after dark) and the sun relative to the subject's bearing.
+- **`SegmentFormat.PHOTO_TIP`:**
+  - Runs about 15 s and counts as a filler.
+  - `Programme` rotates it in when `Situation.photoSpot` is set, at most every 15 min, and never twice for the same place.
+  - The narration context adds `light` and `is_viewpoint`. The prompt forbids invented facts and camera jargon; while driving it says "pull over there", never photos at the wheel.
+- **`Detours`:**
+  - `minutes()` estimates the there-and-back detour (`Corridor.detourM`) at 50 km/h.
+  - `ahead()` lists up to 3 unheard worth-a-stop places ≤ 15 min, published as `RadioUiState.detours`.
+  - After a WORTH_A_STOP story whose text ends with a question, the session opens an offer with `OfferKind.DETOUR`. A yes (tap, voice, classic or live `accept_offer`) calls `onNavigate`, the maps app handoff. The conversation context labels it "directions to …".
+  - `navigateTo(placeId)` serves the driving detour card and the Nearby list.
+- **Conversation:** nearby items carry `photo_spot` and `detour_minutes`, so "any good photo spots?" and "any stops worth a detour?" are answered from them.
+- **UI:**
+  - The offer card shows "Take a short detour to X?" with Navigate there / Not now.
+  - The driving layout has a detour card with a 56 dp Navigate button, hidden while an offer is pending.
+  - The Nearby list has a camera icon on photo spots and a detour label with a Navigate icon.

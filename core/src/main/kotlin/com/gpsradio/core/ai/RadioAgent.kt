@@ -11,6 +11,8 @@ import com.gpsradio.core.model.GeoPoint
 import com.gpsradio.core.model.LocationContext
 import com.gpsradio.core.model.RankedCandidate
 import com.gpsradio.core.model.RoadTripKind
+import com.gpsradio.core.editorial.Detours
+import com.gpsradio.core.editorial.PhotoSpots
 import com.gpsradio.core.model.SourceRef
 import com.gpsradio.core.model.Topic
 import com.gpsradio.core.model.TravelMode
@@ -238,6 +240,11 @@ class RadioAgent(
                 put("road_trip", kind)
                 detour?.let { put("detour", it) }
             }
+            if (req.format == SegmentFormat.PHOTO_TIP) {
+                val sun = PhotoSpots.sun(req.location.point, req.location.timestampMs)
+                put("light", PhotoSpots.lightHint(sun, c.bearingDeg))
+                put("is_viewpoint", PhotoSpots.isViewpoint(c.place))
+            }
         }
         val request = OpenAiClient.ResponseRequest(
             model = models().narrationModel,
@@ -407,6 +414,7 @@ class RadioAgent(
                 SegmentFormat.STATION_ID -> 10
                 SegmentFormat.AREA -> 40
                 SegmentFormat.ARRIVAL -> 25
+                SegmentFormat.PHOTO_TIP -> 15
             }
             return if (mode == TravelMode.DRIVING) s.coerceAtMost(30) else s
         }
@@ -520,6 +528,12 @@ class RadioAgent(
               really about it; never invent a local connection. If the event involves deaths, war or disaster, be respectful: no humour.
             - format "station_id": one or two sentences: a friendly station ident and a recap of the day so far naming a few
               titles from "recap" ("So far today: ..."). No new facts, no question.
+            - format "photo_tip": about target_length_words words suggesting a photo of "place_name": what makes the
+              shot (only features named in "facts" or obvious from "category"), where to stand or look using the given
+              direction, and one practical tip from "light" (golden hour, backlight, side light). Open with a short
+              "Photo tip" style phrase in the spoken language. No invented facts, no camera jargon. When travel_mode is
+              driving: it is a viewpoint just off the road ahead; suggest pulling over there safely for a photo, and
+              never suggest taking photos while driving.
             - format "area": a story about the town or region the listener is in (area_name), told from the angle in "facet"
               (overview, history, people, culture, geography) using only "facts". Pick the most vivid details for that angle;
               don't repeat what already_told_about_area covers. No directions needed: they are in it.
@@ -601,6 +615,10 @@ class RadioAgent(
                             put("distance", describeDistance(n.distanceM))
                             if (loc != null) put("direction", describeDirection(n, loc))
                             put("summary", (n.place.extract ?: n.place.description ?: "").take(280))
+                            if (PhotoSpots.isPhotogenic(n.place)) put("photo_spot", true)
+                            if (loc != null && n.roadTrip == RoadTripKind.WORTH_A_STOP) {
+                                Detours.minutes(loc, n.place.point)?.let { put("detour_minutes", it) }
+                            }
                         })
                     }
                 }
@@ -637,6 +655,8 @@ class RadioAgent(
                   they mean, or where they are heading), but never quiz the listener repeatedly.
                 - If pending_offer is set, the listener is answering "do you want to hear that story?": yes → accept_offer
                   (reply with at most a few words like "Here we go."), no → decline_offer (acknowledge lightly).
+                  When pending_offer starts with "directions to", you offered to navigate there: yes → accept_offer
+                  (reply like "Opening directions."), no → decline_offer.
                 - If quiz is set, you just asked that quiz question: if the listener is answering it, say warmly whether they
                   got it right and reveal the answer from quiz.answer (never mock a wrong guess); if they ask something else, answer that.
                 - If they tell you about their trip (destination, purpose, time available, who is with them), put a short
@@ -656,6 +676,10 @@ class RadioAgent(
                 - navigate: listener wants to go to a place; set entity_id from nearby/active_story. If active_story has
                   offered_navigation and the listener says yes / take me there, that is navigate with its entity_id.
                 - refresh_nearby: listener asks what else is nearby and the list is empty or stale.
+                - Photo spots: nearby items with photo_spot are photogenic (viewpoints, waterfalls, castles…); suggest them
+                  when asked where to take a good photo. While driving, only suggest stopping, never photos at the wheel.
+                - Detours: nearby items with detour_minutes are worth a short detour off the road ahead (minutes there
+                  and back); mention the minutes and offer to navigate when asked for stops or detours.
                 - accept_offer / decline_offer: answer to pending_offer (see above).
                 - star_place: listener wants to save/star/favourite a place for later; set entity_id (active story if unclear).
                 - start_tour: listener wants a short walking tour ("give me 30 minutes", "show me around"); set tour_minutes
@@ -696,7 +720,8 @@ class RadioAgent(
             - set_trip: when they tell you where they're heading or what the trip is about.
 
             If pending_offer is set, you just asked whether they want to hear that story: a yes → radio_control accept_offer
-            (say at most "Here we go"); a no → decline_offer and a light acknowledgement.
+            (say at most "Here we go"); a no → decline_offer and a light acknowledgement. If it starts with "directions to",
+            you offered to navigate there: a yes → accept_offer ("Opening directions"); a no → decline_offer.
             If quiz is set, you just asked that quiz question: when they answer, say kindly whether they got it right and
             reveal the answer from quiz.answer.
 

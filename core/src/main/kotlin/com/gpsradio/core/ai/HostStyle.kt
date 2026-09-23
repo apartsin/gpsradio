@@ -54,7 +54,9 @@ enum class SegmentFormat {
     /** A 1–2 sentence station ident with a recap of what the listener heard so far. */
     STATION_ID,
     /** A story about the current town or region, one facet (history, people, culture, geography) at a time. */
-    AREA;
+    AREA,
+    /** A ~15 s photo tip: a photogenic spot nearby (or a viewpoint just off the road ahead) and the light. */
+    PHOTO_TIP;
 
     /** Everything except place stories, teasers and tour arrivals: segments that fill the gaps between stories. */
     val isFiller: Boolean get() = this != STORY && this != TEASER && this != ARRIVAL

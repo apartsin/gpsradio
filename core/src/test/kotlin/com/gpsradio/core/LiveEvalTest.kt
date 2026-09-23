@@ -151,6 +151,29 @@ class LiveEvalTest {
                 Result("teaser: short hook ending with a question", s.text.trim().endsWith("?") && words <= 60, "words=$words; text=${s.text}")
             },
             suspend {
+                val s = agent.narrate(narr(castle, format = SegmentFormat.PHOTO_TIP))
+                val words = s.text.split(Regex("\\s+")).size
+                val g = judge.check(
+                    "TEXT is a short spoken photo tip about Schloss Ort: it says what to photograph and where to stand or look, " +
+                        "gives one light/timing tip, and states no facts beyond FACTS (general photo advice is fine).",
+                    "FACTS: ${castle.extract}\nTEXT: ${s.text}",
+                )
+                Result("photo tip: what, where, light; grounded; short", g.pass && words <= 70, "words=$words; ${g.reason}; text=${s.text}")
+            },
+            suspend {
+                val viewpoint = PlaceCandidate(
+                    "osm:node/1", "Grünberg viewpoint", "tourism: viewpoint", GeoPoint(47.93, 13.82), "osm", 0.7, 0.7,
+                    setOf(Topic.NATURE), description = "Viewpoint above Lake Traun with a view of the Traunstein.",
+                )
+                val driving = LocationContext(here, 8f, 0, 22.0, 20.0, TravelMode.DRIVING)
+                val s = agent.narrate(NarrationRequest(ranked(viewpoint, 2_500.0), driving, "en-US", setOf(Topic.NATURE), emptyList(), format = SegmentFormat.PHOTO_TIP))
+                val g = judge.check(
+                    "TEXT suggests pulling over or stopping at the viewpoint to take a photo, and does NOT suggest taking photos while driving.",
+                    s.text,
+                )
+                Result("photo tip while driving: stop first, never at the wheel", g.pass, g.reason + "; text=" + s.text)
+            },
+            suspend {
                 val s = agent.narrate(narr(castle, style = HostStyle.KIDS))
                 val g = judge.check("TEXT is suitable and engaging for children aged 6–12: simple words, playful, short sentences.", s.text)
                 Result("style: family & kids persona", g.pass, g.reason)
