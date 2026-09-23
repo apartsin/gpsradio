@@ -24,7 +24,8 @@ class LiveVoiceToolsTest {
         var args = ""
         val instructions = """
             You are the host of a location-aware radio show talking with the listener by voice. Speak English.
-            Tools: web_search for current info; radio_control for resume_radio/pause/skip/star_place/change_language;
+            Tools: web_search: ALWAYS call it before answering anything time-sensitive (open today, opening hours, prices,
+            today's events); never answer those from memory. radio_control for resume_radio/pause/skip/star_place/change_language;
             remember for durable preferences; set_trip for trip plans.
             Context (JSON): {"active_story":{"entity_id":"wiki:en:1","name":"Schloss Ort"}}
         """.trimIndent()

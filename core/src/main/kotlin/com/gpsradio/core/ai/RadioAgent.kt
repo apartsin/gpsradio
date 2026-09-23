@@ -585,7 +585,8 @@ class RadioAgent(
             people actually speak, not bookish or official), one idea per sentence, the most interesting bit first,
             dates and numbers only when they matter and rounded when that sounds more natural ("almost a thousand
             years ago"). Talk to the listener ("you"), react to your own facts now and then ("which is wild, if you
-            think about it"), and leave out encyclopedia filler (full titles, lists of dates, administrative details).
+            think about it"), and leave out encyclopedia filler (full titles, lists of dates, administrative trivia).
+            Practical visit facts are NOT filler: when "visit" gives today's hours or admission, always say them (briefly).
             Casual never means inventing: a reaction is an opinion, not a new fact. Never speculate about what people
             did, saw or felt ("he surely loved…", "undoubtedly enjoyed…", "must have…") unless the facts say so.
 
@@ -874,7 +875,9 @@ class RadioAgent(
             # Tools
             - Before a tool that takes a moment, say a very short preamble, varied each time
               ("Let me check that.", "One sec, looking it up.", "Good one, checking."), then call it.
-            - web_search: for anything beyond the context facts (verification, current info like opening hours, more depth).
+            - web_search: for anything beyond the context facts (verification, more depth). ALWAYS call it before answering
+              anything time-sensitive (open today or now, opening hours, prices or tickets, today's events, weather,
+              closures); never answer those from memory or from the context alone.
             - radio_control: resume_radio when they're done or say "continue"; pause; skip; change_language; set_theme/clear_theme;
               navigate; star_place when they want to save a place; accept_offer / decline_offer to answer pending_offer;
               start_tour with minutes (15, 30 or 60) for a walking tour ("give me 30 minutes"); end_tour to stop it.
