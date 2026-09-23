@@ -46,12 +46,14 @@ class TestGpsRadioApp : GpsRadioApp() {
 
 object FakeServices {
     val played = java.util.Collections.synchronizedList(mutableListOf<String>())
+    /** The fake server's dispatcher: its request log goes into failure messages. */
+    val dispatcher = FakeDispatcher()
     /** Base URL of the fake server; started off the main thread (network on main is not allowed). */
     val baseUrl: okhttp3.HttpUrl by lazy {
         var url: okhttp3.HttpUrl? = null
         val t = Thread {
             val server = MockWebServer().apply {
-                dispatcher = FakeDispatcher()
+                dispatcher = FakeServices.dispatcher
                 start()
             }
             url = server.url("/")

@@ -51,7 +51,15 @@ class RadioEndToEndTest {
             compose.waitUntilAtLeastOneExists(matcher, timeoutMs)
         } catch (e: Throwable) {
             val tree = runCatching { compose.onRoot(useUnmergedTree = false).printToString(maxDepth = 30) }.getOrDefault("<no tree>")
-            throw AssertionError("Timed out waiting for ${matcher.description}. Screen:\n$tree", e)
+            // What the radio itself was doing, and what it asked the fake services: shows *why* nothing happened.
+            val st = app.session.state.value
+            val radio = "state=${st.radioState} status=${st.status?.text} mode=${st.location?.travelMode} " +
+                "nearby=${st.nearby.size} discovering=${st.discovering} nowPlaying=${st.nowPlaying?.title} " +
+                "offer=${st.pendingOffer} live=${st.live} lang=${st.sessionLanguage}\n" +
+                "transcript=${st.transcript.takeLast(6).map { "${it.speaker}: ${it.text.take(80)}" }}\n" +
+                "requests=${FakeServices.dispatcher.requests.toList().map { it.substringBefore('?').take(60) }}\n" +
+                "played=${FakeServices.played.toList().map { it.take(60) }}"
+            throw AssertionError("Timed out waiting for ${matcher.description}.\nRADIO: $radio\nScreen:\n$tree", e)
         }
     }
 
