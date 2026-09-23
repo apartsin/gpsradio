@@ -37,13 +37,7 @@ data class AppSettings(
  */
 class SettingsRepository(context: Context) {
     private val plain: SharedPreferences = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
-    private val secure: SharedPreferences = EncryptedSharedPreferences.create(
-        context,
-        "secure_settings",
-        MasterKey.Builder(context).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build(),
-        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
-    )
+    private val secure: SharedPreferences = openSecure(context)
 
     private val _settings = MutableStateFlow(load())
     val settings: StateFlow<AppSettings> = _settings.asStateFlow()
@@ -84,6 +78,32 @@ class SettingsRepository(context: Context) {
     }
 
     private companion object {
+        const val SECURE_FILE = "secure_settings"
+
+        fun createSecure(context: Context): SharedPreferences = EncryptedSharedPreferences.create(
+            context,
+            SECURE_FILE,
+            MasterKey.Builder(context).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build(),
+            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+        )
+
+        /**
+         * Keystore keys can be wiped (OEM bugs, restored backups), which makes the encrypted file
+         * unreadable and would crash every start. Recover by discarding the unreadable store: the
+         * user re-enters the key, nothing else is lost.
+         */
+        fun openSecure(context: Context): SharedPreferences = try {
+            createSecure(context)
+        } catch (e: Exception) {
+            context.deleteSharedPreferences(SECURE_FILE)
+            runCatching {
+                java.security.KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+                    .deleteEntry(MasterKey.DEFAULT_MASTER_KEY_ALIAS)
+            }
+            createSecure(context)
+        }
+
         const val KEY_API = "openai_api_key"
         const val KEY_LANG_AUTO = "language_auto"
         const val KEY_LANG = "preferred_language"

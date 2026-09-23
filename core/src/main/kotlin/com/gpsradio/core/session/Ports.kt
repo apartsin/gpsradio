@@ -14,7 +14,8 @@ fun interface AudioOutput {
 
 interface SpeechService {
     suspend fun synthesize(text: String, language: String): ByteArray
-    suspend fun transcribe(audio: ByteArray, fileName: String, mimeType: String): String
+    /** [prompt] can carry nearby place names to help with proper nouns. */
+    suspend fun transcribe(audio: ByteArray, fileName: String, mimeType: String, prompt: String? = null): String
 }
 
 /** Persists the serialized heard-story history between sessions. */
@@ -39,17 +40,26 @@ class OpenAiSpeech(
     private val openAi: OpenAiClient,
     private val models: () -> ModelConfig,
 ) : SpeechService {
+    /** Small in-memory cache so replays and repeated lines cost nothing. */
+    private val cache = object : LinkedHashMap<String, ByteArray>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ByteArray>?) = size > 12
+    }
+
     override suspend fun synthesize(text: String, language: String): ByteArray {
         val m = models()
-        return openAi.speech(
+        val key = "${m.ttsModel}|${m.ttsVoice}|$language|$text"
+        synchronized(cache) { cache[key] }?.let { return it }
+        val bytes = openAi.speech(
             text = text,
             model = m.ttsModel,
             voice = m.ttsVoice,
             instructions = "Warm, engaging radio host telling a story to one listener. " +
                 "Natural pace. Language: ${Languages.displayName(language)}.",
         )
+        synchronized(cache) { cache[key] = bytes }
+        return bytes
     }
 
-    override suspend fun transcribe(audio: ByteArray, fileName: String, mimeType: String): String =
-        openAi.transcribe(audio, fileName, mimeType, models().transcriptionModel)
+    override suspend fun transcribe(audio: ByteArray, fileName: String, mimeType: String, prompt: String?): String =
+        openAi.transcribe(audio, fileName, mimeType, models().transcriptionModel, prompt)
 }

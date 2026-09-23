@@ -11,7 +11,10 @@ java {
 }
 
 kotlin {
-    compilerOptions { jvmTarget.set(JvmTarget.JVM_17) }
+    compilerOptions {
+        jvmTarget.set(JvmTarget.JVM_17)
+        optIn.add("kotlinx.coroutines.ExperimentalCoroutinesApi")
+    }
 }
 
 dependencies {

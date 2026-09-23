@@ -21,7 +21,10 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 
-class OpenAiException(val status: Int, message: String) : Exception(message)
+class OpenAiException(val status: Int, message: String) : Exception(message) {
+    /** Worth retrying later (auth problems, rate limits, server errors) rather than blaming the content. */
+    val isTransient: Boolean get() = status == 401 || status == 403 || status == 408 || status == 429 || status >= 500
+}
 
 /**
  * Minimal direct client for the OpenAI REST API (Responses, speech, transcription).
@@ -81,8 +84,10 @@ class OpenAiClient(
                     })
                 })
             }
-            if (isReasoningModel(req.model)) put("reasoning", buildJsonObject { put("effort", "low") })
-            req.maxOutputTokens?.let { put("max_output_tokens", it) }
+            val reasoning = isReasoningModel(req.model)
+            if (reasoning) put("reasoning", buildJsonObject { put("effort", "low") })
+            // For reasoning models the cap also covers hidden reasoning tokens; leave generous room.
+            req.maxOutputTokens?.let { put("max_output_tokens", if (reasoning) maxOf(it, 4000) else it) }
         }
         val raw = call { http.fetchString(post("/responses", body.toString().toRequestBody(JSON))) }
         return parseResponse(raw)
@@ -101,10 +106,13 @@ class OpenAiClient(
     }
 
     /** Speech-to-text for a recorded utterance. Language is auto-detected so users can switch by voice. */
-    suspend fun transcribe(audio: ByteArray, fileName: String, mimeType: String, model: String): String {
-        val body = MultipartBody.Builder().setType(MultipartBody.FORM)
+    suspend fun transcribe(audio: ByteArray, fileName: String, mimeType: String, model: String, prompt: String? = null): String {
+        val builder = MultipartBody.Builder().setType(MultipartBody.FORM)
             .addFormDataPart("model", model)
             .addFormDataPart("response_format", "json")
+        // Nearby place names help the recognizer with proper nouns.
+        if (!prompt.isNullOrBlank()) builder.addFormDataPart("prompt", prompt.take(800))
+        val body = builder
             .addFormDataPart("file", fileName, audio.toRequestBody(mimeType.toMediaType()))
             .build()
         val raw = call { http.fetchString(post("/audio/transcriptions", body)) }
@@ -169,7 +177,8 @@ class OpenAiClient(
             }
             if (text.isEmpty()) {
                 val status = root["status"]?.jsonPrimitive?.contentOrNull
-                throw OpenAiException(200, "Model returned no text (status: $status)")
+                val reason = (root["incomplete_details"] as? JsonObject)?.get("reason")?.jsonPrimitive?.contentOrNull
+                throw OpenAiException(200, "Model returned no text (status: $status${reason?.let { ", reason: $it" } ?: ""})")
             }
             return ResponseResult(text.toString().trim(), cites.values.toList())
         }

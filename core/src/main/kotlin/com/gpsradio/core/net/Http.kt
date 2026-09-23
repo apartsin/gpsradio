@@ -15,7 +15,10 @@ class HttpException(val code: Int, message: String) : IOException(message)
 /** Executes the call without blocking; cancelling the coroutine cancels the HTTP call. */
 suspend fun Call.await(): Response = suspendCancellableCoroutine { cont ->
     enqueue(object : Callback {
-        override fun onResponse(call: Call, response: Response) = cont.resume(response)
+        override fun onResponse(call: Call, response: Response) {
+            // If the coroutine was cancelled meanwhile, close the body instead of leaking it.
+            cont.resume(response) { response.close() }
+        }
         override fun onFailure(call: Call, e: IOException) {
             if (!cont.isCancelled) cont.resumeWithException(e)
         }

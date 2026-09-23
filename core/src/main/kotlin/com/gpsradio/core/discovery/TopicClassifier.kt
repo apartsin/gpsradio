@@ -11,16 +11,24 @@ object TopicClassifier {
         Topic.NATURE to listOf("mountain", "lake", "river", "forest", "park", "valley", "waterfall", "cave", "glacier", "peak", "island", "beach", "nature reserve", "geolog", "spring", "gorge", "hill"),
         Topic.CULTURE to listOf("museum", "theatre", "theater", "gallery", "artist", "painter", "writer", "poet", "composer", "novel", "film", "music", "festival", "library", "university"),
         Topic.INDUSTRY to listOf("mine", "mining", "factory", "railway", "station", "industrial", "brewery", "mill", "canal", "power station", "salt", "observatory", "laboratory"),
-        Topic.WAR to listOf("war", "battle", "siege", "army", "military", "nazi", "wwii", "world war", "bunker", "concentration camp", "resistance", "soldier"),
+        Topic.WAR to listOf("war", "wars", "wartime", "battle", "siege", "army", "military", "nazi", "wwii", "world war", "bunker", "concentration camp", "resistance", "soldier"),
         Topic.FOOD to listOf("cuisine", "food", "wine", "vineyard", "cheese", "market", "brewery", "bakery", "restaurant", "dish"),
         Topic.UNUSUAL to listOf("unusual", "oldest", "smallest", "largest", "only", "mystery", "strange", "record", "curious"),
         Topic.ATTRACTIONS to listOf("tourist", "attraction", "viewpoint", "landmark", "square", "zoo", "garden"),
     )
 
+    /**
+     * Short keywords must match whole words ("war" not in "award"); longer ones match word
+     * prefixes so stems like "archaeolog" or "architect" still work.
+     */
+    private val patterns: Map<Topic, Regex> = keywords.mapValues { (_, words) ->
+        Regex(words.joinToString("|") { w -> if (w.length <= 4) "\\b${Regex.escape(w)}\\b" else "\\b${Regex.escape(w)}" })
+    }
+
     fun fromText(vararg texts: String?): Set<Topic> {
         val hay = texts.filterNotNull().joinToString(" ").lowercase()
         if (hay.isBlank()) return emptySet()
-        return keywords.filterValues { words -> words.any { it in hay } }.keys
+        return patterns.filterValues { it.containsMatchIn(hay) }.keys
     }
 
     fun fromOsmTags(tags: Map<String, String>): Set<Topic> {

@@ -45,9 +45,9 @@ class RadioSessionTest {
             narrated += req.candidate.place.id
             return Segment("Story about ${req.candidate.place.name}", req.candidate.place.id, req.candidate.place.name, emptyList())
         }
-        override suspend fun converse(req: ConversationRequest): ConversationReply { asked += req; return reply }
+        override suspend fun converse(req: ConversationRequest, onSearching: suspend () -> Unit): ConversationReply { asked += req; return reply }
         override suspend fun synthesize(text: String, language: String) = text.toByteArray()
-        override suspend fun transcribe(audio: ByteArray, fileName: String, mimeType: String) = String(audio)
+        override suspend fun transcribe(audio: ByteArray, fileName: String, mimeType: String, prompt: String?) = String(audio)
         override suspend fun play(audio: ByteArray) = delay(20_000)
         override fun load() = stored
         override fun save(serialized: String) { stored = serialized }
@@ -98,7 +98,8 @@ class RadioSessionTest {
         withSession(f) { s ->
         s.onLocation(fix(0)); runCurrent()
         advanceTimeBy(5_000); runCurrent()
-        val first = f.narrated.single()
+        // The next story is prefetched while the first one plays.
+        val first = f.narrated.first()
         s.ask("Is that actually true?"); runCurrent()
         assertEquals(RadioState.CONVERSING, s.state.value.radioState)
         assertEquals(first, f.asked.single().active?.place?.id)
@@ -109,7 +110,9 @@ class RadioSessionTest {
         // Back in radio mode: the scheduler moves on to the next story rather than staying in conversation.
         assertTrue(s.state.value.radioState != RadioState.CONVERSING)
         advanceTimeBy(120_000); runCurrent()
-        assertEquals(listOf("castle", "tower"), f.narrated.sorted())
+        assertEquals(setOf("castle", "tower"), f.narrated.toSet())
+        // The story interrupted by the question was not marked heard, so it aired again.
+        assertEquals(2, f.narrated.count { it == first })
         assertTrue(s.state.value.transcript.any { it.speaker == Speaker.USER })
         }
     }

@@ -1,6 +1,7 @@
 package com.gpsradio.core.session
 
 import com.gpsradio.core.ai.ConversationAction
+import com.gpsradio.core.ai.OpenAiException
 import com.gpsradio.core.ai.ConversationReply
 import com.gpsradio.core.ai.ConversationRequest
 import com.gpsradio.core.ai.ConversationTurn
@@ -42,6 +43,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
+import java.io.IOException
+import java.util.concurrent.TimeoutException
 
 /** The place currently being described; drives the photo + map panel. */
 data class FocusPlace(val id: String, val name: String, val point: GeoPoint, val imageUrl: String?, val url: String?) {
@@ -90,7 +94,27 @@ class RadioSession(
     dispatcher: CoroutineDispatcher = Dispatchers.Default.limitedParallelism(1),
     private val tickMs: Long = 3_000,
     private val conversationIdleMs: Long = 45_000,
+    private val timeouts: Timeouts = Timeouts(),
 ) {
+    data class Timeouts(
+        val narrationMs: Long = 25_000,
+        val speechMs: Long = 25_000,
+        val transcriptionMs: Long = 25_000,
+        /** Covers a possible second, web-search call. */
+        val conversationMs: Long = 45_000,
+        val discoveryMs: Long = 30_000,
+    )
+
+    /** A story generated ahead of time (text + audio) so it can start without delay. */
+    private class Prepared(
+        val placeId: String,
+        val language: String,
+        val segment: Segment,
+        val audio: ByteArray,
+        val preparedAt: GeoPoint,
+        val atMs: Long,
+    )
+
     private val scope = CoroutineScope(SupervisorJob() + dispatcher)
     private val _state = MutableStateFlow(RadioUiState())
     val state: StateFlow<RadioUiState> = _state.asStateFlow()
@@ -112,12 +136,19 @@ class RadioSession(
     private var lastSpeechEndMs: Long? = null
     private var engagedUntilMs = 0L
     private var activeId: String? = null
+    /** The story currently being prepared or played (not yet counted as heard). */
+    private var pendingId: String? = null
     private var lastAudio: ByteArray? = null
     private var languageOverride: String? = null
+    private var nextNarrationAllowedMs = 0L
+    private var backoffMs = 0L
+    private var prefetched: Prepared? = null
+    private var lastNearbyKey: List<Any>? = null
 
     private var schedulerJob: Job? = null
     private var discoveryJob: Job? = null
     private var speechJob: Job? = null
+    private var prefetchJob: Job? = null
 
     private val sessionLanguage: String get() = languageOverride ?: config().language
 
@@ -146,7 +177,10 @@ class RadioSession(
         schedulerJob?.cancel()
         discoveryJob?.cancel()
         speechJob?.cancel()
+        prefetchJob?.cancel()
         schedulerJob = null
+        prefetched = null
+        pendingId = null
         persistHeard()
         languageOverride = null
         _state.update { it.copy(radioState = RadioState.IDLE, nowPlaying = null, discovering = false) }
@@ -156,8 +190,7 @@ class RadioSession(
 
     fun resume() = scope.launch {
         if (_state.value.radioState == RadioState.IDLE) return@launch
-        engagedUntilMs = 0
-        setRadioState(RadioState.RADIO)
+        endConversation()
         tick()
     }
 
@@ -167,9 +200,7 @@ class RadioSession(
         val ctx = processor.accept(sample, clock()) ?: return@launch
         _state.update { it.copy(location = ctx) }
         if (_state.value.radioState == RadioState.IDLE) return@launch
-        if (lastRefreshLang != Languages.find(sessionLanguage)?.base ||
-            refreshPolicy.shouldRefresh(ctx, lastRefreshPoint, lastRefreshMode, lastRefreshMs)
-        ) refresh(ctx)
+        maybeRefresh(ctx)
         rerank()
     }
 
@@ -182,8 +213,12 @@ class RadioSession(
     fun skip() = scope.launch {
         val wasSpeaking = speechJob?.isActive == true
         speechJob?.cancel()
-        activeId?.let { id -> candidates[id]?.let { penalize(it) } }
-        if (wasSpeaking) lastSpeechEndMs = clock()
+        if (wasSpeaking) {
+            // Penalize what was actually on air (or being prepared), not the previous story.
+            (pendingId ?: activeId)?.let { id -> candidates[id]?.let { penalize(it) } }
+            lastSpeechEndMs = clock()
+        }
+        pendingId = null
         engagedUntilMs = 0
         if (_state.value.radioState !in setOf(RadioState.IDLE, RadioState.PAUSED)) setRadioState(RadioState.RADIO)
         _state.update { it.copy(nowPlaying = null) }
@@ -198,7 +233,12 @@ class RadioSession(
             setRadioState(RadioState.NARRATING)
             runCatching { audio.play(bytes) }.onFailure { if (it is CancellationException) throw it }
             lastSpeechEndMs = clock()
-            setRadioState(if (previous == RadioState.CONVERSING) RadioState.CONVERSING else RadioState.RADIO)
+            setRadioState(
+                when (previous) {
+                    RadioState.CONVERSING, RadioState.PAUSED -> previous
+                    else -> RadioState.RADIO
+                },
+            )
         }
     }
 
@@ -218,18 +258,21 @@ class RadioSession(
 
     fun askAudio(audioBytes: ByteArray, fileName: String, mimeType: String) = scope.launch {
         beginConversation()
+        val hint = ranked.take(15).joinToString(", ") { it.place.name }
         speechJob = scope.launch {
             val text = try {
                 setStatus("Listening…")
-                speech.transcribe(audioBytes, fileName, mimeType)
+                timed(timeouts.transcriptionMs, "Transcription") { speech.transcribe(audioBytes, fileName, mimeType, hint) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 fail("Couldn't transcribe: ${e.message}")
+                endConversation()
                 return@launch
             }
             if (text.isBlank()) {
                 setStatus("Didn't catch that")
+                endConversation()
                 return@launch
             }
             setStatus(null)
@@ -239,20 +282,22 @@ class RadioSession(
 
     fun whatsNearby() = ask("What else is interesting nearby?")
 
+    fun clearHistory() = scope.launch {
+        heard.clear()
+        recentTitles.clear()
+        persistHeard()
+        rerank()
+    }
+
     fun forgetMemory(id: String) = scope.launch {
         memory.remove(id)
         persistMemory()
+        rerank()
     }
 
     fun clearMemory() = scope.launch {
         memory.clear()
         persistMemory()
-    }
-
-    fun clearHistory() = scope.launch {
-        heard.clear()
-        recentTitles.clear()
-        persistHeard()
         rerank()
     }
 
@@ -261,19 +306,29 @@ class RadioSession(
     private fun tick() {
         val s = _state.value
         val speaking = speechJob?.isActive == true
-        if (s.radioState == RadioState.CONVERSING && !speaking && clock() >= engagedUntilMs) {
+        val now = clock()
+        if (s.radioState == RadioState.CONVERSING && !speaking && now >= engagedUntilMs) {
             setRadioState(RadioState.RADIO)
         }
+        // Retries and refresh requests must not depend on new fixes: stationary phones get none.
+        if (s.radioState != RadioState.IDLE) processor.current?.let { maybeRefresh(it) }
+
         if (_state.value.radioState != RadioState.RADIO || speaking || discoveryJob?.isActive == true) return
-        if (clock() < engagedUntilMs) return
+        if (now < engagedUntilMs || now < nextNarrationAllowedMs) return
         rerank()
         val pick = ranker.pickForAirtime(ranked) ?: return
         speakStory(pick)
     }
 
-    private fun refresh(ctx: LocationContext) {
+    private fun maybeRefresh(ctx: LocationContext) {
+        val lang = langBase(sessionLanguage)
+        val due = lastRefreshLang != lang ||
+            refreshPolicy.shouldRefresh(ctx.copy(timestampMs = clock()), lastRefreshPoint, lastRefreshMode, lastRefreshMs)
+        if (due) refresh(ctx, lang)
+    }
+
+    private fun refresh(ctx: LocationContext, lang: String) {
         if (discoveryJob?.isActive == true) return
-        val lang = Languages.find(sessionLanguage)?.base ?: "en"
         discoveryJob = scope.launch {
             _state.update { it.copy(discovering = true) }
             try {
@@ -283,24 +338,27 @@ class RadioSession(
                     }
                 }
                 val radius = refreshPolicy.searchRadiusM(ctx.travelMode)
-                val found = places.discover(refreshPolicy.searchCenter(ctx), radius, lang)
+                val found = timed(timeouts.discoveryMs, "Discovery") {
+                    places.discover(refreshPolicy.searchCenter(ctx), radius, lang)
+                }
                 if (lang != lastRefreshLang) candidates.clear()
                 found.forEach { candidates[it.id] = it }
                 // Old candidates decay: forget anything far outside the current search area.
                 candidates.values.removeAll { Geo.distanceM(ctx.point, it.point) > radius * 3.0 }
                 lastRefreshPoint = ctx.point
                 lastRefreshMode = ctx.travelMode
-                lastRefreshMs = ctx.timestampMs
+                lastRefreshMs = clock()
                 lastRefreshLang = lang
                 if (_state.value.status?.startsWith("Couldn't load") == true) setStatus(null)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                // Keep whatever is cached; never invent places to fill the gap.
+                // Keep whatever is cached; never invent places to fill the gap. Retry in about a minute.
                 setStatus("Couldn't load nearby places: ${e.message}")
-                lastRefreshMs = ctx.timestampMs - 14 * 60_000L // retry in about a minute
+                lastRefreshMs = clock() - 14 * 60_000L
                 lastRefreshPoint = lastRefreshPoint ?: ctx.point
                 lastRefreshMode = lastRefreshMode ?: ctx.travelMode
+                lastRefreshLang = lastRefreshLang ?: lang
             } finally {
                 _state.update { it.copy(discovering = false) }
             }
@@ -328,7 +386,13 @@ class RadioSession(
                 theme = _state.value.theme,
             ),
         )
-        _state.update { it.copy(nearby = ranked.take(25)) }
+        // Only push a new list to the UI when it visibly changed (order or ~10 m distance steps).
+        val top = ranked.take(25)
+        val key = top.map { it.place.id to (it.distanceM / 10).toInt() }
+        if (key != lastNearbyKey) {
+            lastNearbyKey = key
+            _state.update { it.copy(nearby = top) }
+        }
     }
 
     // ---- narration ------------------------------------------------------------------------
@@ -336,72 +400,122 @@ class RadioSession(
     private fun speakStory(c: RankedCandidate) {
         val loc = _state.value.location ?: return
         speechJob = scope.launch {
-            setRadioState(RadioState.RESEARCHING)
+            pendingId = c.place.id
+            val lang = sessionLanguage
+            val ready = takePrefetched(c, lang, loc)
+            if (ready == null) setRadioState(RadioState.RESEARCHING)
             try {
-                val lang = sessionLanguage
-                val segment = narrator.narrate(
-                    NarrationRequest(c, loc, lang, config().interests, recentTitles.toList(), memory.promptLines()),
-                )
-                val bytes = speech.synthesize(segment.text, lang)
+                val (segment, bytes) = ready ?: prepare(c, loc, lang)
                 activeId = c.place.id
-                heard.markHeard(c.place.id, c.place.name, clock())
-                persistHeard()
-                recentTitles += c.place.name
                 lastAudio = bytes
                 addTranscript(TranscriptEntry(Speaker.RADIO, segment.text, clock(), c.place.id, segment.sources))
                 _state.update { it.copy(radioState = RadioState.NARRATING, nowPlaying = segment, focus = FocusPlace.of(c.place)) }
+                prefetchNext(excludeId = c.place.id)
                 audio.play(bytes)
+                // Only a story that was actually heard to the end counts as heard.
+                heard.markHeard(c.place.id, c.place.name, clock())
+                persistHeard()
+                recentTitles += c.place.name
+                pendingId = null
+                backoffMs = 0
                 lastSpeechEndMs = clock()
                 setRadioState(RadioState.RADIO)
                 rerank()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                failedIds += c.place.id
+                pendingId = null
                 lastSpeechEndMs = clock()
-                fail("Narration failed: ${e.message}")
+                handleFailure(e, c.place.id, "Narration failed")
                 setRadioState(RadioState.RADIO)
             }
         }
+    }
+
+    private suspend fun prepare(c: RankedCandidate, loc: LocationContext, lang: String): Pair<Segment, ByteArray> {
+        val segment = timed(timeouts.narrationMs, "Narration") {
+            narrator.narrate(NarrationRequest(c, loc, lang, config().interests, recentTitles.toList(), memory.promptLines()))
+        }
+        val bytes = timed(timeouts.speechMs, "Speech") { speech.synthesize(segment.text, lang) }
+        return segment to bytes
+    }
+
+    /** While a story plays, prepare the next likely one so it can start without "Preparing…" dead air. */
+    private fun prefetchNext(excludeId: String) {
+        if (prefetchJob?.isActive == true) return
+        val loc = _state.value.location ?: return
+        val next = ranked.firstOrNull { r ->
+            r.place.id != excludeId &&
+                // Ignore the temporary conversation-cost penalty: it will have decayed by the time this airs.
+                r.score + ranker.weights.conversationCost * r.breakdown.conversationCost >= ranker.speakThreshold
+        } ?: return
+        if (prefetched?.placeId == next.place.id) return
+        val lang = sessionLanguage
+        prefetchJob = scope.launch {
+            val result = runCatching { prepare(next, loc, lang) }.getOrNull() ?: return@launch
+            prefetched = Prepared(next.place.id, lang, result.first, result.second, loc.point, clock())
+        }
+    }
+
+    private fun takePrefetched(c: RankedCandidate, lang: String, loc: LocationContext): Pair<Segment, ByteArray>? {
+        val p = prefetched ?: return null
+        if (p.placeId != c.place.id) return null
+        prefetched = null
+        // Distance/direction in the text must still be roughly right.
+        val maxMove = if (loc.travelMode == TravelMode.DRIVING) 2_000.0 else 300.0
+        val fresh = clock() - p.atMs < 15 * 60_000L && Geo.distanceM(p.preparedAt, loc.point) < maxMove
+        return if (p.language == lang && fresh) p.segment to p.audio else null
     }
 
     // ---- conversation ---------------------------------------------------------------------
 
     private fun beginConversation() {
         speechJob?.cancel()
+        pendingId = null
         engagedUntilMs = clock() + conversationIdleMs
         setRadioState(RadioState.CONVERSING)
+    }
+
+    private fun endConversation() {
+        engagedUntilMs = 0
+        setRadioState(RadioState.RADIO)
     }
 
     private suspend fun handleUtterance(text: String) {
         addTranscript(TranscriptEntry(Speaker.USER, text, clock()))
         when (localCommand(text)) {
             ConversationAction.SKIP -> { skip(); return }
-            ConversationAction.RESUME_RADIO -> { engagedUntilMs = 0; setRadioState(RadioState.RADIO); return }
+            ConversationAction.RESUME_RADIO -> { endConversation(); return }
             ConversationAction.PAUSE -> { doPause(); return }
             else -> Unit
         }
         val active = activeId?.let { id -> ranked.firstOrNull { it.place.id == id } }
         val reply: ConversationReply = try {
-            narrator.converse(
-                ConversationRequest(
-                    utterance = text,
-                    language = sessionLanguage,
-                    location = _state.value.location,
-                    area = _state.value.area,
-                    active = active,
-                    nearby = ranked.filter { it.place.id != activeId }.take(10),
-                    recentTitles = recentTitles.toList(),
-                    history = history.toList(),
-                    theme = _state.value.theme,
-                    profile = memory.promptLines(),
-                ),
-            )
+            timed(timeouts.conversationMs, "Answer") {
+                narrator.converse(
+                    ConversationRequest(
+                        utterance = text,
+                        language = sessionLanguage,
+                        location = _state.value.location,
+                        area = _state.value.area,
+                        active = active,
+                        nearby = ranked.filter { it.place.id != activeId }.take(10),
+                        recentTitles = recentTitles.toList(),
+                        history = history.toList(),
+                        theme = _state.value.theme,
+                        profile = memory.promptLines(),
+                    ),
+                    onSearching = { setStatus("Checking online…") },
+                )
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             fail("Couldn't answer: ${e.message}")
+            endConversation()
             return
+        } finally {
+            if (_state.value.status == "Checking online…") setStatus(null)
         }
         history += ConversationTurn(true, text)
         history += ConversationTurn(false, reply.reply)
@@ -422,7 +536,7 @@ class RadioSession(
 
         if (reply.reply.isNotBlank()) {
             val bytes = try {
-                speech.synthesize(reply.reply, sessionLanguage)
+                timed(timeouts.speechMs, "Speech") { speech.synthesize(reply.reply, sessionLanguage) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -436,10 +550,7 @@ class RadioSession(
         }
         lastSpeechEndMs = clock()
         when (reply.action) {
-            ConversationAction.RESUME_RADIO, ConversationAction.SKIP -> {
-                engagedUntilMs = 0
-                setRadioState(RadioState.RADIO)
-            }
+            ConversationAction.RESUME_RADIO, ConversationAction.SKIP -> endConversation()
             ConversationAction.PAUSE -> setRadioState(RadioState.PAUSED)
             else -> engagedUntilMs = clock() + conversationIdleMs
         }
@@ -447,11 +558,13 @@ class RadioSession(
 
     private fun applyActionBeforeSpeaking(reply: ConversationReply) {
         when (reply.action) {
-            ConversationAction.CHANGE_LANGUAGE -> reply.language?.let { requested ->
+            ConversationAction.CHANGE_LANGUAGE -> reply.language?.trim()?.takeIf { it.isNotEmpty() }?.let { requested ->
                 val tag = Languages.find(requested)?.tag ?: requested
                 languageOverride = tag
                 if (reply.persistLanguage) onPersistLanguage(tag)
                 _state.update { it.copy(sessionLanguage = tag) }
+                prefetchJob?.cancel()
+                prefetched = null
                 lastRefreshPoint = null // re-discover in the new language edition
             }
             ConversationAction.SET_THEME -> {
@@ -475,15 +588,36 @@ class RadioSession(
     // ---- helpers --------------------------------------------------------------------------
 
     private fun doPause() {
+        if (speechJob?.isActive == true) lastSpeechEndMs = clock()
         speechJob?.cancel()
+        // An interrupted story is not marked heard, so it stays a candidate and can air again.
+        pendingId = null
         if (_state.value.radioState != RadioState.IDLE) setRadioState(RadioState.PAUSED)
     }
 
     private fun penalize(place: PlaceCandidate) {
         heard.markHeard(place.id, place.name, clock())
         persistHeard()
-        place.topics.forEach { t -> topicPenalty[t] = (topicPenalty[t] ?: 1.0) * 0.6 }
+        place.topics.forEach { t -> topicPenalty[t] = ((topicPenalty[t] ?: 1.0) * 0.6).coerceAtLeast(0.1) }
     }
+
+    /**
+     * Transient failures (bad key, rate limit, server error, offline, timeout) back off
+     * exponentially instead of blacklisting candidates one by one.
+     */
+    private fun handleFailure(e: Exception, placeId: String?, what: String) {
+        val transient = (e is OpenAiException && e.isTransient) || e is IOException || e is TimeoutException
+        if (transient) {
+            backoffMs = (backoffMs * 2).coerceIn(15_000L, 300_000L)
+            nextNarrationAllowedMs = clock() + backoffMs
+        } else {
+            placeId?.let { failedIds += it }
+        }
+        fail("$what: ${e.message}")
+    }
+
+    private suspend fun <T : Any> timed(ms: Long, what: String, block: suspend () -> T): T =
+        withTimeoutOrNull(ms) { block() } ?: throw TimeoutException("$what timed out after ${ms / 1000} s")
 
     private fun persistMemory() {
         runCatching { memoryStore?.save(memory.serialize()) }
@@ -507,6 +641,8 @@ class RadioSession(
         _state.update { it.copy(transcript = (it.transcript + e).takeLast(100)) }
 
     companion object {
+        fun langBase(tag: String): String = tag.substringBefore('-').lowercase()
+
         /** Unambiguous one-word commands handled without a model round trip. */
         fun localCommand(text: String): ConversationAction? {
             val t = text.lowercase().trim().trimEnd('.', '!', '?')

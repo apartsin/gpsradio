@@ -80,15 +80,34 @@ class RadioService : Service() {
         val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
         } else 0
-        ServiceCompat.startForeground(this, NOTIFICATION_ID, buildNotification(), type)
+        try {
+            ServiceCompat.startForeground(this, NOTIFICATION_ID, buildNotification(), type)
+        } catch (e: Exception) {
+            // Android 14+: a sticky restart after location permission was revoked cannot use the
+            // location type. Stop cleanly instead of crashing; the user restarts from the app.
+            session.stop()
+            stopSelf()
+            return START_NOT_STICKY
+        }
         session.start()
         requestUpdates(currentMode ?: TravelMode.UNKNOWN)
+        seedLastKnownLocation()
         if (modeWatcher == null) modeWatcher = scope.launch {
             session.state.map { it.location?.travelMode ?: TravelMode.UNKNOWN }
                 .distinctUntilChanged()
                 .collect { requestUpdates(it) }
         }
         return START_STICKY
+    }
+
+    /** Start from the last known fix so discovery can begin before the first fresh GPS update. */
+    @SuppressLint("MissingPermission")
+    private fun seedLastKnownLocation() {
+        runCatching {
+            fused.lastLocation.addOnSuccessListener { l ->
+                if (l != null) callback.onLocationResult(LocationResult.create(listOf(l)))
+            }
+        }
     }
 
     /** Faster, high-accuracy fixes while moving; coarser and slower when stationary. */
@@ -103,8 +122,9 @@ class RadioService : Service() {
             TravelMode.DRIVING -> LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 4_000)
                 .setMinUpdateDistanceMeters(30f)
                 .build()
-            else -> LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 5_000)
-                .setMinUpdateDistanceMeters(8f)
+            // 10 s / 15 m is plenty for a ~400 m walking proximity scale, and kinder to the battery.
+            else -> LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 10_000)
+                .setMinUpdateDistanceMeters(15f)
                 .build()
         }
         runCatching {

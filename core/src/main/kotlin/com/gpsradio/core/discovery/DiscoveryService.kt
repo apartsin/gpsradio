@@ -25,9 +25,11 @@ class DiscoveryService(
     private val cacheTtlMs: Long = 6 * 3600_000L,
     private val maxCacheEntries: Int = 30,
     private val articlesPerLanguage: Int = 20,
+    private val partialCacheTtlMs: Long = 5 * 60_000L,
+    private val maxOsmRadiusM: Int = 3_000,
 ) : PlacesProvider {
 
-    private data class CacheEntry(val atMs: Long, val places: List<PlaceCandidate>)
+    private data class CacheEntry(val atMs: Long, val places: List<PlaceCandidate>, val ttlMs: Long)
 
     private val cache = object : LinkedHashMap<String, CacheEntry>(16, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, CacheEntry>?) = size > maxCacheEntries
@@ -35,13 +37,14 @@ class DiscoveryService(
 
     override suspend fun discover(center: GeoPoint, radiusM: Int, languageBase: String): List<PlaceCandidate> {
         val key = cacheKey(center, radiusM, languageBase)
-        synchronized(cache) { cache[key] }?.let { if (clock() - it.atMs < cacheTtlMs) return it.places }
+        synchronized(cache) { cache[key] }?.let { if (clock() - it.atMs < it.ttlMs) return it.places }
 
         val query = Geo.quantize(center)
         val langs = listOf(languageBase, "en").distinct()
         val (wikiResults, osmResult) = coroutineScope {
             val wiki = langs.map { lang -> async { lang to runCatching { wikiCandidates(lang, query, radiusM) } } }
-            val osm = async { runCatching { overpass.nearby(query, radiusM) } }
+            // Large Overpass radii routinely time out; OSM adds most value close by anyway.
+            val osm = async { runCatching { overpass.nearby(query, min(radiusM, maxOsmRadiusM)) } }
             wiki.map { it.await() } to osm.await()
         }
         val failures = wikiResults.mapNotNull { it.second.exceptionOrNull() } + listOfNotNull(osmResult.exceptionOrNull())
@@ -52,7 +55,9 @@ class DiscoveryService(
             osm = osmResult.getOrDefault(emptyList()),
             languageBase = languageBase,
         )
-        synchronized(cache) { cache[key] = CacheEntry(clock(), merged) }
+        // Partial results (a source failed) are cached briefly so the missing source is retried soon.
+        val ttl = if (failures.isEmpty()) cacheTtlMs else partialCacheTtlMs
+        synchronized(cache) { cache[key] = CacheEntry(clock(), merged, ttl) }
         return merged
     }
 

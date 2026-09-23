@@ -63,7 +63,9 @@ class RadioEndToEndTest {
         compose.onNodeWithTag("askField").performTextInput("How long is the bridge?")
         compose.onNodeWithContentDescription("Send").performClick()
         compose.waitUntilAtLeastOneExists(hasText("FAKE-ANSWER", substring = true), 30_000)
-        compose.onNodeWithText("How long is the bridge?").assertExists()
+        compose.onNodeWithText("Transcript").performClick()
+        compose.waitUntilAtLeastOneExists(hasText("How long is the bridge?"), 5_000)
+        compose.onNodeWithText("Now").performClick()
 
         // The preference the model extracted is remembered and visible in Settings.
         compose.onNodeWithContentDescription("Settings").performClick()

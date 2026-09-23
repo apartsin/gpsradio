@@ -2,7 +2,9 @@
 
 Product Requirements & Concept of Operations
 
-Working specification • Version 0.1 • 23 September 2026
+Working specification • Version 0.3 (living document) • 23 September 2026
+
+> This Markdown file is the maintained spec. `source/A_Product_Requirements_Concept_of_Operations_v0.2.docx` is the original snapshot. Changes since v0.2: app-only MVP with the user's own key (§17), preference memory (§14), photos and map (§15), activity-aware programming (§16), roadmap (§18).
 
 ## 1. Product Vision
 
@@ -143,7 +145,7 @@ The product should behave more like an intelligent radio editor than a continuou
 
 The MVP should prove the core experience rather than build a complete travel platform.
 
-- Android application with foreground location.
+- Android application with foreground location, running app-only (no backend) with the user's own OpenAI key (see §17).
 
 - Walking/driving detection or manual mode selection.
 
@@ -160,6 +162,10 @@ The MVP should prove the core experience rather than build a complete travel pla
 - Basic user interests (e.g., history, nature, architecture, culture).
 
 - Simple controls: play/pause, ask, skip, repeat, and 'what is nearby?'.
+
+- Remembered listener preferences across sessions (§14).
+
+- A photo of the place being described and a map of it (§15).
 
 Deferred from MVP: social features, user-generated tours, offline full operation, sophisticated route planning, commercial bookings, AR/camera recognition, and long-term collaborative filtering.
 
@@ -202,3 +208,81 @@ The narration and conversational language is user-selectable and must not be har
 | PR-16 | Selectable default language | Allow the user to select a supported default language or Auto/device language. |
 | PR-17 | Session language switching | Allow temporary language changes during an active session without changing the persistent default. |
 | PR-18 | Cross-language research | Allow research in source languages different from the narration language and synthesize results into the selected language. |
+
+## 14. Listener Memory and Personalization
+
+The listener can tell the radio what they like and how they want it to talk, in plain speech, at any time. The system turns durable preferences into a small profile, stores it on the device, and uses it in every later session.
+
+- Examples: "I love castles", "no war stories, please", "keep the stories short", "we travel with two kids", "remember that I'm vegetarian".
+- Only durable preferences are stored. One-off requests such as "tell me more about this one" are not.
+- The radio briefly confirms when it remembers something ("Got it, shorter stories from now on").
+- The listener can say "forget that I like churches". In Settings they can also see every remembered item, delete any of them, or clear all of them.
+- Remembered likes and avoids affect both *what* is chosen (editorial ranking) and *how* it is told (narration style).
+- Memory stays on the device and is never backed up or synced in the MVP.
+
+| ID | Capability | Requirement |
+|---|---|---|
+| PR-19 | Learn preferences from conversation | Extract durable likes, avoids, style wishes and relevant personal context from what the listener says. |
+| PR-20 | Persist and reuse | Store the profile on the device and apply it to ranking and to all generated narration and answers in later sessions. |
+| PR-21 | Inspect and forget | Let the listener view, delete and clear remembered items by voice or in Settings. |
+
+## 15. Visual Companion: Photos and Map
+
+The product stays audio-first, and the screen adds useful context when someone looks at it.
+
+- By default the panel shows a map of the place currently being described, with the listener's position. When nothing is on air, it shows the listener's surroundings and the nearby candidates.
+- When a real photo of the place exists, it is shown with the place name, and tapping it opens the source.
+- Photos must be real: from Wikipedia or Wikimedia Commons, or photos linked from OpenStreetMap. AI-generated pictures of real places are not used, because they would misrepresent the place. Generated illustrations may be considered later only for abstract topics, and must be clearly labelled.
+- In driving mode the screen is optional. Nothing requires looking at it.
+
+| ID | Capability | Requirement |
+|---|---|---|
+| PR-22 | Place map | Show a map with the described place and the listener's position; the map follows the story. |
+| PR-23 | Real photos | Show a real, attributed photo of the described place when available; never present generated images as real places. |
+| PR-24 | Tap for source | Tapping the photo opens the source article. |
+
+## 16. Activity-Aware Programming
+
+Travel mode determines what is worth telling and how far out to look.
+
+| Mode | Search area | What to prefer | Pacing |
+|---|---|---|---|
+| Walking | ~1.5 km, weighted to the nearest few hundred metres | Things you can see or reach on foot: facades, plaques, street history, small sights | Frequent, shorter segments. Direction phrased as "on your left" or "ahead". |
+| Cycling (planned) | ~3–4 km, ahead-weighted | Route-side sights, viewpoints, rest stops | Medium |
+| Driving | ~8 km, shifted ahead along the direction of travel (look-ahead) | **Visible from the road**: mountains, lakes, castles, bridges, landmarks. **Worth a stop on this trip**: sights within a short detour, with an offer to navigate there | Sparse (at least 60–90 s between segments), ≤30 s, no screen interaction |
+| Stationary | ~1.5 km | Deeper stories and recommendations | Longer segments on request |
+
+- Mode is detected from GPS speed with hysteresis today. Android activity recognition (walk, cycle, vehicle, still) will be added to detect mode faster and more reliably, and to save battery while still.
+- The listener can always override the mode.
+
+| ID | Capability | Requirement |
+|---|---|---|
+| PR-25 | Activity detection | Detect walking, cycling, driving and stationary states; allow manual override. |
+| PR-26 | Mode-specific radius | Use a very local radius when walking and an ahead-looking corridor when driving. |
+| PR-27 | Road-trip categories | While driving, favour what is visible from the road and places worth a stop, and offer navigation to them. |
+| PR-28 | Mode-specific pacing | Adapt gap, segment length and phrasing to the mode. |
+
+## 17. App-Only Operation (MVP decision)
+
+The MVP runs entirely on the phone and has no backend. The listener enters their own OpenAI API key once. It is stored encrypted on the device, never bundled in the app, and never stored in the repository. Nearby places come from Wikipedia and OpenStreetMap, which are free, need no key and give exact coordinates. OpenAI owns the storytelling, conversation, voice, web research and verification. See `C_Decision_App_Only_Architecture.md`.
+
+| ID | Capability | Requirement |
+|---|---|---|
+| PR-29 | Own key | The user supplies an OpenAI key, which is stored encrypted on the device and can be replaced or removed in Settings. |
+
+## 18. Roadmap Candidates (prioritised)
+
+These come from the product brainstorm (23 Sep 2026) and are ordered by value for effort.
+
+1. Lock-screen, headset and Bluetooth car controls via a media session; this also prepares for Android Auto.
+2. Next-story prefetch, so there is no dead air between segments.
+3. Streamed, sentence-by-sentence spoken answers, to meet the ~1–2 s response target.
+4. A keyless preview using on-device speech before a key is entered. The same path serves as the offline/degraded mode, reading cached facts aloud.
+5. Segment formats that make it feel like radio: short "did you know" bumpers, "on this day", quizzes, a local word.
+6. Short audio stings and selectable host personalities (documentary, cheeky, kids, late-night).
+7. Trust: spoken confidence phrasing ("records show" vs "locals say"), all sources listed, and "why this story?".
+8. Road trips: pacing rules, look-ahead corridor, "worth a stop" with one-tap detour (see §16).
+9. Implicit personalization: full listens, early skips and follow-up questions adjust interests.
+10. Walking mini-tours ("give me 30 minutes"), with an extra chapter on arrival at each stop.
+
+Also considered: hands-free barge-in with voice activity detection, a family quiz mode, trip journal and sharing, export of a trip, a cost meter.

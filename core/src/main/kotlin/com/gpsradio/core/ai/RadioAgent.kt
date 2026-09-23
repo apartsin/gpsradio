@@ -27,7 +27,8 @@ import kotlinx.serialization.json.putJsonObject
 /** Model-facing interface: narration and conversation (spec B §13 responsibilities). */
 interface Narrator {
     suspend fun narrate(req: NarrationRequest): Segment
-    suspend fun converse(req: ConversationRequest): ConversationReply
+    /** [onSearching] is invoked when the model decides it must search the web before answering. */
+    suspend fun converse(req: ConversationRequest, onSearching: suspend () -> Unit = {}): ConversationReply
 }
 
 data class Segment(
@@ -86,6 +87,7 @@ data class ConversationReply(
     val sources: List<SourceRef> = emptyList(),
     val remember: List<MemoryDraft> = emptyList(),
     val forget: List<String> = emptyList(),
+    val needsSearch: Boolean = false,
 )
 
 data class ModelConfig(
@@ -111,7 +113,7 @@ class RadioAgent(
             put("direction", describeDirection(c, req.location))
             put("travel_mode", req.location.travelMode.name.lowercase())
             put("facts_source", c.place.source)
-            put("facts", c.place.extract ?: c.place.description ?: "")
+            put("facts", (c.place.extract ?: c.place.description ?: "").take(MAX_FACTS_CHARS))
             put("listener_interests", buildJsonArray { req.interests.forEach { add(JsonPrimitive(it.key)) } })
             if (req.profile.isNotEmpty()) put("listener_profile", buildJsonArray { req.profile.forEach { add(JsonPrimitive(it)) } })
             put("already_told_this_trip", buildJsonArray { req.recentTitles.takeLast(8).forEach { add(JsonPrimitive(it)) } })
@@ -129,31 +131,47 @@ class RadioAgent(
         return Segment(cleanForSpeech(res.text), c.place.id, c.place.name, sources, c.place.imageUrl, c.place.point)
     }
 
-    override suspend fun converse(req: ConversationRequest): ConversationReply {
+    override suspend fun converse(req: ConversationRequest, onSearching: suspend () -> Unit): ConversationReply {
+        // Static rules go in `instructions` (cacheable prefix); per-turn context goes last in `input`.
         val input = req.history.takeLast(12).map {
             OpenAiClient.Message(if (it.fromUser) "user" else "assistant", it.text)
-        } + OpenAiClient.Message("user", req.utterance)
+        } + OpenAiClient.Message("developer", "Context (JSON): " + conversationContext(req)) +
+            OpenAiClient.Message("user", req.utterance)
         val base = OpenAiClient.ResponseRequest(
             model = models().conversationModel,
-            instructions = conversationInstructions(req),
+            instructions = conversationInstructions(req.language, searchAvailable = false),
             input = input,
-            webSearch = true,
+            webSearch = false,
             userArea = req.area,
             jsonSchema = "radio_reply" to replySchema,
             maxOutputTokens = 1200,
         )
-        val res = try {
-            openAi.respond(base)
-        } catch (e: OpenAiException) {
-            // Some model/tool combinations reject structured output; fall back to plain text.
-            if (e.status != 400) throw e
-            openAi.respond(base.copy(jsonSchema = null))
-        }
-        return parseReply(res.text).copy(sources = res.citations)
+        // Fast path without web search; only search when the model says it needs to.
+        val first = respondStructured(base)
+        val firstReply = parseReply(first.text)
+        if (!firstReply.needsSearch) return firstReply.copy(sources = first.citations)
+
+        onSearching()
+        val searched = respondStructured(
+            base.copy(instructions = conversationInstructions(req.language, searchAvailable = true), webSearch = true),
+        )
+        return parseReply(searched.text).copy(needsSearch = false, sources = searched.citations)
+    }
+
+    private suspend fun respondStructured(req: OpenAiClient.ResponseRequest): OpenAiClient.ResponseResult = try {
+        openAi.respond(req)
+    } catch (e: OpenAiException) {
+        // Some model/tool combinations reject structured output; only then fall back to plain text.
+        val msg = e.message.orEmpty().lowercase()
+        if (e.status != 400 || listOf("schema", "format", "json").none { it in msg }) throw e
+        openAi.respond(req.copy(jsonSchema = null))
     }
 
     companion object {
         private val json = Json { ignoreUnknownKeys = true }
+
+        /** Enough for a rich story; keeps per-call tokens (and cost) bounded. */
+        const val MAX_FACTS_CHARS = 1500
 
         fun targetSeconds(mode: TravelMode): Int = when (mode) {
             TravelMode.DRIVING -> 30
@@ -199,7 +217,7 @@ class RadioAgent(
             - Plain spoken text only: no lists, markdown, URLs, or stage directions.
         """.trimIndent()
 
-        fun conversationInstructions(req: ConversationRequest): String {
+        fun conversationContext(req: ConversationRequest): String {
             val loc = req.location
             val ctx = buildJsonObject {
                 put("language", req.language)
@@ -220,7 +238,7 @@ class RadioAgent(
                         put("name", a.place.name)
                         put("distance", describeDistance(a.distanceM))
                         if (loc != null) put("direction", describeDirection(a, loc))
-                        put("facts", a.place.extract ?: a.place.description ?: "")
+                        put("facts", (a.place.extract ?: a.place.description ?: "").take(MAX_FACTS_CHARS))
                         a.place.url?.let { put("source_url", it) }
                     }
                 }
@@ -238,16 +256,27 @@ class RadioAgent(
                 }
                 putJsonArray("recently_narrated") { req.recentTitles.takeLast(8).forEach { add(JsonPrimitive(it)) } }
             }
+            return ctx.toString()
+        }
+
+        fun conversationInstructions(language: String, searchAvailable: Boolean): String {
+            val search = if (searchAvailable) {
+                "Web search is available now: use it to answer, and set needs_search to false."
+            } else {
+                "Web search is not available in this call. If a good answer needs it (verifying a claim beyond the given facts, " +
+                    "anything current like opening hours or events, or much more detail than the facts contain), set needs_search=true " +
+                    "and reply with only a very short holding line such as 'Let me check that.' You will be called again with web search."
+            }
             return """
                 You are the voice of a location-aware radio station, now in a spoken conversation with the listener.
-                Answer in ${Languages.displayName(req.language)} (${req.language}) unless the listener asks to switch.
-
-                Context (JSON): $ctx
+                Answer in ${Languages.displayName(language)} ($language) unless the listener asks to switch.
+                The latest developer message holds the current context (location, active story, nearby places, listener profile).
 
                 Behaviour:
                 - Resolve references like "that place", "there", "the second one", "tell me more" using active_story, nearby and the conversation.
                 - "Tell me more" continues the active story in more depth; do not restart it.
-                - For "is that true?" verify: separate documented fact, disputed interpretation, and legend. Use web search when the given facts are not enough, and for anything current (opening hours, events, prices).
+                - For "is that true?" verify: separate documented fact, disputed interpretation, and legend.
+                - $search
                 - Never invent places. If nothing suitable is known, say so briefly.
                 - Replies are spoken aloud: concise (usually 2–5 sentences), plain text, no lists, no markdown, no URLs.
                 - If the listener is driving, never ask them to look at the screen.
@@ -305,9 +334,10 @@ class RadioAgent(
                     put("type", "array")
                     putJsonObject("items") { put("type", "string") }
                 }
+                putJsonObject("needs_search") { put("type", "boolean") }
             }
             putJsonArray("required") {
-                listOf("reply", "action", "language", "persist_language", "theme", "entity_id", "remember", "forget")
+                listOf("reply", "action", "language", "persist_language", "theme", "entity_id", "remember", "forget", "needs_search")
                     .forEach { add(JsonPrimitive(it)) }
             }
         }
@@ -332,6 +362,7 @@ class RadioAgent(
                     val t = (o["text"] as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
                     MemoryDraft(cat, t, (o["topic"] as? JsonPrimitive)?.contentOrNull?.let { Topic.fromKey(it) })
                 },
+                needsSearch = (obj["needs_search"] as? JsonPrimitive)?.booleanOrNull ?: false,
                 forget = (obj["forget"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.contentOrNull?.takeIf { s -> s.isNotBlank() } },
             )
         }

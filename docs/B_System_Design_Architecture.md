@@ -2,7 +2,9 @@
 
 System Design, Architecture & Internal Interface Specification
 
-Working specification • Version 0.1 • 23 September 2026
+Working specification • Version 0.3 (living document) • 23 September 2026
+
+> This Markdown file is the maintained spec. `source/B_System_Design_Architecture_Internal_Specification_v0.2.docx` is the original snapshot. Changes since v0.2: the MVP is app-only (§3 note, doc C), plus §22–§27 (memory, images and map, activity detection, latency plan, test strategy, implementation status).
 
 ## 1. Design Objectives
 
@@ -29,7 +31,9 @@ Android Client → Location/Movement Manager → Session Orchestrator → Area D
 
 ## 3. Deployment Architecture
 
-Recommended MVP deployment:
+> **Superseded for the MVP:** the MVP runs app-only, with no backend and the user's own key on the device. See `C_Decision_App_Only_Architecture.md`. The layout below remains the target if a backend is introduced.
+
+Recommended MVP deployment (original):
 
 - Native Android client in Kotlin/Jetpack Compose.
 
@@ -365,3 +369,99 @@ Language is an explicit part of profile and session state. Research-language sel
 - Auto mode follows a supported device/app language and falls back predictably when the locale is unsupported.
 
 - Place names and source facts remain semantically correct across translation and are not transformed into invented place names.
+
+## 22. Listener Memory
+
+**Model.** `MemoryItem{id, category ∈ like|avoid|style|about_me, text, topic?, created}`, at most 40 items. A new item with the same meaning replaces the old one, and a like on a topic replaces an avoid on the same topic (and vice versa). Implemented in `core/memory/UserMemory.kt`.
+
+**Capture.** The conversation call's structured output has two extra required fields. `remember[]` holds `{category, text, topic|null}` and `forget[]` holds strings. The instructions limit `remember` to durable preferences that are stated or clearly implied, not one-off requests. `forget` matches remembered items by normalized text.
+
+**Use.**
+1. `promptLines()` is sent as `listener_profile` in both the narration context and the conversation context.
+2. `topicWeights()` overrides interest weights in the editorial ranker: like → 1.0, avoid → 0.05.
+
+**Storage and control.** The profile is a JSON file in app-private storage (`FileMemoryStore`), excluded from cloud backup and device transfer. `RadioUiState.memory` exposes it to Settings, where each item can be forgotten or all can be cleared (`forgetMemory`, `clearMemory`).
+
+## 23. Images and Map
+
+**Photo sources, in priority order:**
+1. The Wikipedia page thumbnail (`prop=pageimages&piprop=thumbnail&pithumbsize=640`), fetched in the same request as the extracts, so it costs no extra call.
+2. The OpenStreetMap `image` tag, if it is an https URL.
+3. The OpenStreetMap `wikimedia_commons=File:…` tag, via `Special:FilePath?width=640`.
+
+The result is stored as `PlaceCandidate.imageUrl` and carried in `Segment.imageUrl` and `FocusPlace`.
+
+**Why not generated images:** they would misrepresent real places. OpenAI web search also does not return image URLs through the API.
+
+**UI.** `PlacePanel` combines an osmdroid `MapView` (OSM Mapnik tiles, no API key, tile cache in app-private storage, "© OpenStreetMap contributors" attribution) with a Coil `AsyncImage` card.
+- Markers: the focus place, faded markers for nearby candidates, and a blue dot for the listener.
+- The map recenters only when the focus changes, so the user can pan freely.
+- **Focus** is set when a story starts or when the conversation reply names an `entity_id`.
+
+**Future work:** the OSM tile usage policy suits light use only. At scale, switch to a commercial tile provider or MapLibre with a hosted style.
+
+## 24. Activity Detection and Mode-Specific Discovery
+
+**Today.** Travel mode comes from smoothed GPS speed with hysteresis:
+- walking above 0.8 m/s, stationary below 0.35 m/s;
+- driving above 6.5 m/s, back out of driving below 3 m/s;
+- a new mode must persist for 15 s; a manual override is available.
+
+Per-mode settings:
+
+| Mode | Search radius | Look-ahead | Proximity scale | Minimum gap |
+|---|---|---|---|---|
+| Walking / stationary | 1.5 km | none | 400 m (walking), 600 m (stationary) | 45–60 s |
+| Driving | 8 km | centre shifted 4 km along heading; things behind score 0 on direction | 3 km | 60 s |
+
+**Planned.**
+- **Activity recognition:** use the Activity Recognition Transition API (`IN_VEHICLE`, `ON_BICYCLE`, `WALKING`, `RUNNING`, `STILL`; needs the `ACTIVITY_RECOGNITION` permission) as a prior fused with speed. Add a **cycling** mode (3–4 km, ahead-weighted). When STILL, drop to passive or balanced location and slow the scheduler to save battery.
+- **Driving corridor:** replace the single look-ahead circle with 2–3 cells along the heading, fetched ahead of time so they are cached before arrival. Categories get separate scores:
+  - *visible from road*: `natural=peak|water`, `tourism=viewpoint`, castles, bridges, towers;
+  - *worth a stop*: a high-relevance sight within about 5 min of detour, with a parking or visitor-attraction hint.
+
+  A worth-a-stop segment ends with an offer; answering "take me there" goes through the existing NAVIGATE action.
+- **Driving pacing:** at least 90 s between segments, at most 30 s per segment, and silence while speed changes sharply (junctions).
+
+## 25. Latency Plan
+
+The target is first audio within about 1–2 s of the user finishing speaking (spec A §9). Current pipelines are serial:
+
+- **Question:** record MP4 → transcribe → converse with web search → full-clip TTS → MediaPlayer. About 4–12 s.
+- **Narration:** tick → narrate → full TTS → play. About 4–8 s of "Preparing a story…".
+
+Planned improvements, ordered by payoff:
+
+1. **Search only when needed.** First call without tools, with a `needs_search` flag in the schema. Re-call with `web_search` (`search_context_size: low`) only when the flag is set, speaking a short bridge line meanwhile. This also removes the web-search fee from most turns.
+2. **Prefetch the next narration.** While a segment plays, generate text and TTS for the next best candidate. Keep distance and direction in a short lead-in built locally, so the cached body stays valid as the user moves. Cache TTS audio by hash of text, voice and model.
+3. **Stream answers.** Use `stream: true` on Responses and cut the text at sentence boundaries. Send each sentence to `/audio/speech` as `pcm` and play it through `AudioTrack` while later sentences are still generating. This needs a streaming `AudioOutput`.
+4. **Faster capture.** Record PCM/WAV with `AudioRecord` (no MP4 finalize step), or use streaming transcription.
+5. **Longer term: OpenAI Realtime** over WebRTC, with an ephemeral token minted on the device from the user's key. This gives barge-in and sub-second turns. Grounded discovery and web search stay available as tools.
+6. **Prompt caching.** Put static instructions first and the per-turn context last so OpenAI's prefix caching applies. Cap facts at about 1,500 characters.
+
+## 26. Test Strategy
+
+No test layer needs a real phone or a real OpenAI key.
+
+| Layer | Where | What it covers |
+|---|---|---|
+| Core unit tests (JVM) | `core/src/test`, local and CI | Geo math, travel-mode hysteresis, refresh policy, ranker (threshold, repetition, conversation cost, theme), heard history, language resolution, Responses parsing, structured replies, memory, discovery merge against a MockWebServer fake of Wikipedia and Overpass, session orchestration in virtual time (narrate once, barge-in, skip, return to radio, memory persisting across sessions). |
+| Android JVM tests (Robolectric + Compose) | `app/src/test`, CI | Radio screen states and controls, mode chips, typed questions, nearby list, transcript and errors; setup and settings forms; memory list and forget actions; file stores. |
+| Emulator end-to-end | `app/src/androidTest`, CI job `emulator-e2e` (API 34) | The real app with a test Application pointing OpenAI, Wikipedia and Overpass at an on-device fake server, with silent audio. Enter key → start → GPS fix → grounded story → typed question answered → learned preference visible in Settings → stop. |
+| Live smoke test (optional, planned) | CI, runs only when the repository secret `OPENAI_API_KEY` is set | One real narration and one real answer against the live APIs, to catch API or model drift. The key never enters the repo. |
+| Manual field test | The owner's phone, with their own key | Real GPS, audio routing, Bluetooth, battery. |
+
+## 27. Implementation Status (23 Sep 2026)
+
+| Area | Status |
+|---|---|
+| Location processing, travel mode, refresh policy | Done (speed-based); activity recognition planned |
+| Discovery (Wikipedia + OSM), merge, cache, photos | Done |
+| Editorial ranker, heard history | Done |
+| Narration, conversation with web search, structured actions | Done |
+| Voice: push-to-talk, TTS | Done; streaming and Realtime planned (§25) |
+| Listener memory | Done |
+| Photo + map panel | Done |
+| Multilingual (selection, switching by voice, cross-language sources) | Done |
+| Tests: core, Robolectric UI, emulator E2E | Done; live smoke test planned |
+| Review findings (`D_Code_Review_2026-09-23.md`) | P1 fixes in progress |

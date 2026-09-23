@@ -21,6 +21,9 @@ The MVP runs entirely on the Android device and talks directly to external servi
 - Each user pays for their own usage; there is no shared research cache across users, no central rate limiting, and no aggregate telemetry.
 - Prompts and ranking weights ship with the app; changing them requires an app update.
 - Exact coordinates go to Wikipedia/OpenStreetMap (rounded to ~11 m) and only approximate coordinates (~110 m) plus city name go to OpenAI.
+- Android's platform Geocoder (used for the city name) sends a ~1 km-rounded point to Google's geocoding service. OpenStreetMap tile requests reveal the viewed map area to the tile server.
+- API error messages may be shown in the on-screen transcript; they never contain the key.
+- The key, listening history and learned preferences are excluded from Android cloud backup and device transfer.
 
 ## Path to a backend
 

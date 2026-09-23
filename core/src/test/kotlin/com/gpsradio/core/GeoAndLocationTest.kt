@@ -31,7 +31,7 @@ class GeoAndLocationTest {
     @Test
     fun rejectsInaccurateAndStaleSamples() {
         val p = LocationProcessor()
-        assertNull(p.accept(LocationSample(start.lat, start.lon, 500f, 1_000), 1_000))
+        assertNull(p.accept(LocationSample(start.lat, start.lon, 900f, 1_000), 1_000))
         assertNull(p.accept(LocationSample(start.lat, start.lon, 10f, 1_000), 1_000 + 120_000))
         assertTrue(p.accept(LocationSample(start.lat, start.lon, 10f, 1_000), 1_000) != null)
     }

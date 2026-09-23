@@ -13,7 +13,8 @@ import com.gpsradio.core.model.TravelMode
 class LocationProcessor(private val config: Config = Config()) {
 
     data class Config(
-        val maxAccuracyM: Float = 100f,
+        /** Coarse indoor/balanced-power fixes are still good enough for area discovery. */
+        val maxAccuracyM: Float = 300f,
         val maxAgeMs: Long = 60_000,
         val speedSmoothing: Double = 0.35,
         /** Enter walking above this speed. */

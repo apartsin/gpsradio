@@ -44,7 +44,10 @@ class MediaAudioOutput(
         var player: MediaPlayer? = null
         try {
             withContext(Dispatchers.Main) {
-                audioManager.requestAudioFocus(focus)
+                if (audioManager.requestAudioFocus(focus) != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
+                    // E.g. during a phone call: report as transient so the session backs off and retries.
+                    throw java.io.IOException("Audio is busy (another app has audio focus)")
+                }
                 suspendCancellableCoroutine { cont ->
                     val p = MediaPlayer()
                     player = p

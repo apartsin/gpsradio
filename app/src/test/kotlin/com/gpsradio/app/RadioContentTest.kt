@@ -32,7 +32,7 @@ import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
 
 @RunWith(AndroidJUnit4::class)
-@Config(sdk = [34], application = android.app.Application::class)
+@Config(sdk = [34], application = android.app.Application::class, qualifiers = "w411dp-h891dp")
 class RadioContentTest {
     @get:Rule val compose = createComposeRule()
 
@@ -116,6 +116,9 @@ class RadioContentTest {
             ),
         )
         compose.onNodeWithText("Talking with you").assertIsDisplayed()
+        // The Now tab shows the latest spoken answer; the Transcript tab has the whole exchange.
+        compose.onNodeWithText("Answer").assertIsDisplayed()
+        compose.onNodeWithText("Transcript").performClick()
         compose.onNodeWithText("Is that actually true?").assertIsDisplayed()
         compose.onNodeWithText("Partly: the treasure is a legend.").assertIsDisplayed()
         compose.onNodeWithText("Couldn't answer: OpenAI rejected the API key").assertIsDisplayed()

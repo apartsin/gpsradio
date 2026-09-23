@@ -25,6 +25,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -179,13 +181,12 @@ fun RadioContent(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             StatusCard(state, onMode = actions.onMode)
-            if (state.radioState != RadioState.IDLE) placePanel(state)
-            NowPlaying(state)
+            // Tabs take the flexible middle; controls and the mic stay pinned at the bottom on any screen size.
+            ContentTabs(state, placePanel, onTellAbout = actions.onTellAbout, modifier = Modifier.weight(1f))
             Controls(state, actions)
             if (state.radioState != RadioState.IDLE) {
                 TalkBar(recording = recording, onPressStart = actions.onTalkStart, onRelease = actions.onTalkEnd, onSend = actions.onAsk)
             }
-            BottomTabs(state, onTellAbout = actions.onTellAbout, modifier = Modifier.weight(1f))
         }
     }
 }
@@ -231,16 +232,20 @@ private fun stateLabel(s: RadioUiState): String = when (s.radioState) {
     RadioState.PAUSED -> "Paused"
 }
 
+/** What is being said right now: the story on air, or the latest answer during a conversation. */
 @Composable
 private fun NowPlaying(state: RadioUiState) {
-    val seg = state.nowPlaying ?: return
-    if (state.radioState != RadioState.NARRATING) return
     val context = LocalContext.current
+    val seg = state.nowPlaying?.takeIf { state.radioState == RadioState.NARRATING }
+    val reply = state.transcript.lastOrNull()?.takeIf { state.radioState == RadioState.CONVERSING && it.speaker == Speaker.RADIO }
+    val title = seg?.title ?: reply?.let { "Answer" } ?: return
+    val text = seg?.text ?: reply?.text.orEmpty()
+    val source = seg?.sources?.firstOrNull() ?: reply?.sources?.firstOrNull()
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp)) {
-            Text(seg.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-            Text(seg.text, style = MaterialTheme.typography.bodyMedium, maxLines = 4, overflow = TextOverflow.Ellipsis)
-            seg.sources.firstOrNull()?.let { src ->
+            Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            Text(text, style = MaterialTheme.typography.bodyMedium)
+            source?.let { src ->
                 Text(
                     "Source: ${src.title}",
                     style = MaterialTheme.typography.labelSmall,
@@ -319,15 +324,31 @@ private fun TalkBar(recording: Boolean, onPressStart: () -> Boolean, onRelease: 
 }
 
 @Composable
-private fun BottomTabs(state: RadioUiState, onTellAbout: (String) -> Unit, modifier: Modifier) {
+private fun ContentTabs(
+    state: RadioUiState,
+    placePanel: @Composable (RadioUiState) -> Unit,
+    onTellAbout: (String) -> Unit,
+    modifier: Modifier,
+) {
     var tab by remember { mutableIntStateOf(0) }
     Column(modifier) {
         TabRow(selectedTabIndex = tab) {
-            Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Transcript") })
-            Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Nearby (${state.nearby.size})") })
+            Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Now") })
+            Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Transcript") })
+            Tab(selected = tab == 2, onClick = { tab = 2 }, text = { Text("Nearby (${state.nearby.size})") })
         }
         when (tab) {
-            0 -> Transcript(state.transcript)
+            0 -> Column(
+                Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(top = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (state.radioState != RadioState.IDLE) placePanel(state)
+                NowPlaying(state)
+            }
+            1 -> Transcript(state.transcript)
             else -> Nearby(state, onTellAbout)
         }
     }
