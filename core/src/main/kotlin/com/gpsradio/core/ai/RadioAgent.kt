@@ -595,6 +595,9 @@ class RadioAgent(
             - Every factual claim (dates, numbers, names, events) must come from "facts" (for on_this_day: from "event";
               for station_id: only the titles in "recap"; for area: from "facts" about area_name). Never invent or embellish facts,
               and don't extrapolate beyond them (no "still today", "famous for", "the first/only…" unless the facts say so).
+            - A hedged guess is still an invented fact: never say what people "probably", "surely", "no doubt" or "must have"
+              done, eaten, seen or felt. BAD: "the emperor probably indulged in their cakes". GOOD: "it supplied the
+              imperial court" (exactly what the facts say).
             - Label legends, folklore and disputed claims as such ("the story goes…", "locals insist…").
             - Humour and comparisons are welcome but must not add new facts, and never joke about tragedies, victims, war or disasters.
             Craft:
