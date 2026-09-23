@@ -2169,7 +2169,9 @@ class RadioSession(
 
     private fun today(): LocalDate = Instant.ofEpochMilli(clock()).atZone(zone()).toLocalDate()
 
-    private fun dayKey(d: LocalDate) = "%02d-%02d".format(d.monthValue, d.dayOfMonth)
+    /** "On this day" runs at most once per day and area: a new town may have its own local anniversary. */
+    private fun dayKey(d: LocalDate) =
+        "%02d-%02d".format(d.monthValue, d.dayOfMonth) + "|" + (_state.value.area?.let { it.city ?: it.region }.orEmpty())
 
     companion object {
         const val NONSTOP_QUIZ_PAUSE_MS = 5_000L

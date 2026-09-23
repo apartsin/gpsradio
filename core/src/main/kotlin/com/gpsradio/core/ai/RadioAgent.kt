@@ -642,8 +642,9 @@ class RadioAgent(
             - format "bumper": a quick "did you know" bumper of about target_length_words words: ONE surprising fact from
               "facts", naming the place once. Vary the opener (not always "Did you know"). No question, no full story.
             - format "on_this_day": about target_length_words words on "event": open with the date and year ("On this day in 1932..."),
-              tell what happened and why it mattered, using only "event". Mention the listener's area only if the event is
-              really about it; never invent a local connection. If the event involves deaths, war or disaster, be respectful: no humour.
+              tell what happened and why it mattered, using only "event". The event happened here (in the listener's town or
+              region, or very close): make that the point ("right here in Gmunden…", "just down the road…"), but never invent
+              a connection the event doesn't give. If the event involves deaths, war or disaster, be respectful: no humour.
             - format "station_id": one or two sentences: a friendly station ident and a recap of the day so far naming a few
               titles from "recap" ("So far today: ..."). No new facts, no question.
             - format "photo_tip": about target_length_words words suggesting a photo of "place_name": what makes the

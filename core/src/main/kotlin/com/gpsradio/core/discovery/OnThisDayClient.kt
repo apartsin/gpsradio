@@ -150,7 +150,29 @@ class OnThisDayClient(
             return score
         }
 
-        /** The most locally relevant event not told before; null when there is none. */
+        /** How close an event's own place must be to count as local. */
+        const val LOCAL_RADIUS_M = 100_000.0
+
+        /**
+         * Whether an event really belongs to where the listener is: it names their town or region, or one of its
+         * places is within [LOCAL_RADIUS_M]. Sharing only the country is not enough (spec A §35).
+         */
+        fun isLocal(event: OnThisDayEvent, area: AreaLabel?, point: GeoPoint?): Boolean {
+            val haystack = buildString {
+                append(event.text)
+                event.pages.forEach { p -> append(' ').append(p.title).append(' ').append(p.description.orEmpty()) }
+            }
+            val named = listOfNotNull(area?.city, area?.region).filter { it.isNotBlank() }.any { name ->
+                Regex("\\b" + Regex.escape(name) + "\\b", RegexOption.IGNORE_CASE).containsMatchIn(haystack)
+            }
+            val near = point != null && event.pages.mapNotNull { it.point }.any { Geo.distanceM(point, it) <= LOCAL_RADIUS_M }
+            return named || near
+        }
+
+        /**
+         * The most relevant event about the listener's own area, not told before; null when none is local:
+         * then there is no "on this day" segment rather than one about somewhere else.
+         */
         fun pick(
             events: List<OnThisDayEvent>,
             area: AreaLabel?,
@@ -158,7 +180,7 @@ class OnThisDayClient(
             lang: String,
             exclude: Set<String> = emptySet(),
         ): OnThisDayEvent? = events
-            .filter { it.text !in exclude }
+            .filter { it.text !in exclude && isLocal(it, area, point) }
             .maxByOrNull { relevance(it, area, point, lang) }
     }
 }

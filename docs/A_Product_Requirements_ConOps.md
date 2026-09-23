@@ -547,3 +547,22 @@ The host narrates; it never reads a text aloud. Wikipedia, OpenStreetMap, web re
   - A judge must rate it as casual talk rather than an encyclopedia entry.
   - A Russian story must be in a relaxed spoken register and not a word-for-word translation.
 - **Exception.** The on-device fallback (offline, or no OpenAI key) has no model to retell with, so it can only read short notes that are already in the listener's language (§32).
+
+## 35. Everything Is About Here
+
+Everything the radio airs on its own is about where the listener is. Nothing airs just to fill time.
+
+| Segment | How it is tied to the location |
+|---|---|
+| Stories, teasers, arrival notes, "did you know" bumpers, photo tips | Places near the listener or on the road ahead |
+| Area stories | The town or region the listener is in |
+| Events today | Within reach of the listener |
+| Station ID | Recaps only places already heard on this trip |
+| **On this day** | **Only if the anniversary happened here:** the event names the town or region, or one of its places is within 100 km. |
+
+- **Country is not enough.** Sharing only the country does not count: a treaty in Vienna is not "on this day" for a listener in Gmunden.
+- **No local event, no segment.** If nothing local happened on today's date, the slot is skipped and the next local segment airs instead.
+- **Per area.** The check runs once per day and area, so a new town on a drive can have its own anniversary.
+- **Framing.** The narration ties the event to the place ("right here in Gmunden…") and never invents a connection.
+
+Answers to the listener's own questions follow the question, wherever it leads.

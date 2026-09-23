@@ -169,11 +169,12 @@ class ProgrammeSessionTest {
     }
 
     @Test
-    fun onThisDayPrefersAnEventAboutTheListenersCountry() = runTest {
+    fun onThisDayAirsOnlyAnEventAboutTheListenersArea() = runTest {
         val f = Fake(listOf(strong("a")))
         val events = listOf(
             OnThisDayEvent(1861, "The first ascent of the Weisshorn in Switzerland."),
-            OnThisDayEvent(1900, "A treaty is signed in Vienna, Austria."),
+            OnThisDayEvent(1901, "A treaty is signed in Vienna, Austria."), // same country only: not local
+            OnThisDayEvent(1900, "A great flood hits Gmunden."),
         )
         var asked: Triple<String, Int, Int>? = null
         val s = session(
@@ -187,6 +188,21 @@ class ProgrammeSessionTest {
             assertEquals(listOf("STORY a", "ON_THIS_DAY 1900"), f.clips.map { it.text })
             assertEquals("en", asked?.first)
             assertEquals("Gmunden", f.fillerRequests.single().area?.city)
+        }
+    }
+
+    @Test
+    fun noOnThisDayWhenNothingHappenedHere() = runTest {
+        val f = Fake(listOf(strong("a")))
+        val s = session(
+            f,
+            onThisDay = OnThisDaySource { _, _, _ -> listOf(OnThisDayEvent(1900, "A treaty is signed in Vienna, Austria.")) },
+            area = AreaLabel("Gmunden", "Upper Austria", "AT"),
+        )
+        running(s) {
+            s.onLocation(fix()); runCurrent()
+            advanceTimeBy(10 * 60_000L); runCurrent()
+            assertTrue(f.clips.none { it.text.startsWith("ON_THIS_DAY") }, f.clips.map { it.text }.toString())
         }
     }
 
@@ -238,7 +254,7 @@ class ProgrammeSessionTest {
         val s = session(
             f,
             pacing = Pacing.NONSTOP,
-            onThisDay = { _, _, _ -> listOf(OnThisDayEvent(1900, "A treaty is signed in Vienna, Austria.")) },
+            onThisDay = { _, _, _ -> listOf(OnThisDayEvent(1900, "A great flood hits Gmunden.")) },
             areaInfo = { _, title -> if (title == "Gmunden") article else null },
             area = AreaLabel("Gmunden", "Upper Austria", "AT"),
         )

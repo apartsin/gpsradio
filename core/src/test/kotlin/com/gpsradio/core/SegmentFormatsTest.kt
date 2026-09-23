@@ -93,19 +93,31 @@ class SegmentFormatsTest {
     }
 
     @Test
-    fun onThisDayPicksTheEventClosestToTheListener() {
+    fun onThisDayAirsOnlyEventsAboutTheListenersArea() {
         val events = OnThisDayClient.parse(feed)
         val area = AreaLabel(city = "Gmunden", region = "Upper Austria", countryCode = "AT")
-        assertEquals(1900, OnThisDayClient.pick(events, area, gmunden, "en")?.year)
-        // Country names come in English and the edition's language.
-        assertTrue("Österreich" in OnThisDayClient.areaNames(area, "de").keys)
-        assertTrue("Austria" in OnThisDayClient.areaNames(area, "de").keys)
-        // Once told, the next best: the light mountain story beats the sombre one.
-        val next = OnThisDayClient.pick(events, area, gmunden, "en", exclude = setOf(events[1].text))
-        assertEquals(1861, next?.year)
+        // Gmunden: a treaty in Vienna (190 km, same country) and a Swiss mountain are not local: nothing airs.
+        assertNull(OnThisDayClient.pick(events, area, gmunden, "en"))
+        // Without any location knowledge nothing is local either.
+        assertNull(OnThisDayClient.pick(events, null, null, "en"))
+        // In Vienna the treaty is local (named, and its page is right here).
+        val vienna = GeoPoint(48.21, 16.37)
+        assertEquals(1900, OnThisDayClient.pick(events, AreaLabel("Vienna", "Vienna", "AT"), vienna, "en")?.year)
+        // By name alone: an event that mentions the town, without coordinates.
+        val named = events + OnThisDayClient.parse(
+            """{"events":[{"text":"A great flood hits Gmunden on Lake Traun.","year":1899,"pages":[]}]}""",
+        )
+        assertEquals(1899, OnThisDayClient.pick(named, area, gmunden, "en")?.year)
+        // By distance alone: a page within 100 km, even when the text names neither town nor region.
+        val near = OnThisDayClient.parse(
+            """{"events":[{"text":"A salt mine opens.","year":1600,"pages":[{"title":"Hallstatt","coordinates":{"lat":47.56,"lon":13.65}}]}]}""",
+        )
+        assertEquals(1600, OnThisDayClient.pick(near, area, gmunden, "en")?.year)
+        // Once told, it isn't picked again.
+        assertNull(OnThisDayClient.pick(named, area, gmunden, "en", exclude = setOf(named.last().text)))
         assertNull(OnThisDayClient.pick(emptyList(), area, gmunden, "en"))
-        // Without any location knowledge, still a sensible (non-sombre) pick.
-        assertTrue(OnThisDayClient.pick(events, null, null, "en")?.text?.contains("earthquake") == false)
+        // Country names are still used for ranking among local events.
+        assertTrue("Österreich" in OnThisDayClient.areaNames(area, "de").keys)
     }
 
     // ---- area facts -----------------------------------------------------------------------
@@ -173,7 +185,7 @@ class SegmentFormatsTest {
         // Knowledge quizzes are off by product decision: no quiz instructions are paid for on every call.
         assertTrue("format \"quiz\"" !in p)
         assertTrue("never joke about tragedies" in p && "Never invent or embellish facts" in p)
-        assertTrue("never invent a local connection" in p)
+        assertTrue("never invent" in p && "a connection the event doesn't give" in p)
         val c = RadioAgent.conversationInstructions("en-US", searchAvailable = false)
         assertTrue("quiz.answer" !in c && "never test the listener's knowledge" in c)
     }
