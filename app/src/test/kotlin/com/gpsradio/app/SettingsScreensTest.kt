@@ -39,7 +39,9 @@ class SettingsScreensTest {
         compose.onNodeWithText("Save and start listening").performScrollTo().assertIsEnabled().performClick()
         assertEquals("sk-test-123", saved!!.apiKey)
         assertTrue(Topic.FOOD in saved!!.interests)
-        assertTrue(saved!!.languageAuto)
+        // Russian is the default narration language.
+        assertEquals(false, saved!!.languageAuto)
+        assertEquals("ru-RU", saved!!.preferredLanguage)
         assertEquals(com.gpsradio.core.ai.HostStyle.CHILL, saved!!.hostStyle)
     }
 

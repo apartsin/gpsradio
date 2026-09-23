@@ -14,11 +14,14 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.util.Locale
 
+const val DEFAULT_LANGUAGE = "ru-RU"
+
 data class AppSettings(
     val apiKey: String = "",
     /** Auto follows the device language (spec A §13). */
-    val languageAuto: Boolean = true,
-    val preferredLanguage: String = Languages.FALLBACK,
+    /** Russian by default; the listener can pick another language or Auto (phone language) in Settings. */
+    val languageAuto: Boolean = false,
+    val preferredLanguage: String = DEFAULT_LANGUAGE,
     val interests: Set<Topic> = setOf(Topic.HISTORY, Topic.NATURE, Topic.ARCHITECTURE, Topic.CULTURE),
     val models: ModelConfig = ModelConfig(),
     val hostStyle: HostStyle = HostStyle.ENTERTAINING,
