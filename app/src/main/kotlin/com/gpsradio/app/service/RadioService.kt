@@ -151,12 +151,17 @@ class RadioService : Service() {
             TravelMode.STATIONARY -> LocationRequest.Builder(Priority.PRIORITY_BALANCED_POWER_ACCURACY, 30_000)
                 .setMinUpdateDistanceMeters(25f)
                 .build()
-            TravelMode.DRIVING -> LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 4_000)
-                .setMinUpdateDistanceMeters(30f)
+            // Stories must stay in sync at speed: fresh precise fixes every ~2 s, delivered immediately (no batching).
+            TravelMode.DRIVING -> LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 2_000)
+                .setMinUpdateIntervalMillis(1_000)
+                .setMinUpdateDistanceMeters(10f)
+                .setMaxUpdateDelayMillis(0)
+                .setWaitForAccurateLocation(false)
                 .build()
             // 10 s / 15 m is plenty for a ~400 m walking proximity scale, and kinder to the battery.
-            else -> LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 10_000)
-                .setMinUpdateDistanceMeters(15f)
+            else -> LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 5_000)
+                .setMinUpdateDistanceMeters(8f)
+                .setMaxUpdateDelayMillis(0)
                 .build()
         }
         runCatching {

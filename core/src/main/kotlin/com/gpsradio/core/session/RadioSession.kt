@@ -188,6 +188,8 @@ class RadioSession(
     private var backoffMs = 0L
     private var prefetched: Prepared? = null
     private var lastNearbyKey: List<Any>? = null
+    /** Smoothed time from "pick a story" to "audio ready"; used to project the listener's position. */
+    private var prepLatencyMs = 6_000.0
 
     private var schedulerJob: Job? = null
     private var discoveryJob: Job? = null
@@ -505,6 +507,14 @@ class RadioSession(
             if (ready == null) setRadioState(RadioState.RESEARCHING)
             try {
                 val (segment, bytes) = ready ?: prepare(c, loc, lang, format)
+                if (!stillInSync(c.place)) {
+                    // Passed it while the story was being prepared: drop it rather than play it out of sync.
+                    heard.markHeard(c.place.id, c.place.name, clock())
+                    pendingId = null
+                    setRadioState(RadioState.RADIO)
+                    rerank()
+                    return@launch
+                }
                 activeId = c.place.id
                 lastAudio = bytes
                 addTranscript(TranscriptEntry(Speaker.RADIO, segment.text, clock(), c.place.id, segment.sources))
@@ -555,17 +565,49 @@ class RadioSession(
         format: SegmentFormat = SegmentFormat.STORY,
     ): Pair<Segment, ByteArray> {
         val cfg = config()
+        val started = clock()
+        // Describe distance/direction from where the listener will be when the audio starts, not from now.
+        val (atPlayback, rel) = projectForPlayback(c, loc, prepLatencyMs.toLong())
         val segment = timed(timeouts.narrationMs, "Narration") {
             narrator.narrate(
                 NarrationRequest(
-                    c, loc, lang, cfg.interests, recentTitles.toList(), memory.promptLines(),
+                    rel, atPlayback, lang, cfg.interests, recentTitles.toList(), memory.promptLines(),
                     style = cfg.style, format = format, tripContext = tripContext,
                 ),
             )
         }
         val bytes = timed(timeouts.speechMs, "Speech") { speech.synthesize(segment.text, lang, cfg.style) }
+        prepLatencyMs = prepLatencyMs * 0.7 + (clock() - started) * 0.3
         return segment to bytes
     }
+
+    /**
+     * Where the listener will be after [aheadMs] (dead reckoning along the heading while moving) and the
+     * candidate's distance/bearing from there.
+     */
+    private fun projectForPlayback(c: RankedCandidate, loc: LocationContext, aheadMs: Long): Pair<LocationContext, RankedCandidate> {
+        val heading = loc.headingDeg
+        if (heading == null || loc.speedMps < 2.0) return loc to c
+        val moved = loc.speedMps * aheadMs / 1000.0
+        val p = Geo.destination(loc.point, heading, moved)
+        val projected = loc.copy(point = p, timestampMs = loc.timestampMs + aheadMs)
+        return projected to c.copy(distanceM = Geo.distanceM(p, c.place.point), bearingDeg = Geo.bearingDeg(p, c.place.point))
+    }
+
+    /**
+     * Is the story still in sync with where the listener is right now? A moving listener who has already
+     * passed the place (it's well behind them) would hear "just ahead on your left" for something gone.
+     */
+    private fun stillInSync(place: PlaceCandidate): Boolean {
+        val loc = processor.current ?: _state.value.location ?: return true
+        val heading = loc.headingDeg ?: return true
+        if (loc.speedMps < 2.0) return true
+        val d = Geo.distanceM(loc.point, place.point)
+        val behind = Geo.angleDiff(Geo.bearingDeg(loc.point, place.point), heading) > 110
+        return !(behind && d > passedToleranceM(loc))
+    }
+
+    private fun passedToleranceM(loc: LocationContext): Double = if (loc.travelMode == TravelMode.DRIVING) 250.0 else 60.0
 
     /** While a story plays, prepare the next likely one so it can start without "Preparing…" dead air. */
     private fun prefetchNext(excludeId: String) {
@@ -591,8 +633,8 @@ class RadioSession(
         if (p.placeId != c.place.id) return null
         prefetched = null
         // Distance/direction in the text must still be roughly right.
-        val maxMove = if (loc.travelMode == TravelMode.DRIVING) 2_000.0 else 300.0
-        val fresh = clock() - p.atMs < 15 * 60_000L && Geo.distanceM(p.preparedAt, loc.point) < maxMove
+        val maxMove = if (loc.travelMode == TravelMode.DRIVING) 500.0 else 200.0
+        val fresh = clock() - p.atMs < 10 * 60_000L && Geo.distanceM(p.preparedAt, loc.point) < maxMove && stillInSync(c.place)
         return if (p.language == lang && fresh) p.segment to p.audio else null
     }
 
@@ -904,7 +946,7 @@ class RadioSession(
     /** Asks a driver once per session where they're heading, to shape stories along the route. */
     private fun maybeAskAboutTrip(): Boolean {
         val loc = _state.value.location ?: return false
-        if (tripAsked || tripContext != null || loc.travelMode != TravelMode.DRIVING) return false
+        if (tripAsked || tripContext != null || loc.travelMode != TravelMode.DRIVING || !config().askAboutTrip) return false
         tripAsked = true
         if (liveVoiceEnabled) {
             // The live host asks in its natural voice and hears the answer hands-free.

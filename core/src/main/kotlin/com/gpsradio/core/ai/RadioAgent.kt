@@ -139,6 +139,9 @@ class RadioAgent(
             put("distance", describeDistance(c.distanceM))
             put("direction", describeDirection(c, req.location))
             put("travel_mode", req.location.travelMode.name.lowercase())
+            if (req.location.speedMps > 2.0 && c.distanceM > 60) {
+                put("time_to_reach_s", (c.distanceM / req.location.speedMps).toInt())
+            }
             put("facts_source", c.place.source)
             put("facts", (c.place.extract ?: c.place.description ?: "").take(MAX_FACTS_CHARS))
             put("listener_interests", buildJsonArray { req.interests.forEach { add(JsonPrimitive(it.key)) } })
@@ -272,6 +275,8 @@ class RadioAgent(
               "Imagine…") and stock closers ("making you wonder…", "a timeless legacy"). Never start with "Welcome", "Did you know" every time, or the place's name followed by "is a".
             - Blend story, one memorable fun fact, and the context that makes it matter (who, why, what changed).
             - Say where it is once, naturally, using the given distance and direction ("just ahead on your left, about 200 metres").
+              When travel_mode is driving, don't quote exact distances (they go stale at speed): say "coming up on your left",
+              "just ahead", or use time_to_reach_s ("in about a minute").
             - Sound like speech, not an encyclopedia: short sentences, contractions, vivid verbs, the occasional rhetorical question.
             - Stay close to target_length_words; with thin facts, be shorter rather than padding.
             - Do not repeat anything from already_told_this_trip. No greetings or sign-offs.

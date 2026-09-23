@@ -136,14 +136,20 @@ fun RadioScreen(vm: MainViewModel, onOpenSettings: () -> Unit, autoStart: Boolea
     val settings by vm.settings.collectAsStateWithLifecycle()
     val recording by vm.recording.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    var locationDenied by remember { mutableStateOf(false) }
-
     fun granted(p: String) = ContextCompat.checkSelfPermission(context, p) == PackageManager.PERMISSION_GRANTED
+
+    var locationDenied by remember { mutableStateOf(false) }
+    // Android 12+ lets users grant only approximate location; stories then can't be in sync with the road.
+    var approximateOnly by remember {
+        mutableStateOf(granted(Manifest.permission.ACCESS_COARSE_LOCATION) && !granted(Manifest.permission.ACCESS_FINE_LOCATION))
+    }
+
 
     val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
     val startPermissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
         if (result[Manifest.permission.ACCESS_FINE_LOCATION] == true || result[Manifest.permission.ACCESS_COARSE_LOCATION] == true) {
             locationDenied = false
+            approximateOnly = result[Manifest.permission.ACCESS_FINE_LOCATION] != true
             vm.startRadio()
             if (Build.VERSION.SDK_INT >= 33 && !granted(Manifest.permission.POST_NOTIFICATIONS)) {
                 notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -211,6 +217,10 @@ fun RadioScreen(vm: MainViewModel, onOpenSettings: () -> Unit, autoStart: Boolea
         // Natural voice needs the mic; until it's granted, the mic falls back to hold-to-talk (which asks for it).
         liveMode = settings.liveVoice && micGranted,
         locationDenied = locationDenied,
+        approximateOnly = approximateOnly,
+        onRequestPrecise = {
+            startPermissions.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+        },
         onOpenAppSettings = {
             context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null)))
         },
@@ -227,6 +237,8 @@ fun RadioContent(
     placePanel: @Composable (RadioUiState, Modifier) -> Unit = { s, m -> PlacePanel(s, m) },
     locationDenied: Boolean = false,
     onOpenAppSettings: () -> Unit = {},
+    approximateOnly: Boolean = false,
+    onRequestPrecise: () -> Unit = {},
     /** Natural voice: the mic is tap-to-talk hands-free instead of hold-to-talk. */
     liveMode: Boolean = false,
 ) {
@@ -260,6 +272,7 @@ fun RadioContent(
         ) {
             StatusCard(state, onMode = actions.onMode, onFixKey = actions.onOpenSettings)
             if (locationDenied) PermissionCard(onOpenAppSettings)
+            if (approximateOnly && running) PreciseLocationCard(onRequestPrecise)
             state.pendingOffer?.let { OfferCard(it, actions.onAnswerOffer) }
             if (!running) {
                 IdleContent(state, actions, starredIds, Modifier.weight(1f))
@@ -322,6 +335,20 @@ private fun PermissionCard(onOpenAppSettings: () -> Unit) {
         Column(Modifier.padding(12.dp)) {
             Text("GPS Radio needs your location to find stories around you.", style = MaterialTheme.typography.bodyMedium)
             TextButton(onClick = onOpenAppSettings) { Text("Allow location") }
+        }
+    }
+}
+
+@Composable
+private fun PreciseLocationCard(onRequest: () -> Unit) {
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp)) {
+            Text(
+                "You shared only your approximate location, so stories can drift out of sync with what you pass. " +
+                    "Allow precise location for stories that match the road.",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            TextButton(onClick = onRequest) { Text("Use precise location") }
         }
     }
 }

@@ -41,6 +41,8 @@ data class SessionConfig(
     val voice: String = "alloy",
     val liveModel: String = "gpt-realtime",
     val transcriptionModel: String = "gpt-4o-mini-transcribe",
+    /** Ask drivers once per session where they're heading. */
+    val askAboutTrip: Boolean = true,
 )
 
 class OpenAiSpeech(

@@ -241,6 +241,43 @@ class LiveEvalTest {
                 val words = r.reply.split(Regex("\\s+")).size
                 Result("answer: concise spoken reply (≤ 90 words, no markdown)", words <= 90 && "**" !in r.reply, "words=$words")
             },
+            // ---- driving, languages, memory ----
+            suspend {
+                val driving = walking.copy(speedMps = 25.0, headingDeg = 10.0, travelMode = TravelMode.DRIVING)
+                val s = agent.narrate(NarrationRequest(ranked(castle, 1_800.0), driving, "en-US", setOf(Topic.HISTORY), emptyList()))
+                val exact = Regex("\\b\\d[\\d,.]*\\s*(m|metres|meters|km|kilometres|kilometers)\\b", RegexOption.IGNORE_CASE).containsMatchIn(s.text.substringBefore("123-metre"))
+                Result("driving: no stale exact distances (uses 'coming up'/time)", !exact, s.text.take(200))
+            },
+            suspend {
+                val r = agent.converse(conv("Wie lang ist die Brücke zum Schloss?", lang = "de-DE"))
+                val g = judge.check("REPLY is written in German and states that the bridge is 123 metres long.", r.reply)
+                Result("answer: German question → German answer with the fact", g.pass, g.reason + "; " + r.reply)
+            },
+            suspend {
+                val s = agent.narrate(narr(castle, lang = "he-IL"))
+                val hebrew = s.text.count { it in '\u0590'..'\u05FF' }
+                Result("story: Hebrew narration", hebrew > s.text.length / 3, "hebrew=$hebrew/${s.text.length}")
+            },
+            suspend {
+                val req = narr(lake).copy(profile = listOf("avoid: war and military stories"))
+                val s = agent.narrate(req)
+                val g = judge.check(
+                    "TEXT focuses on non-military aspects (nature, legend, the lake) and does not dwell on war or military details " +
+                        "(a brief mention is acceptable, detailed war content is not).",
+                    s.text,
+                )
+                Result("memory: respects 'avoid war' preference", g.pass, g.reason + "; " + s.text.take(200))
+            },
+            suspend {
+                val r = agent.converse(conv("continue"))
+                val words = r.reply.split(Regex("\\s+")).size
+                Result("control reply is a few words", r.action == ConversationAction.RESUME_RADIO && words <= 10, "words=$words reply=${r.reply}")
+            },
+            suspend {
+                val s = agent.narrate(narr(castle).copy(tripContext = "driving to Salzburg for a concert"))
+                val g = judge.check("TEXT is primarily about Schloss Ort and does not invent facts about Salzburg or the concert.", s.text)
+                Result("trip context: used lightly, no invented trip facts", g.pass, g.reason)
+            },
             // ---- host lines & tools ----
             suspend {
                 val line = agent.hostLine(HostLine.TRIP_QUESTION, "en-US", HostStyle.ENTERTAINING)
