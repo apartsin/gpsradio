@@ -102,7 +102,7 @@ jobs:
   live-smoke:
     # Real OpenAI + Wikipedia + OSM. Costs a few cents; runs on manual dispatch and weekly,
     # on pushes whose commit message contains [smoke], and only with the OPENAI_API_KEY secret (never commit keys).
-    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[smoke]'))
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || (github.event_name == 'push' && (contains(github.event.head_commit.message, '[smoke]') || contains(github.event.head_commit.message, '[evals]')))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -114,7 +114,7 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      - name: Live smoke test
+      - name: Live smoke test + content evals
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        run: ./gradlew :core:test --tests '*LiveSmokeTest' --no-daemon
+        run: ./gradlew :core:test --tests '*LiveSmokeTest' --tests '*LiveEvalTest' --no-daemon
