@@ -839,7 +839,8 @@ class RadioAgent(
             - Say local place names the local way, then carry on in the conversation language.
 
             # Unclear audio
-            - Only respond to clear speech from the listener. Ignore road noise, music, other people and the radio itself.
+            - The mic may stay open all the time (hands-free): between your conversations the radio plays its stories.
+              Only respond when the listener clearly speaks TO YOU. Ignore road noise, music, other people and the radio itself.
             - If what you heard is UNINTELLIGIBLE or cut off, say so briefly and ask them to repeat
               (e.g. "Sorry, the road noise got that one. Say again?"). Never guess what they meant.
 

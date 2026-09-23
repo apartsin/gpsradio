@@ -103,6 +103,13 @@ class RadioService : Service() {
             ACTION_PAUSE -> { session.pause(); return START_STICKY }
             ACTION_RESUME -> { session.resume(); return START_STICKY }
             ACTION_SKIP -> { session.skip(); return START_STICKY }
+            ACTION_MIC -> {
+                // Mic switch from the notification / lock screen: always listening on or off.
+                val app = application as GpsRadioApp
+                app.settings.update { it.copy(alwaysListening = !it.alwaysListening) }
+                updateMediaUi(session.state.value)
+                return START_STICKY
+            }
         }
         // The microphone type lets the live voice hear answers hands-free while the screen is off.
         val mic = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
@@ -126,7 +133,7 @@ class RadioService : Service() {
         ActivityTransitions.start(this)
         seedLastKnownLocation()
         if (stateWatcher == null) stateWatcher = scope.launch {
-            session.state.map { Triple(it.radioState, it.nowPlaying?.title ?: it.focus?.name, it.area?.city) }
+            session.state.map { listOf(it.radioState, it.nowPlaying?.title ?: it.focus?.name, it.area?.city, it.listening) }
                 .distinctUntilChanged()
                 .collect { updateMediaUi(session.state.value) }
         }
@@ -326,6 +333,17 @@ class RadioService : Service() {
                 action(if (paused) ACTION_RESUME else ACTION_PAUSE, 2),
             )
             .addAction(android.R.drawable.ic_media_next, "Skip", action(ACTION_SKIP, 3))
+            .apply {
+                val app = application as GpsRadioApp
+                if (app.settings.current.liveVoice) {
+                    val on = app.settings.current.alwaysListening
+                    addAction(
+                        if (on) android.R.drawable.ic_btn_speak_now else android.R.drawable.ic_lock_silent_mode,
+                        if (on) "Mic off" else "Mic on",
+                        action(ACTION_MIC, 6),
+                    )
+                }
+            }
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, getString(R.string.stop), action(ACTION_STOP, 1))
             .setStyle(MediaStyle().setMediaSession(mediaSession.sessionToken).setShowActionsInCompactView(0, 1, 2))
             .build()
@@ -341,6 +359,7 @@ class RadioService : Service() {
         private const val ACTION_STOP = "com.gpsradio.app.STOP"
         private const val ACTION_PAUSE = "com.gpsradio.app.PAUSE"
         private const val ACTION_RESUME = "com.gpsradio.app.RESUME"
+        private const val ACTION_MIC = "com.gpsradio.app.MIC"
         private const val ACTION_SKIP = "com.gpsradio.app.SKIP"
 
         fun start(context: Context) =

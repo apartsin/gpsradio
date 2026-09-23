@@ -1,5 +1,7 @@
 package com.gpsradio.app.ui
 
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.ui.platform.LocalUriHandler
 import com.gpsradio.core.events.EventScout
 import com.gpsradio.core.events.LocalEvent
@@ -139,6 +141,8 @@ data class RadioActions(
     val onAnswerOffer: (Boolean) -> Unit = {},
     /** Natural-voice mode: tap the mic to open/close a hands-free conversation. */
     val onLiveToggle: () -> Unit = {},
+    /** Always listening on/off (the mic switch in the top bar). */
+    val onToggleListening: () -> Unit = {},
     /** Walking mini-tour (TourUi.kt). */
     val onStartTour: (Int) -> Unit = {},
     val onEndTour: () -> Unit = {},
@@ -228,6 +232,7 @@ fun RadioScreen(vm: MainViewModel, onOpenSettings: () -> Unit, autoStart: Boolea
         onLiveToggle = {
             if (granted(Manifest.permission.RECORD_AUDIO)) vm.toggleLive() else micPermission.launch(Manifest.permission.RECORD_AUDIO)
         },
+        onToggleListening = { vm.saveSettings { it.copy(alwaysListening = !it.alwaysListening) } },
         onStartTour = vm::startTour,
         onEndTour = vm::endTour,
         journal = JournalActions(
@@ -242,6 +247,7 @@ fun RadioScreen(vm: MainViewModel, onOpenSettings: () -> Unit, autoStart: Boolea
         actions = actions,
         // Natural voice needs the mic; until it's granted, the mic falls back to hold-to-talk (which asks for it).
         liveMode = settings.liveVoice && micGranted,
+        alwaysListening = settings.alwaysListening,
         update = update,
         onInstallUpdate = vm::installUpdate,
         onAllowInstalls = vm::allowInstalls,
@@ -273,6 +279,8 @@ fun RadioContent(
     update: UpdateState = UpdateState.Idle,
     onInstallUpdate: (UpdateInfo) -> Unit = {},
     onAllowInstalls: () -> Unit = {},
+    /** Always listening is switched on (only meaningful with [liveMode]). */
+    alwaysListening: Boolean = false,
 ) {
     val running = state.radioState != RadioState.IDLE
     val driving = (state.modeOverride ?: state.location?.travelMode) == TravelMode.DRIVING
@@ -283,11 +291,25 @@ fun RadioContent(
                 title = {
                     Column {
                         Text("GPS Radio", fontWeight = FontWeight.Bold)
-                        val sub = listOfNotNull(state.area?.city, Languages.displayName(state.sessionLanguage)).joinToString(" · ")
+                        val sub = listOfNotNull(
+                            state.area?.city,
+                            Languages.displayName(state.sessionLanguage),
+                            "listening".takeIf { state.listening && alwaysListening && liveMode },
+                        ).joinToString(" · ")
                         Text(sub, style = MaterialTheme.typography.labelMedium)
                     }
                 },
                 actions = {
+                    // The mic switch: always listening on/off, reachable in one tap (also while driving).
+                    if (liveMode && running) {
+                        IconButton(onClick = actions.onToggleListening, modifier = Modifier.testTag("micSwitch")) {
+                            Icon(
+                                if (alwaysListening) Icons.Default.Mic else Icons.Default.MicOff,
+                                if (alwaysListening) "Turn microphone off" else "Turn microphone on",
+                                tint = if (alwaysListening && state.listening) MaterialTheme.colorScheme.primary else LocalContentColor.current,
+                            )
+                        }
+                    }
                     if (running) TextButton(onClick = actions.onStop) { Text("Stop") }
                     IconButton(onClick = actions.onOpenSettings) { Icon(Icons.Default.Settings, "Settings") }
                 },

@@ -25,6 +25,12 @@ interface PcmAudio {
 
     /** Roughly how much queued host audio is still to be heard, in ms (0 when silent or unknown). */
     fun pendingPlaybackMs(): Long = 0
+
+    /**
+     * The radio itself (stories, stings) is playing through the speaker; an always-open mic must then
+     * require the listener to be clearly louder than the playback (see SpeechGate).
+     */
+    fun setRadioAudible(audible: Boolean) {}
 }
 
 enum class LiveState { CONNECTING, LISTENING, USER_SPEAKING, ASSISTANT_SPEAKING }
@@ -41,6 +47,9 @@ interface LiveHost {
     suspend fun callTool(name: String, arguments: JsonObject): String
     fun onLiveState(state: LiveState?)
     fun onLiveError(message: String)
+
+    /** Always-listening mode: the exchange is over (quiet for a while); the connection stays open. */
+    fun onLiveIdle() {}
 }
 
 /**
@@ -74,10 +83,25 @@ class LiveConversation(
     var isOpen: Boolean = false
         private set
 
-    /** Opens the conversation; [opening] makes the host speak first (e.g. to ask a question). */
-    fun start(opening: String? = null) {
+    /** Always-listening: stays connected after an exchange ends (see [LiveHost.onLiveIdle]). */
+    var persistent: Boolean = false
+        private set
+
+    /** An exchange is going on (the listener spoke, typed or was asked something) and hasn't gone quiet. */
+    var inConversation: Boolean = false
+        private set
+
+    private var ready = false
+
+    /**
+     * Opens the conversation; [opening] makes the host speak first (e.g. to ask a question). With
+     * [persistent] the connection stays open between exchanges (always-listening mode).
+     */
+    fun start(opening: String? = null, persistent: Boolean = false) {
         if (isOpen) return
         isOpen = true
+        this.persistent = persistent
+        inConversation = opening != null || !persistent
         pendingOpening = opening
         lastActivityMs = clock()
         host.onLiveState(LiveState.CONNECTING)
@@ -104,8 +128,15 @@ class LiveConversation(
                 // Audio still playing from the queue counts as activity: never cut off the end of an answer.
                 if (audio.pendingPlaybackMs() > 0) lastActivityMs = clock()
                 if (!speaking && !toolRunning && clock() - lastActivityMs > idleTimeoutMs) {
-                    end()
-                    break
+                    if (!persistent) {
+                        end()
+                        break
+                    }
+                    if (inConversation) {
+                        inConversation = false
+                        host.onLiveIdle()
+                    }
+                    lastActivityMs = clock()
                 }
             }
         }
@@ -115,6 +146,7 @@ class LiveConversation(
     fun sendText(text: String) {
         val conn = connection ?: return
         lastActivityMs = clock()
+        inConversation = true
         if (speaking) {
             // Only one response can be active: interrupt the current one first.
             conn.send(RealtimeProtocol.cancelResponse())
@@ -125,6 +157,40 @@ class LiveConversation(
         }
         conn.send(RealtimeProtocol.userText(text))
         conn.send(RealtimeProtocol.responseCreate())
+    }
+
+    /** The host asks or says something now (e.g. an offer's question) and listens for the answer. */
+    fun prompt(instructions: String) {
+        val conn = connection ?: return
+        lastActivityMs = clock()
+        inConversation = true
+        if (ready) conn.send(RealtimeProtocol.responseCreate(instructions)) else pendingOpening = instructions
+    }
+
+    /** The listener is expected to answer (e.g. after an offer): count this as an exchange. */
+    fun beginExchange() {
+        lastActivityMs = clock()
+        inConversation = true
+    }
+
+    /** Stop the host talking (radio controls, a new story) but keep listening. */
+    fun quiet() {
+        val conn = connection ?: return
+        if (speaking) {
+            conn.send(RealtimeProtocol.cancelResponse())
+            truncateHeard(conn)
+            speaking = false
+            dropStaleAudio = true
+        }
+        audio.stopPlayback()
+        inConversation = false
+    }
+
+    /** Refresh the host's context (a new story started, the listener moved) without reconnecting. */
+    fun updateInstructions() {
+        val conn = connection ?: return
+        if (!ready) return
+        conn.send(RealtimeProtocol.instructionsUpdate(host.liveInstructions()))
     }
 
     fun end() {
@@ -150,6 +216,7 @@ class LiveConversation(
                     fail("microphone unavailable")
                     return
                 }
+                ready = true
                 host.onLiveState(LiveState.LISTENING)
                 pendingOpening?.let { conn.send(RealtimeProtocol.responseCreate(it)) }
                 pendingOpening = null
@@ -158,6 +225,7 @@ class LiveConversation(
                 // Barge-in: the listener talks over the host, so stop the host immediately (also when the
                 // response is complete but its audio is still queued for the speaker).
                 lastActivityMs = clock()
+                inConversation = true
                 if (speaking || audio.pendingPlaybackMs() > 0) truncateHeard(conn)
                 if (speaking) dropStaleAudio = true
                 speaking = false

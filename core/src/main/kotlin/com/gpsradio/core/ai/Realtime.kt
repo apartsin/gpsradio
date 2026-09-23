@@ -107,6 +107,15 @@ object RealtimeProtocol {
         }
     }
 
+    /** Only new instructions (fresh context); the voice can't change once the host has spoken. */
+    fun instructionsUpdate(instructions: String): JsonObject = buildJsonObject {
+        put("type", "session.update")
+        putJsonObject("session") {
+            put("type", "realtime")
+            put("instructions", instructions)
+        }
+    }
+
     /** Ask the model to respond now; [instructions] overrides what to say for this one response. */
     fun responseCreate(instructions: String? = null): JsonObject = buildJsonObject {
         put("type", "response.create")

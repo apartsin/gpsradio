@@ -497,3 +497,18 @@ GPS Radio is not distributed through a store:
 |---|---|---|
 | PR-60 | Voice first | Every listener-relevant notice is spoken; the screen is secondary. |
 | PR-61 | Language | Narration, answers and notices in the selected language regardless of the source language. |
+
+## 33. Always Listening (Natural Two-Way Conversation)
+
+Like ChatGPT voice mode, the mic can stay open, so the listener just talks at any time, even in the middle of a story.
+- The story stops, the host answers naturally, and the listener can interrupt the host too.
+- After a short quiet spell the radio carries on, and the mic stays open.
+- The host always knows which story is playing, so "tell me more about that" works.
+- **Mic switch:** a mic icon in the radio screen's top bar and a "Mic off / Mic on" button in the notification (lock screen, car). It is also in Settings ("Always listening", on by default with the natural voice).
+- **Privacy and data:** the phone decides what is speech and sends only that (with half a second before it), so silence and the radio itself are never uploaded. While a story plays, the listener has to be clearly louder than the story. Android shows its microphone indicator while the mic is open.
+- If the voice connection keeps failing, always listening pauses (with a notice), and tap-to-talk still works.
+
+| ID | Capability | Requirement |
+|---|---|---|
+| PR-62 | Always listening | Open mic with natural barge-in over stories and the host; switchable in one tap (screen, notification, Settings). |
+| PR-63 | Speech-only upload | Only detected speech is sent; the radio's own audio must not trigger the host. |

@@ -27,6 +27,7 @@ import com.gpsradio.core.session.LiveConversation
 import com.gpsradio.core.session.LiveState
 import com.gpsradio.core.session.PcmAudio
 import com.gpsradio.core.session.RadioSession
+import com.gpsradio.core.session.SpeechGate
 import com.gpsradio.core.session.SessionConfig
 import com.gpsradio.core.session.SpeechService
 import kotlinx.coroutines.channels.Channel
@@ -55,6 +56,7 @@ import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -172,9 +174,9 @@ class LiveVoiceTest {
         override fun save(serialized: String) { hist = serialized }
     }
 
-    private fun TestScope.session(r: Radio, conns: MutableList<FakeConnection>, pcm: FakePcm) = RadioSession(
+    private fun TestScope.session(r: Radio, conns: MutableList<FakeConnection>, pcm: FakePcm, handsFree: () -> Boolean = { false }) = RadioSession(
         places = r, narrator = r, speech = r, audio = AudioOutput { delay(5_000) }, historyStore = r,
-        config = { SessionConfig("en-US", setOf(Topic.HISTORY), liveVoice = true, voice = "coral") },
+        config = { SessionConfig("en-US", setOf(Topic.HISTORY), liveVoice = true, voice = "coral", handsFree = handsFree()) },
         liveFactory = { host, scope ->
             LiveConversation({ FakeConnection().also { conns += it } }, pcm, host, scope, idleTimeoutMs = 20_000, clock = { testScheduler.currentTime })
         },
@@ -376,5 +378,90 @@ class LiveVoiceTest {
             assertNull(s.state.value.pendingOffer)
             assertTrue(conns.all { it.closed })
         }
+    }
+
+    // ---- always listening (spec A §33) ------------------------------------------------------
+
+    @Test
+    fun alwaysListeningKeepsTheMicOpenAndTheListenerCanTalkOverAStory() = runTest {
+        val r = Radio(listOf(place("a", Geo.destination(here, 0.0, 100.0)), place("b", Geo.destination(here, 90.0, 120.0))))
+        val conns = mutableListOf<FakeConnection>()
+        val pcm = FakePcm()
+        var handsFree = true
+        val s = session(r, conns, pcm, handsFree = { handsFree })
+        running(s) {
+            s.onLocation(LocationSample(here.lat, here.lon, 5f, 1_000_000, 0f)); runCurrent()
+            advanceTimeBy(3_000); runCurrent()
+            // A persistent connection opens in the background: the mic is live, the radio keeps playing.
+            val c = conns.single()
+            c.server.trySend(RealtimeEvent.SessionReady); runCurrent()
+            assertTrue(pcm.capturing)
+            assertTrue(s.state.value.listening)
+            advanceTimeBy(1_000); runCurrent()
+            assertEquals(RadioState.NARRATING, s.state.value.radioState, "stories go on while listening")
+            // The next story refreshes the host's context (instructions only, no reconnect).
+            s.skip(); runCurrent()
+            var t = 0
+            while (s.state.value.radioState != RadioState.NARRATING && t++ < 30) { advanceTimeBy(1_000); runCurrent() }
+            assertTrue(c.sent.any { it["type"]!!.jsonPrimitive.content == "session.update" && "audio" !in it["session"]!!.jsonObject })
+            assertFalse(c.closed, "skip keeps the mic open")
+
+            // The listener just talks over the story: it stops and the host listens.
+            c.server.trySend(RealtimeEvent.SpeechStarted); runCurrent()
+            assertEquals(RadioState.CONVERSING, s.state.value.radioState)
+            c.server.trySend(RealtimeEvent.SpeechStopped)
+            c.server.trySend(RealtimeEvent.UserTranscript("What's that tower?"))
+            c.server.trySend(RealtimeEvent.AudioDelta(ByteArray(4_800), itemId = "i1"))
+            c.server.trySend(RealtimeEvent.AssistantTranscript("A medieval watchtower."))
+            c.server.trySend(RealtimeEvent.ResponseDone); runCurrent()
+
+            // Quiet for a while: back to the radio, but still connected and listening.
+            advanceTimeBy(25_000); runCurrent()
+            assertTrue(s.state.value.radioState != RadioState.CONVERSING)
+            assertFalse(c.closed)
+            assertEquals(1, conns.size)
+            assertTrue(pcm.capturing)
+
+            // Mic off: the connection closes and doesn't come back.
+            handsFree = false
+            advanceTimeBy(4_000); runCurrent()
+            assertTrue(c.closed)
+            assertFalse(pcm.capturing)
+            assertFalse(s.state.value.listening)
+            advanceTimeBy(30_000); runCurrent()
+            assertEquals(1, conns.size)
+        }
+    }
+
+    @Test
+    fun speechGateSendsOnlySpeechWithPrerollAndNeedsToBeLouderThanTheRadio() {
+        val gate = SpeechGate(prerollMs = 100, onsetMs = 40, hangoverMs = 200)
+        fun chunk(amplitude: Int, ms: Int = 20): ByteArray {
+            val n = 24 * ms
+            return ByteArray(n * 2).also { b ->
+                for (i in 0 until n) {
+                    val v = if (i % 2 == 0) amplitude else -amplitude
+                    b[2 * i] = (v and 0xFF).toByte(); b[2 * i + 1] = ((v shr 8) and 0xFF).toByte()
+                }
+            }
+        }
+        // Silence: nothing is sent.
+        repeat(10) { assertTrue(gate.process(chunk(50), playbackAudible = false).isEmpty()) }
+        // Speech: after 40 ms it opens and sends the ~100 ms preroll plus the current chunk.
+        assertTrue(gate.process(chunk(3_000), false).isEmpty())
+        val opened = gate.process(chunk(3_000), false)
+        assertTrue(gate.isOpen)
+        assertTrue(opened.size in 4..7, "preroll + chunk: ${opened.size}")
+        // Short pauses keep it open; 200 ms of quiet closes it.
+        assertEquals(1, gate.process(chunk(50), false).size)
+        repeat(10) { gate.process(chunk(50), false) }
+        assertFalse(gate.isOpen)
+        // While the radio plays, normal speech level isn't enough (it could be the radio itself)…
+        repeat(10) { assertTrue(gate.process(chunk(1_500), playbackAudible = true).isEmpty()) }
+        assertFalse(gate.isOpen)
+        // …but talking clearly louder than the playback opens it.
+        gate.process(chunk(6_000), true); gate.process(chunk(6_000), true)
+        assertTrue(gate.isOpen)
+        assertEquals(3_000.0, SpeechGate.rms(chunk(3_000)), 1.0)
     }
 }

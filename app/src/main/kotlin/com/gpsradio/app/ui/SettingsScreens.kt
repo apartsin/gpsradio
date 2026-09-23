@@ -154,6 +154,7 @@ private fun SettingsForm(
     var realtimeModel by remember { mutableStateOf(initial.models.realtimeModel) }
     var hostStyle by remember { mutableStateOf(initial.hostStyle) }
     var liveVoice by remember { mutableStateOf(initial.liveVoice) }
+    var alwaysListening by remember { mutableStateOf(initial.alwaysListening) }
     var soundEffects by remember { mutableStateOf(initial.soundEffects) }
     var localEvents by remember { mutableStateOf(initial.localEvents) }
     var pacing by remember { mutableStateOf(initial.pacing) }
@@ -215,6 +216,24 @@ private fun SettingsForm(
             Switch(checked = liveVoice, onCheckedChange = { liveVoice = it })
         }
 
+        if (liveVoice) {
+            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Always listening", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "Just talk anytime, even during a story, like ChatGPT voice. Only speech is sent. " +
+                            "Switch the mic off anytime from the radio screen.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                Switch(
+                    checked = alwaysListening,
+                    onCheckedChange = { alwaysListening = it },
+                    modifier = Modifier.semantics { contentDescription = "Always listening" },
+                )
+            }
+        }
+
         Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("Sound effects", style = MaterialTheme.typography.titleSmall)
@@ -271,6 +290,7 @@ private fun SettingsForm(
             interests = interests,
             hostStyle = hostStyle,
             liveVoice = liveVoice,
+            alwaysListening = alwaysListening,
             soundEffects = soundEffects,
             localEvents = localEvents,
             pacing = pacing,

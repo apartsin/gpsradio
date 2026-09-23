@@ -174,6 +174,8 @@ data class RadioUiState(
     val quotaExhausted: Boolean = false,
     /** Public events today nearby, soonest first (spec A §30). */
     val todayEvents: List<LocalEvent> = emptyList(),
+    /** The mic is open and listening in the background (always-listening mode, spec A §33). */
+    val listening: Boolean = false,
 )
 
 /**
@@ -354,7 +356,7 @@ class RadioSession(
     }
 
     fun stop() = scope.launch {
-        closeLive()
+        endLive()
         schedulerJob?.cancel()
         discoveryJob?.cancel()
         speechJob?.cancel()
@@ -501,8 +503,36 @@ class RadioSession(
     /** Whether the natural, hands-free voice is available and enabled. */
     val liveVoiceEnabled: Boolean get() = liveFactory != null && config().liveVoice && !config().previewMode
 
+    /** Always listening is on and possible right now. */
+    private val handsFreeActive: Boolean get() = liveVoiceEnabled && config().handsFree
+
+    private var standbyFailures = 0
+    private var standbyRetryAtMs = 0L
+
+    /**
+     * Always-listening mode: keeps a persistent live connection open while the radio runs, so the listener
+     * can just talk. Backs off after failures; closes when switched off or not possible (offline, no credit).
+     */
+    private fun maybeStandby(now: Long) {
+        val l = live
+        val canListen = handsFreeActive && isOnline() && !_state.value.quotaExhausted && _state.value.radioState != RadioState.IDLE
+        if (!canListen) {
+            if (l != null && l.persistent && !l.inConversation) endLive()
+            return
+        }
+        if (l?.isOpen == true || now < standbyRetryAtMs) return
+        val factory = liveFactory ?: return
+        live = factory(liveHost, scope).also { it.start(opening = null, persistent = true) }
+    }
+
     /** Opens a hands-free voice conversation (tap the mic), or closes it if already open. */
     fun toggleLive() = scope.launch {
+        val current = live
+        if (current?.isOpen == true && current.persistent) {
+            // Always listening: the mic button means "I want to talk now" / "back to the radio".
+            if (_state.value.radioState == RadioState.CONVERSING) endConversation() else startExchange(current)
+            return@launch
+        }
         if (live?.isOpen == true) {
             closeLive()
             endConversation()
@@ -566,6 +596,7 @@ class RadioSession(
         // Retries and refresh requests must not depend on new fixes: stationary phones get none.
         if (s.radioState != RadioState.IDLE) processor.current?.let { maybeRefresh(it) }
         if (s.radioState != RadioState.IDLE) maybeScoutEvents(now)
+        maybeStandby(now)
         // During a walking tour only the tour's stops air (on arrival).
         if (tour != null) return tourTick()
 
@@ -692,6 +723,8 @@ class RadioSession(
                 lastAudio = bytes
                 addTranscript(TranscriptEntry(Speaker.RADIO, segment.text, clock(), c.place.id, segment.sources))
                 _state.update { it.copy(radioState = RadioState.NARRATING, nowPlaying = segment, nowPlayingReason = reasonFor(c), focus = FocusPlace.of(c.place)) }
+                // Always listening: the host knows which story is on, so "tell me more about that" works.
+                live?.takeIf { it.persistent && !it.inConversation }?.updateInstructions()
                 loadGallery(c.place)
                 sting(Sting.STATION)
                 // A teaser that failed over to on-device notes is told as a plain story instead.
@@ -1057,16 +1090,50 @@ class RadioSession(
 
     private fun openLive(opening: String?) {
         val factory = liveFactory ?: return
-        if (live?.isOpen == true) return
+        val current = live
+        if (current?.isOpen == true) {
+            // Always listening: already connected; just start an exchange (and ask, if there's a question).
+            if (current.persistent) {
+                engagedUntilMs = Long.MAX_VALUE
+                setRadioState(RadioState.CONVERSING)
+                if (opening != null) current.prompt(opening) else current.beginExchange()
+            }
+            return
+        }
         if (questionsUnavailable()) return
         speechJob?.cancel()
         pendingId = null
         engagedUntilMs = Long.MAX_VALUE
         setRadioState(RadioState.CONVERSING)
-        live = factory(liveHost, scope).also { it.start(opening) }
+        live = factory(liveHost, scope).also { it.start(opening, persistent = handsFreeActive) }
     }
 
+    /** The listener starts talking (or taps the mic) during the radio: stop the story and listen. */
+    private fun startExchange(l: LiveConversation) {
+        speechJob?.cancel()
+        pendingId = null
+        storyPlayback = null
+        engagedUntilMs = Long.MAX_VALUE
+        setRadioState(RadioState.CONVERSING)
+        l.beginExchange()
+    }
+
+    /**
+     * Stops the live host talking. In always-listening mode the mic stays open (the connection just goes
+     * quiet); otherwise the conversation ends.
+     */
     private fun closeLive() {
+        val l = live ?: return
+        if (l.persistent && l.isOpen && handsFreeActive) {
+            l.quiet()
+            return
+        }
+        live = null
+        l.end()
+    }
+
+    /** Ends the live connection completely (stop, mic switched off). */
+    private fun endLive() {
         val l = live ?: return
         live = null
         l.end()
@@ -1113,8 +1180,13 @@ class RadioSession(
 
         override fun onLiveState(state: LiveState?) {
             val previous = _state.value.live
-            _state.update { it.copy(live = state) }
-            if (state == LiveState.LISTENING && previous == LiveState.CONNECTING) scope.launch { sting(Sting.LISTENING) }
+            val standby = live?.let { it.persistent && !it.inConversation } == true
+            _state.update { it.copy(live = state, listening = state != null && live?.persistent == true) }
+            // In always-listening mode the connection opens silently; the sting marks a real conversation.
+            if (state == LiveState.LISTENING && previous == LiveState.CONNECTING && !standby) scope.launch { sting(Sting.LISTENING) }
+            if (state == LiveState.LISTENING && previous == LiveState.CONNECTING) standbyFailures = 0
+            // Barge-in over the radio: the listener just started talking, so the story stops and the host listens.
+            if (state == LiveState.USER_SPEAKING && _state.value.radioState != RadioState.CONVERSING) live?.let { startExchange(it) }
             if (state == null) {
                 live = null
                 if (_state.value.radioState == RadioState.CONVERSING) {
@@ -1124,7 +1196,24 @@ class RadioSession(
             }
         }
 
+        override fun onLiveIdle() {
+            // The exchange is over: back to the radio, the mic stays open.
+            if (_state.value.radioState == RadioState.CONVERSING) {
+                clearOffer()
+                engagedUntilMs = 0
+                setRadioState(RadioState.RADIO)
+            }
+        }
+
         override fun onLiveError(message: String) {
+            val l = live
+            if (l != null && l.persistent && !l.inConversation) {
+                // Background listening failed: retry later, quietly (1, 2, 4… up to 10 minutes).
+                standbyFailures++
+                standbyRetryAtMs = clock() + (60_000L shl (standbyFailures - 1).coerceAtMost(4)).coerceAtMost(600_000L)
+                if (standbyFailures == 3) setStatus("Always listening is paused: the voice connection keeps failing. Tap the mic to talk.")
+                return
+            }
             fail("Voice conversation unavailable: $message. You can type your question instead.")
         }
     }

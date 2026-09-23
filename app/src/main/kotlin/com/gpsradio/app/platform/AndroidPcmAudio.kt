@@ -61,18 +61,20 @@ class AndroidPcmAudio(private val context: Context) : PcmAudio {
         if (NoiseSuppressor.isAvailable()) noise = NoiseSuppressor.create(rec.audioSessionId)?.apply { enabled = true }
         record = rec
         capturing = true
+        gate.reset()
         rec.startRecording()
-        requestFocus()
+        // No audio focus for listening: an always-open mic must not duck or pause the radio. Focus is
+        // taken only while the live host speaks (see play()).
         thread(name = "live-mic", isDaemon = true) {
             val buf = ByteArray(chunkBytes)
-            val silence = ByteArray(chunkBytes)
             while (capturing) {
                 val n = rec.read(buf, 0, buf.size)
                 if (n <= 0) continue
-                // Echo gate: while the host is audible, forward only clearly louder speech (the listener
-                // talking over it); otherwise send silence so the host doesn't interrupt itself.
-                val hostAudible = System.currentTimeMillis() < playingUntilMs
-                if (hostAudible && rms(buf, n) < BARGE_IN_RMS) onChunk(silence.copyOf(n)) else onChunk(buf.copyOf(n))
+                // Speech gate: only speech is sent (with a short preroll); while the radio or the host is
+                // audible, the listener must be clearly louder than the playback, so the phone never
+                // answers itself. Also saves mobile data in always-listening mode.
+                val playbackAudible = radioAudible || System.currentTimeMillis() < playingUntilMs
+                gate.process(buf.copyOf(n), playbackAudible).forEach(onChunk)
             }
         }
         return true
@@ -90,8 +92,13 @@ class AndroidPcmAudio(private val context: Context) : PcmAudio {
         abandonFocus()
     }
 
+    override fun setRadioAudible(audible: Boolean) {
+        radioAudible = audible
+    }
+
     override fun play(pcm: ByteArray) {
         ensurePlayer()
+        if (focus == null) requestFocus()
         // 24 kHz mono 16-bit = 48 bytes per ms; extend the "host audible" window by this chunk.
         val now = System.currentTimeMillis()
         playingUntilMs = maxOf(playingUntilMs, now) + pcm.size / 48 + 250
@@ -101,6 +108,7 @@ class AndroidPcmAudio(private val context: Context) : PcmAudio {
     override fun pendingPlaybackMs(): Long = (playingUntilMs - System.currentTimeMillis()).coerceAtLeast(0)
 
     override fun stopPlayback() {
+        abandonFocus()
         queue.clear()
         playingUntilMs = 0
         track?.let { t ->
@@ -164,21 +172,8 @@ class AndroidPcmAudio(private val context: Context) : PcmAudio {
         focus = null
     }
 
-    private fun rms(buf: ByteArray, n: Int): Double {
-        var sum = 0.0
-        var i = 0
-        while (i + 1 < n) {
-            val sample = (buf[i].toInt() and 0xFF) or (buf[i + 1].toInt() shl 8)
-            sum += sample.toDouble() * sample
-            i += 2
-        }
-        return Math.sqrt(sum / maxOf(1, n / 2))
-    }
-
-    private companion object {
-        /** Roughly raised-voice level for 16-bit PCM; normal host echo after AEC stays well below. */
-        const val BARGE_IN_RMS = 2500.0
-    }
+    private val gate = com.gpsradio.core.session.SpeechGate()
+    @Volatile private var radioAudible = false
 
     /** Frees the speaker between conversations. */
     fun release() {

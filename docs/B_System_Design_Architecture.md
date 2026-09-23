@@ -753,3 +753,20 @@ Sources: OpenAI's realtime prompting guide and voice-agent metaprompt, and the r
   - Role & Objective; Personality & Tone (identity, demeanor, tone, enthusiasm, formality, emotion, occasional filler words); Pacing & Length (1–3 sentences, then yield).
   - Variety (never repeat a sentence or opener; sample phrases are not scripts); Language (stay in the listener's language, say local names the local way).
   - Unclear audio (ignore road noise, music and the radio; ask to repeat instead of guessing); Tools (a short, varied preamble before slow tools); Conversation Flow (offers, goodbyes); then the context.
+
+## 43. Always Listening
+
+- **`SessionConfig.handsFree`** comes from `AppSettings.alwaysListening`, on by default and toggled from the top-bar mic icon, the notification action or Settings. With `liveVoice`, the session keeps a **persistent** `LiveConversation` open while the radio runs (`maybeStandby` on every tick).
+  - It closes when switched off, stopped, offline, out of credit, or not possible.
+  - Failures back off 1, 2, 4… up to 10 min, and pause quietly with a status after 3 in a row.
+  - The listening sting plays only for real conversations.
+- **Persistent `LiveConversation`:**
+  - `inConversation` tracks an exchange. Idle for 15 s calls `LiveHost.onLiveIdle()`: the radio resumes and the connection stays open.
+  - `prompt()` asks something (offers, host questions) on the open connection. `beginExchange()` expects an answer. `quiet()` stops the host but keeps listening; radio controls call it instead of closing.
+  - `updateInstructions()` sends an instructions-only `session.update` with fresh context when a new story starts.
+- **Barge-in over the radio:** `SpeechStarted` from the server (after the on-device gate let speech through) while not conversing makes `startExchange()` cancel the story, which stays unheard, and switch to CONVERSING. Barge-in over the live host uses the existing truncate path (§42).
+- **`SpeechGate`** (core, pure, tested):
+  - It opens after 120 ms of speech energy and sends 500 ms of preroll, so the first word isn't lost. It closes after 1.5 s of quiet and sends that quiet so semantic VAD sees the end of the turn.
+  - The threshold is 700 RMS normally and 2,500 RMS while playback is audible: the radio's story (`PcmAudio.setRadioAudible`, wired from `RadioState.NARRATING`) or the host's own audio.
+  - Only speech is uploaded, instead of about 170 MB/h of continuous PCM.
+- **Audio focus:** `AndroidPcmAudio` no longer takes focus when capture starts (an open mic must not duck or pause the radio). It takes focus only while the live host speaks.

@@ -39,6 +39,11 @@ data class SessionConfig(
     val style: HostStyle = HostStyle.ENTERTAINING,
     /** Use the natural, hands-free Realtime voice for conversations. */
     val liveVoice: Boolean = false,
+    /**
+     * Always listening (like ChatGPT voice mode): with [liveVoice], the mic stays open and the listener
+     * can talk at any time, even over a story. The listener can switch it off anytime (spec A §33).
+     */
+    val handsFree: Boolean = false,
     val voice: String = "alloy",
     /** Voice of the live (Realtime) host; marin and cedar are the most natural gpt-realtime voices. */
     val realtimeVoice: String = "marin",

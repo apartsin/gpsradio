@@ -280,4 +280,34 @@ class RadioContentTest {
         compose.onNodeWithText("Esplanade · 1.2 km · Open-air, free").assertIsDisplayed()
         compose.onNodeWithText("Ort Castle").assertIsDisplayed()
     }
+
+    @Test
+    fun micSwitchTurnsAlwaysListeningOnAndOff() {
+        var toggles = 0
+        compose.setContent {
+            GpsRadioTheme {
+                RadioContent(
+                    RadioUiState(radioState = RadioState.NARRATING, location = loc, listening = true), false,
+                    RadioActions(onToggleListening = { toggles++ }), placePanel = { _, _ -> },
+                    liveMode = true, alwaysListening = true,
+                )
+            }
+        }
+        compose.onNodeWithContentDescription("Turn microphone off").performClick()
+        assertEquals(1, toggles)
+        compose.onNodeWithText("listening", substring = true).assertIsDisplayed()
+    }
+
+    @Test
+    fun micSwitchShowsOffState() {
+        compose.setContent {
+            GpsRadioTheme {
+                RadioContent(
+                    RadioUiState(radioState = RadioState.RADIO, location = loc), false, RadioActions(), placePanel = { _, _ -> },
+                    liveMode = true, alwaysListening = false,
+                )
+            }
+        }
+        compose.onNodeWithContentDescription("Turn microphone on").assertIsDisplayed()
+    }
 }

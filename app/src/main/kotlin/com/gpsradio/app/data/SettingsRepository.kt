@@ -37,6 +37,8 @@ data class AppSettings(
     val hostStyle: HostStyle = HostStyle.ENTERTAINING,
     /** Natural, hands-free voice conversation via the OpenAI Realtime API (falls back to classic). */
     val liveVoice: Boolean = true,
+    /** Always listening (like ChatGPT voice mode): the mic stays open with the natural voice; switchable anytime. */
+    val alwaysListening: Boolean = true,
     /** The listener chose "Try without a key": stories from source facts with the on-device voice. */
     val previewMode: Boolean = false,
     /** Short stings before stories and answers, and a blip when listening starts. */
@@ -91,6 +93,7 @@ class SettingsRepository(context: Context) {
             putString(KEY_REALTIME_MODEL, next.models.realtimeModel)
             putString(KEY_HOST_STYLE, next.hostStyle.key)
             putBoolean(KEY_LIVE_VOICE, next.liveVoice)
+            putBoolean(KEY_ALWAYS_LISTENING, next.alwaysListening)
             putBoolean(KEY_PREVIEW, next.previewMode)
             putBoolean(KEY_SOUND_EFFECTS, next.soundEffects)
             putBoolean(KEY_LOCAL_EVENTS, next.localEvents)
@@ -117,6 +120,7 @@ class SettingsRepository(context: Context) {
             ),
             hostStyle = HostStyle.fromKey(plain.getString(KEY_HOST_STYLE, null)),
             liveVoice = plain.getBoolean(KEY_LIVE_VOICE, d.liveVoice),
+            alwaysListening = plain.getBoolean(KEY_ALWAYS_LISTENING, d.alwaysListening),
             previewMode = plain.getBoolean(KEY_PREVIEW, d.previewMode),
             soundEffects = plain.getBoolean(KEY_SOUND_EFFECTS, d.soundEffects),
             localEvents = plain.getBoolean(KEY_LOCAL_EVENTS, d.localEvents),
@@ -163,6 +167,7 @@ class SettingsRepository(context: Context) {
         const val KEY_REALTIME_MODEL = "realtime_model"
         const val KEY_HOST_STYLE = "host_style"
         const val KEY_LIVE_VOICE = "live_voice"
+        const val KEY_ALWAYS_LISTENING = "always_listening"
         const val KEY_PREVIEW = "preview_mode"
         const val KEY_SOUND_EFFECTS = "sound_effects"
         const val KEY_LOCAL_EVENTS = "local_events"

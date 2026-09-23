@@ -27,6 +27,9 @@ import com.gpsradio.core.ai.RealtimeClient
 import com.gpsradio.core.session.LiveConversation
 import com.gpsradio.core.session.LiveHost
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import com.gpsradio.core.discovery.AreaDiskCache
 import com.gpsradio.core.discovery.AreaInfoSource
 import com.gpsradio.core.discovery.DiscoveryService
@@ -70,6 +73,9 @@ open class GpsRadioApp : Application() {
     lateinit var updater: com.gpsradio.app.platform.AppUpdater
         private set
 
+    /** The live voice's audio; told when the radio itself is playing (always-listening echo guard). */
+    private var livePcm: AndroidPcmAudio? = null
+
     /** Events today nearby (OpenAI web search); tests return null so the fake server isn't asked. */
     protected open fun eventScout(openAi: OpenAiClient, models: () -> com.gpsradio.core.ai.ModelConfig): com.gpsradio.core.events.EventScout? =
         com.gpsradio.core.events.EventScout(openAi, models)
@@ -99,7 +105,7 @@ open class GpsRadioApp : Application() {
     /** Natural hands-free voice (OpenAI Realtime); tests return null to use the classic pipeline. */
     protected open fun liveFactory(http: OkHttpClient, baseUrl: String): ((LiveHost, CoroutineScope) -> LiveConversation)? {
         val realtime = RealtimeClient(http, { settings.current.effectiveApiKey })
-        val pcm = AndroidPcmAudio(this)
+        val pcm = AndroidPcmAudio(this).also { livePcm = it }
         return { host, scope -> LiveConversation({ model -> realtime.connect(model) }, pcm, host, scope) }
     }
 
@@ -149,6 +155,7 @@ open class GpsRadioApp : Application() {
                         interests = it.interests,
                         style = it.hostStyle,
                         liveVoice = it.liveVoice && micGranted() && it.hasApiKey,
+                        handsFree = it.alwaysListening,
                         voice = it.models.ttsVoice,
                         liveModel = it.models.realtimeModel,
                         transcriptionModel = it.models.transcriptionModel,
@@ -179,6 +186,12 @@ open class GpsRadioApp : Application() {
             eventScout = eventScout(openAi, models),
             visitScout = visitScout(openAi, models),
         )
+        // Always listening: while a story or sting plays, the mic needs the listener to be clearly louder.
+        kotlinx.coroutines.MainScope().launch {
+            session.state.map { it.radioState == com.gpsradio.core.model.RadioState.NARRATING }
+                .distinctUntilChanged()
+                .collect { audible -> livePcm?.setRadioAudible(audible) }
+        }
     }
 
     /** Navigation handoff (spec A PR-10): let the user's maps app do the routing. */
