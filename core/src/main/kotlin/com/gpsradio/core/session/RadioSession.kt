@@ -6,6 +6,7 @@ import com.gpsradio.core.ai.SegmentFormat
 import com.gpsradio.core.favorites.FavoritePlace
 import com.gpsradio.core.favorites.Favorites
 import com.gpsradio.core.favorites.FavoritesStore
+import com.gpsradio.core.ai.NotInListenerLanguageException
 import com.gpsradio.core.ai.OpenAiException
 import com.gpsradio.core.ai.QuotaErrors
 import com.gpsradio.core.ai.ConversationReply
@@ -673,7 +674,7 @@ class RadioSession(
         interests.putAll(memory.topicWeights())
         topicPenalty.forEach { (t, p) -> interests[t] = (interests[t] ?: 0.4) * p }
         ranked = ranker.rank(
-            candidates.values.filter { it.id !in failedIds },
+            candidates.values.filter { it.id !in failedIds && (it.id !in deviceSkipped || !onDeviceNow()) },
             EditorialRanker.Context(
                 location = loc,
                 interests = interestModel.adjust(interests, now, explicit = memory.topicWeights().keys),
@@ -764,6 +765,12 @@ class RadioSession(
                 if (c.roadTrip == RoadTripKind.WORTH_A_STOP && segment.text.trimEnd().endsWith("?")) offerDetour(c.place)
             } catch (e: CancellationException) {
                 throw e
+            } catch (e: NotInListenerLanguageException) {
+                // Offline and the notes aren't in the listener's language: skip it until OpenAI can translate.
+                pendingId = null
+                deviceSkipped += c.place.id
+                setRadioState(RadioState.RADIO)
+                rerank()
             } catch (e: Exception) {
                 pendingId = null
                 lastSpeechEndMs = clock()
@@ -801,6 +808,7 @@ class RadioSession(
             val bytes = timed(timeouts.speechMs, "Speech") { speech.synthesize(s.text, lang, cfg.style) }
             fallbackGate.onPrimarySuccess()
             degradedAnnounced = false
+            deviceSkipped.clear()
             clearQuota()
             prepLatencyMs = prepLatencyMs * 0.7 + (clock() - started) * 0.3
             clearNotes(DEGRADED_NOTE, OFFLINE_NOTE)
@@ -1366,6 +1374,11 @@ class RadioSession(
             try {
                 val cfg = config()
                 val line = timed(timeouts.narrationMs, "Host line") { narrator.hostLine(kind, sessionLanguage, cfg.style) }
+                // No line in the listener's language (model unavailable): skip the question rather than ask in English.
+                if (line.isBlank()) {
+                    setRadioState(RadioState.RADIO)
+                    return@launch
+                }
                 val bytes = timed(timeouts.speechMs, "Speech") { speech.synthesize(line, sessionLanguage, cfg.style) }
                 addTranscript(TranscriptEntry(Speaker.RADIO, line, clock()))
                 setRadioState(RadioState.CONVERSING)
@@ -1462,6 +1475,8 @@ class RadioSession(
     // ---- out of OpenAI credit -------------------------------------------------------------------
 
     private var quotaAnnounced = false
+    /** Places skipped while on-device because their notes aren't in the listener's language (told once online). */
+    private val deviceSkipped = HashSet<String>()
     /** The "offline / OpenAI unreachable, short notes for now" notice was spoken this episode. */
     private var degradedAnnounced = false
 
@@ -1692,12 +1707,19 @@ class RadioSession(
         speechJob = scope.launch {
             val cfg = config()
             val lang = sessionLanguage
+            val english = RadioAgent.isEnglish(lang)
             val line = try {
-                timed(timeouts.narrationMs, "Host line") { narrator.hostLine(kind, draft, lang, cfg.style) }.ifBlank { draft }
+                timed(timeouts.narrationMs, "Host line") { narrator.hostLine(kind, draft, lang, cfg.style) }.ifBlank { if (english) draft else "" }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                draft
+                if (english) draft else ""
+            }
+            // The draft is English: without a translation, say nothing rather than switch language.
+            if (line.isBlank()) {
+                lastSpeechEndMs = clock()
+                scope.launch { tourTick() }
+                return@launch
             }
             addTranscript(TranscriptEntry(Speaker.RADIO, line, clock()))
             _state.update { it.copy(radioState = RadioState.NARRATING, nowPlaying = Segment(line, null, "Walking tour", emptyList())) }
@@ -2022,7 +2044,7 @@ class RadioSession(
         visitLookupTimes.addLast(now)
         val job = scope.async {
             val web = try {
-                withTimeoutOrNull(VISIT_TIMEOUT_MS) { scout.lookup(place, _state.value.area, clock(), zone()) }
+                withTimeoutOrNull(VISIT_TIMEOUT_MS) { scout.lookup(place, _state.value.area, clock(), zone(), sessionLanguage) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -2051,7 +2073,7 @@ class RadioSession(
         Detours.ahead(ranked, loc).map { (r, min) ->
             // Prefetch so the detour card (and the story's offer) can say hours, fee and effort.
             ensureVisit(r)
-            DetourSuggestion(r.place.id, r.place.name, min, visitCache[r.place.id]?.takeIf { it.source != "none" }?.summary()?.ifBlank { null })
+            DetourSuggestion(r.place.id, r.place.name, min, visitCache[r.place.id]?.takeIf { it.source != "none" }?.summary(sessionLanguage)?.ifBlank { null })
         }
 
     private fun refreshDetours() {

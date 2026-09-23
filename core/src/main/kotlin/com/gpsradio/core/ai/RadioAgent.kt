@@ -415,7 +415,7 @@ class RadioAgent(
                 maxOutputTokens = 120,
             ),
         ).text.let(::cleanForSpeech)
-    }.getOrElse { kind.fallback }
+    }.getOrElse { if (isEnglish(language)) kind.fallback else "" } // never an English line to a non-English listener
 
     override suspend fun hostLine(kind: HostLine, draft: String, language: String, style: HostStyle): String {
         // Functional English lines are spoken as drafted; everything else is restyled or translated.
@@ -429,8 +429,8 @@ class RadioAgent(
                     input = listOf(OpenAiClient.Message("user", "Draft: $draft")),
                     maxOutputTokens = 200,
                 ),
-            ).text.let(::cleanForSpeech).ifBlank { draft }
-        }.getOrElse { draft }
+            ).text.let(::cleanForSpeech).ifBlank { if (isEnglish(language)) draft else "" }
+        }.getOrElse { if (isEnglish(language)) draft else "" }
     }
 
     override suspend fun webAnswer(question: String, language: String, area: AreaLabel?): String {
@@ -465,6 +465,9 @@ class RadioAgent(
          * Prompt caching: the long static rules live in `instructions` (identical for a language and host
          * style), per-request data goes last in `input`. Requests with the same key share OpenAI's cache.
          */
+        /** English drafts/fallbacks may be spoken only to English listeners (spec A §32: everything in their language). */
+        fun isEnglish(language: String) = language.substringBefore('-').equals("en", ignoreCase = true)
+
         fun narrationCacheKey(language: String, style: HostStyle) = "gpsradio-narr-$language-${style.key}"
 
         /** Enough for a rich story; keeps per-call tokens (and cost) bounded. */

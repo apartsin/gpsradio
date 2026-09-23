@@ -60,6 +60,7 @@ class EventScout(
             put("local_now", now.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME).take(16))
             put("weekday", now.dayOfWeek.name.lowercase())
             put("window_hours", WINDOW_HOURS)
+            put("output_language", "${com.gpsradio.core.lang.Languages.displayName(language)} ($language)")
         }
         val res = openAi.respond(
             OpenAiClient.ResponseRequest(
@@ -109,7 +110,8 @@ conferences, networking, regular religious services, support groups, private or 
 you cannot confirm happens today.
 Every event needs a real source page URL from your search. Times are local, "YYYY-MM-DDTHH:MM"; end_local may be "".
 distance_km is your best estimate from approx_coordinates, or -1 if unknown. "why" is one short line on why a
-visitor would enjoy it, in English. Return at most 6 events, best first; return an empty list rather than guess.
+visitor would enjoy it. Write "title" and "why" in output_language (translate them; keep proper names such as bands,
+venues and festival names). Return at most 6 events, best first; return an empty list rather than guess.
 """
 
         val schema: JsonObject = buildJsonObject {

@@ -20,6 +20,10 @@ class NarrationFallback(
 
     override suspend fun narrate(req: NarrationRequest): Segment {
         val c = req.candidate
+        // Everything the listener hears is in their language (spec A §32). Without a model nothing can be
+        // translated, so notes are read only when the source is already in that language.
+        val source = sourceLanguage(c.place)
+        if (base(source) != base(req.language)) throw NotInListenerLanguageException(c.place.name, source)
         val textLang = textLanguage(c.place, req.language)
         val body = notes(c.place, maxSentences, maxChars)
         val lead = leadIn(c, req.location.travelMode, req.location.headingDeg, textLang)
@@ -49,6 +53,10 @@ class NarrationFallback(
         )
 
         private fun base(tag: String) = tag.substringBefore('-').lowercase()
+
+        /** The language of the place's source text: its Wikipedia edition; OSM/Wikidata facts are English tag text. */
+        fun sourceLanguage(place: PlaceCandidate): String =
+            place.source.removePrefix("wikipedia:").takeIf { place.source.startsWith("wikipedia:") && it.isNotBlank() } ?: "en"
 
         /** Language the notes are written in: the Wikipedia edition the extract came from. */
         fun textLanguage(place: PlaceCandidate, sessionLanguage: String): String {
@@ -136,3 +144,7 @@ class NarrationFallback(
         }
     }
 }
+
+/** On-device notes can't be translated: the source isn't in the listener's language, so the place is skipped for now. */
+class NotInListenerLanguageException(place: String, source: String) :
+    IllegalStateException("No notes in the listener's language for $place (source: $source)")

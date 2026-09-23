@@ -512,3 +512,20 @@ Like ChatGPT voice mode, the mic can stay open, so the listener just talks at an
 |---|---|---|
 | PR-62 | Always listening | Open mic with natural barge-in over stories and the host; switchable in one tap (screen, notification, Settings). |
 | PR-63 | Speech-only upload | Only detected speech is sent; the radio's own audio must not trigger the host. |
+
+### 32.1 One output language (owner decision, 23 Sep 2026)
+
+Once the output language is set, everything the listener hears or reads as content is in it. OpenAI translates or regenerates whatever the source language was. Covered:
+- stories, fillers and answers, including the live voice;
+- event titles and descriptions, and admission / walking notes / what to expect from the web checks;
+- the detour card summary;
+- host questions and walking-tour directions;
+- spoken notices.
+
+If something can't be put into the listener's language, it is **left out rather than said in another language**:
+- on-device notes (offline) are read only when the source text is already in that language, and other places wait until OpenAI is back;
+- a tour direction or host question whose translation failed is skipped.
+
+Proper names (places, bands, venues) keep their original form.
+
+*Not yet translated:* the app's own screen labels and status messages. They are English today; making them Russian is a separate UI localization task.

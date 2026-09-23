@@ -5,6 +5,7 @@ import com.gpsradio.core.ai.ConversationRequest
 import com.gpsradio.core.ai.HostLine
 import com.gpsradio.core.ai.HostStyle
 import com.gpsradio.core.ai.NarrationFallback
+import com.gpsradio.core.ai.NotInListenerLanguageException
 import com.gpsradio.core.ai.NarrationRequest
 import com.gpsradio.core.ai.Narrator
 import com.gpsradio.core.ai.OpenAiException
@@ -345,14 +346,19 @@ class DegradedModeTest {
     }
 
     @Test
-    fun foreignExtractIsReadInItsOwnLanguage() = runTest {
+    fun foreignNotesAreNeverReadOnlyNotesInTheListenersLanguage() = runTest {
         val p = castle("a", here, extract = "Das Schloss Ort ist eine Burg im Traunsee. Es wurde im 11. Jahrhundert erbaut. Mehr.")
             .copy(source = "wikipedia:de", name = "Schloss Ort")
-        val seg = NarrationFallback(maxSentences = 2).narrate(request(ranked(p, 200.0), lang = "en-US"))
-        assertEquals("de", seg.language)
+        // An English listener never hears German notes: without a model nothing can be translated.
+        assertFailsWith<NotInListenerLanguageException> { NarrationFallback(maxSentences = 2).narrate(request(ranked(p, 200.0), lang = "en-US")) }
+        // A German listener hears them.
+        val seg = NarrationFallback(maxSentences = 2).narrate(request(ranked(p, 200.0), lang = "de-AT"))
         assertEquals("Schloss Ort: Das Schloss Ort ist eine Burg im Traunsee. Es wurde im 11. Jahrhundert erbaut.", seg.text)
-        // Same edition as the session: no language override.
-        assertNull(NarrationFallback().narrate(request(ranked(p, 200.0), lang = "de-AT")).language)
+        assertNull(seg.language)
+        // OSM tag text is English: not read to a Russian listener.
+        assertFailsWith<NotInListenerLanguageException> {
+            NarrationFallback().narrate(request(ranked(p.copy(source = "openstreetmap"), 200.0), lang = "ru-RU"))
+        }
     }
 
     @Test

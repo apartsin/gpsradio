@@ -136,10 +136,11 @@ class VisitInfoTest {
         try {
             val openAi = OpenAiClient(OkHttpClient(), { "sk-test" }, server.url("/v1").toString())
             val abbey = place("abbey", Geo.destination(here, 0.0, 300.0), name = "Lambach Abbey").copy(category = "monastery")
-            val v = VisitScout(openAi, { ModelConfig() }).lookup(abbey, null, now, zone)!!
+            val v = VisitScout(openAi, { ModelConfig() }).lookup(abbey, null, now, zone, "ru-RU")!!
             val scoutBody = server.takeRequest().body.readUtf8()
             assertTrue("\"web_search\"" in scoutBody && "\"visit_info\"" in scoutBody && "\"prompt_cache_key\":\"gpsradio-visit\"" in scoutBody)
             assertTrue("weekday\\\":\\\"wednesday" in scoutBody, scoutBody.take(600))
+            assertTrue("output_language" in scoutBody && "(ru-RU)" in scoutBody)
 
             val agent = RadioAgent(openAi, { ModelConfig() }, structuredNarration = false)
             val loc = LocationContext(here, 5f, now, 22.0, 0.0, TravelMode.DRIVING)
@@ -197,7 +198,7 @@ class VisitInfoTest {
             .copy(category = "historic: monastery", extract = "Lambach Abbey is a Benedictine monastery founded in 1056. ".repeat(4))
         val f = Fake(listOf(abbey))
         var lookups = 0
-        val scout = VisitSource { p, _, t, _ ->
+        val scout = VisitSource { p, _, t, _, _ ->
             lookups++
             VisitInfo(true, "10:00–17:00", "adults €8", "visit", 45, "easy", "5 min from the car park", "Baroque library", "https://example.org", "web", t)
         }

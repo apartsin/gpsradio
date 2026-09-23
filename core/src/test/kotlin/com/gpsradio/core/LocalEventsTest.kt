@@ -101,6 +101,7 @@ class LocalEventsTest {
             val body = server.takeRequest().body.readUtf8()
             assertTrue("\"web_search\"" in body && "\"local_events\"" in body && "\"strict\":true" in body)
             assertTrue("2026-09-23T15:00" in body && "Gmunden" in body, body.take(400))
+            assertTrue("output_language" in body && "(ru-RU)" in body)
             assertTrue("Exclude: classes" in EventScout.INSTRUCTIONS)
         } finally {
             runCatching { server.shutdown() }

@@ -50,22 +50,54 @@ data class VisitInfo(
     val source: String = "web",
     val checkedMs: Long = 0,
 ) {
-    /** Short line for cards and notifications, e.g. "open until 17:00 · €8 · ~45 min visit · easy walk". */
-    fun summary(): String = listOfNotNull(
-        when (openToday) {
-            false -> "closed today"
-            true -> hoursToday?.let { "open $it" } ?: "open today"
-            null -> hoursToday
-        },
-        admission,
-        visitMinutes?.let { "~$it min visit" },
-        walkEffort?.takeIf { it != "none" }?.let { "$it walk" },
-    ).joinToString(" · ")
+    /**
+     * Short line for cards, in the listener's language, e.g. "open 10:00–17:00 · adults €8 · ~45 min visit ·
+     * easy walk" (en) or "открыто 10:00–17:00 · … · ~45 мин · лёгкая прогулка" (ru). The admission text is
+     * already in that language (the web check writes it so).
+     */
+    fun summary(language: String = "en"): String {
+        val w = SummaryWords.of(language)
+        return listOfNotNull(
+            when (openToday) {
+                false -> w.closedToday
+                true -> hoursToday?.let { "${w.open} $it" } ?: w.openToday
+                null -> hoursToday
+            },
+            admission,
+            visitMinutes?.let { w.minutes(it) },
+            walkEffort?.takeIf { it != "none" }?.let { w.walk(it) },
+        ).joinToString(" · ")
+    }
+}
+
+/** The few fixed words of [VisitInfo.summary], per language (English fallback). */
+private class SummaryWords(
+    val open: String,
+    val openToday: String,
+    val closedToday: String,
+    val minutes: (Int) -> String,
+    val walk: (String) -> String,
+) {
+    companion object {
+        fun of(language: String): SummaryWords = when (language.substringBefore('-').lowercase()) {
+            "ru" -> SummaryWords("открыто", "открыто сегодня", "сегодня закрыто", { "~$it мин" }, { e ->
+                when (e) { "easy" -> "лёгкая прогулка"; "moderate" -> "прогулка средней сложности"; "difficult" -> "трудная прогулка"; else -> e }
+            })
+            "he" -> SummaryWords("פתוח", "פתוח היום", "סגור היום", { "כ-$it דק׳" }, { e ->
+                when (e) { "easy" -> "הליכה קלה"; "moderate" -> "הליכה בינונית"; "difficult" -> "הליכה קשה"; else -> e }
+            })
+            "de" -> SummaryWords("geöffnet", "heute geöffnet", "heute geschlossen", { "~$it Min." }, { e ->
+                when (e) { "easy" -> "leichter Weg"; "moderate" -> "mittlerer Weg"; "difficult" -> "schwieriger Weg"; else -> e }
+            })
+            else -> SummaryWords("open", "open today", "closed today", { "~$it min visit" }, { "$it walk" })
+        }
+    }
 }
 
 /** A port so tests can fake the web lookup; [VisitScout] is the web-search implementation. */
 fun interface VisitSource {
-    suspend fun lookup(place: PlaceCandidate, area: AreaLabel?, nowMs: Long, zone: ZoneId): VisitInfo?
+    /** [language]: the listener's language; all free text (admission, walk note, what to expect) comes back in it. */
+    suspend fun lookup(place: PlaceCandidate, area: AreaLabel?, nowMs: Long, zone: ZoneId, language: String): VisitInfo?
 }
 
 object Visits {
@@ -158,13 +190,14 @@ class VisitScout(
     private val openAi: OpenAiClient,
     private val models: () -> ModelConfig,
 ) : VisitSource {
-    override suspend fun lookup(place: PlaceCandidate, area: AreaLabel?, nowMs: Long, zone: ZoneId): VisitInfo? {
+    override suspend fun lookup(place: PlaceCandidate, area: AreaLabel?, nowMs: Long, zone: ZoneId, language: String): VisitInfo? {
         val now = Instant.ofEpochMilli(nowMs).atZone(zone)
         val input = buildJsonObject {
             put("place", place.name)
             put("category", place.category)
             area?.let { a -> put("area", listOfNotNull(a.city, a.region, a.countryCode).joinToString(", ")) }
             put("coordinates", "%.4f, %.4f".format(java.util.Locale.ROOT, place.point.lat, place.point.lon))
+            put("output_language", "${com.gpsradio.core.lang.Languages.displayName(language)} ($language)")
             put("local_date", now.format(DateTimeFormatter.ISO_LOCAL_DATE))
             put("weekday", now.dayOfWeek.name.lowercase())
             place.openingHours?.let { put("osm_opening_hours", it) }
@@ -198,7 +231,8 @@ Report only what you can confirm for today's date and weekday; use null/"" for a
 - walk_effort: none, easy, moderate or difficult (from parking/stop to the sight); walk_note: one short line, e.g.
   "15 min uphill on a gravel path", or "".
 - expect: one or two short lines on what a visitor will find (view, crowds, parking, facilities), or "".
-- source_url: the page you used. Plain English, no marketing language.
+- source_url: the page you used. Write admission, walk_note and expect in output_language (translate what you
+  found); no marketing language.
 """
 
         val schema: JsonObject = buildJsonObject {

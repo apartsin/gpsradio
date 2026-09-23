@@ -102,4 +102,32 @@ class VoiceFirstTest {
             s.stop(); runCurrent()
         }
     }
+
+    @Test
+    fun noEnglishFallbackLinesForOtherLanguages() = kotlinx.coroutines.runBlocking {
+        val server = okhttp3.mockwebserver.MockWebServer()
+        repeat(4) { server.enqueue(okhttp3.mockwebserver.MockResponse().setResponseCode(500)) }
+        server.start()
+        try {
+            val agent = com.gpsradio.core.ai.RadioAgent(
+                com.gpsradio.core.ai.OpenAiClient(okhttp3.OkHttpClient(), { "sk-test" }, server.url("/v1").toString()),
+                { com.gpsradio.core.ai.ModelConfig() },
+            )
+            // The model is down: an English listener gets the English fallback, a Russian one gets nothing (skipped).
+            assertEquals(com.gpsradio.core.ai.HostLine.TRIP_QUESTION.fallback, agent.hostLine(com.gpsradio.core.ai.HostLine.TRIP_QUESTION, "en-US", HostStyle.ENTERTAINING))
+            assertEquals("", agent.hostLine(com.gpsradio.core.ai.HostLine.TRIP_QUESTION, "ru-RU", HostStyle.ENTERTAINING))
+            assertEquals("Turn left.", agent.hostLine(com.gpsradio.core.ai.HostLine.TOUR_NEXT, "Turn left.", "en-GB", HostStyle.ENTERTAINING))
+            assertEquals("", agent.hostLine(com.gpsradio.core.ai.HostLine.TOUR_NEXT, "Turn left.", "ru-RU", HostStyle.ENTERTAINING))
+        } finally {
+            runCatching { server.shutdown() }
+        }
+    }
+
+    @Test
+    fun visitSummaryIsInTheListenersLanguage() {
+        val v = com.gpsradio.core.visit.VisitInfo(true, "10:00–17:00", "взрослые 8 €", "visit", 45, "easy")
+        assertEquals("открыто 10:00–17:00 · взрослые 8 € · ~45 мин · лёгкая прогулка", v.summary("ru-RU"))
+        assertEquals("open 10:00–17:00 · взрослые 8 € · ~45 min visit · easy walk", v.summary("en-US"))
+        assertEquals("сегодня закрыто", com.gpsradio.core.visit.VisitInfo(openToday = false).summary("ru"))
+    }
 }
