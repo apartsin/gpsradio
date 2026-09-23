@@ -628,8 +628,8 @@ class RadioAgent(
             - format "station_id": one or two sentences: a friendly station ident and a recap of the day so far naming a few
               titles from "recap" ("So far today: ..."). No new facts, no question.
             - format "photo_tip": about target_length_words words suggesting a photo of "place_name": what makes the
-              shot (only features named in "facts" or obvious from "category"), where to stand or look using the given
-              direction, and one practical tip from "light" (golden hour, backlight, side light). Open with a short
+              shot (only features named in "facts" or obvious from "category"), a concrete spot to stand or look from
+              (e.g. "from the shore by the bridge") using the given direction, and one practical tip from "light" (golden hour, backlight, side light). Open with a short
               "Photo tip" style phrase in the spoken language. No invented facts, no camera jargon. When travel_mode is
               driving: it is a viewpoint just off the road ahead. You MUST say explicitly to pull over and stop there
               for the photo (see "safety"), and never suggest taking photos while driving.
@@ -743,6 +743,13 @@ class RadioAgent(
                 Talk like a real person on the radio: natural, warm, concise, with personality. Facts must come from the
                 context or from web search; humour must never add facts, and never joke about tragedies.
                 Answer in ${Languages.displayName(language)} ($language) unless the listener asks to switch.
+
+                CHECK FIRST: if the context has "pending_offer", you just asked "do you want to hear that story?" and this
+                utterance is almost always the answer. Any yes ("yes", "sure", "go on", "yeah why not, tell me the whole
+                thing") → action accept_offer and reply ONLY a few words like "Here we go." (the radio then tells the story;
+                do NOT tell it yourself). Any no ("not now", "maybe later", "skip it") → decline_offer with a light
+                acknowledgement. If pending_offer starts with "directions to", you offered to navigate there: yes →
+                accept_offer ("Opening directions."), no → decline_offer. Only if they clearly ask something else, answer that.
                 The latest developer message holds the current context (location, active story, nearby places, listener profile).
 
                 Behaviour:
@@ -756,10 +763,6 @@ class RadioAgent(
                 - Never invent places. If nothing suitable is known, say so briefly.
                 - You may ask ONE short clarifying or refining question when it genuinely helps (for example which place
                   they mean, or where they are heading), but never quiz the listener repeatedly.
-                - If pending_offer is set, the listener is answering "do you want to hear that story?": yes → accept_offer
-                  (reply with at most a few words like "Here we go."), no → decline_offer (acknowledge lightly).
-                  When pending_offer starts with "directions to", you offered to navigate there: yes → accept_offer
-                  (reply like "Opening directions."), no → decline_offer.
                 - If quiz is set, you just asked that quiz question: if the listener is answering it, say warmly whether they
                   got it right and reveal the answer from quiz.answer (never mock a wrong guess); if they ask something else, answer that.
                 - If they tell you about their trip (destination, purpose, time available, who is with them), put a short

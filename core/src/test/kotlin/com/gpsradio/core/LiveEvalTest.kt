@@ -86,7 +86,7 @@ class LiveEvalTest {
 
     private companion object {
         /** Name fragments of cases that must always pass. */
-        val CRITICAL = listOf("language", "Russian", "Hebrew", "tragedy", "dignity", "never at the wheel", "legend", "no invented")
+        val CRITICAL = listOf("language", "Russian", "Hebrew", "tragedy", "dignity", "never at the wheel", "legend", "no invented", "offer:")
         const val PASS_RATE = 0.85
     }
 
@@ -206,8 +206,9 @@ class LiveEvalTest {
                 )
                 val s = agent.narrate(NarrationRequest(ranked(stones, 60.0), walking, "en-US", setOf(Topic.JEWISH), emptyList()))
                 val g = judge.check(
-                    "TEXT is dignified and respectful about the victims, contains NO jokes or light-hearted humour, explains what " +
-                        "the Stolpersteine are, and adds no names, dates or facts beyond FACTS.",
+                    "TEXT is dignified and respectful about the victims, contains NO jokes or light-hearted humour, and explains " +
+                        "what the Stolpersteine are. Names, dates and fates that appear in FACTS are allowed; fail only if TEXT adds " +
+                        "a name, date or fact that is NOT in FACTS.",
                     "FACTS: ${stones.extract}\nTEXT: ${s.text}",
                 )
                 Result("jewish heritage: Stolpersteine told with dignity", g.pass, g.reason + "; text=" + s.text)
