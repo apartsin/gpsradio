@@ -238,7 +238,8 @@ class RadioSession(
     fun pause() = scope.launch { doPause() }
 
     fun resume() = scope.launch {
-        if (_state.value.radioState == RadioState.IDLE) return@launch
+        val st = _state.value.radioState
+        if (st == RadioState.IDLE || st == RadioState.NARRATING || st == RadioState.RESEARCHING) return@launch
         endConversation()
         tick()
     }
@@ -260,6 +261,8 @@ class RadioSession(
     }
 
     fun skip() = scope.launch {
+        closeLive()
+        clearOffer()
         val wasSpeaking = speechJob?.isActive == true
         speechJob?.cancel()
         if (wasSpeaking) {
@@ -275,6 +278,7 @@ class RadioSession(
     }
 
     fun repeat() = scope.launch {
+        closeLive()
         val bytes = lastAudio ?: return@launch
         speechJob?.cancel()
         val previous = _state.value.radioState
@@ -294,6 +298,8 @@ class RadioSession(
     /** User picked a place in the UI: narrate it now, even if heard before. */
     fun tellAbout(placeId: String) = scope.launch {
         val c = ranked.firstOrNull { it.place.id == placeId } ?: return@launch
+        closeLive()
+        clearOffer()
         speechJob?.cancel()
         if (_state.value.radioState == RadioState.IDLE) return@launch
         speakStory(c)
@@ -352,6 +358,7 @@ class RadioSession(
     /** Answer to "want the full story?" from the on-screen buttons. */
     fun answerOffer(yes: Boolean) = scope.launch {
         val offer = pendingOffer ?: return@launch
+        closeLive()
         speechJob?.cancel()
         if (yes) acceptOffer(offer) else declineOffer(offer)
     }
@@ -598,7 +605,10 @@ class RadioSession(
         setRadioState(RadioState.CONVERSING)
     }
 
+    /** Leaves conversation mode: closes any live voice session and drops an unanswered offer. */
     private fun endConversation() {
+        closeLive()
+        clearOffer()
         engagedUntilMs = 0
         setRadioState(RadioState.RADIO)
     }
@@ -750,8 +760,9 @@ class RadioSession(
     }
 
     private fun closeLive() {
-        live?.end()
+        val l = live ?: return
         live = null
+        l.end()
     }
 
     private fun conversationRequest(utterance: String) = ConversationRequest(
@@ -772,7 +783,7 @@ class RadioSession(
 
     private val liveHost = object : LiveHost {
         override fun liveInstructions() = RadioAgent.liveInstructions(conversationRequest(""))
-        override fun liveVoice() = config().voice
+        override fun liveVoice() = com.gpsradio.core.ai.RealtimeProtocol.liveVoice(config().voice)
         override fun liveModel() = config().liveModel
         override fun transcriptionModel() = config().transcriptionModel
 
@@ -802,7 +813,7 @@ class RadioSession(
         }
 
         override fun onLiveError(message: String) {
-            fail("Voice conversation unavailable: $message. Hold the mic to ask instead.")
+            fail("Voice conversation unavailable: $message. You can type your question instead.")
         }
     }
 
@@ -938,6 +949,7 @@ class RadioSession(
     }
 
     private fun doPause() {
+        closeLive()
         if (speechJob?.isActive == true) lastSpeechEndMs = clock()
         speechJob?.cancel()
         // An interrupted story is not marked heard, so it stays a candidate and can air again.

@@ -152,7 +152,12 @@ fun RadioScreen(vm: MainViewModel, onOpenSettings: () -> Unit, autoStart: Boolea
             locationDenied = true
         }
     }
-    val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    var micGranted by remember { mutableStateOf(granted(Manifest.permission.RECORD_AUDIO)) }
+    val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+        micGranted = ok
+        // Re-start the running service so it gains the microphone type (hands-free with the screen off).
+        if (ok && state.radioState != com.gpsradio.core.model.RadioState.IDLE) vm.startRadio()
+    }
 
     val start = {
         if (granted(Manifest.permission.ACCESS_FINE_LOCATION) || granted(Manifest.permission.ACCESS_COARSE_LOCATION)) {
@@ -203,7 +208,8 @@ fun RadioScreen(vm: MainViewModel, onOpenSettings: () -> Unit, autoStart: Boolea
         state = state,
         recording = recording,
         actions = actions,
-        liveMode = settings.liveVoice,
+        // Natural voice needs the mic; until it's granted, the mic falls back to hold-to-talk (which asks for it).
+        liveMode = settings.liveVoice && micGranted,
         locationDenied = locationDenied,
         onOpenAppSettings = {
             context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null)))

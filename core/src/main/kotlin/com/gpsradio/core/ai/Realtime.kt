@@ -134,6 +134,12 @@ object RealtimeProtocol {
         }
     }
 
+    /** Voices the Realtime model accepts; others (TTS-only) fall back to [DEFAULT_VOICE]. */
+    val voices = setOf("alloy", "ash", "ballad", "coral", "echo", "sage", "shimmer", "verse", "marin", "cedar")
+    const val DEFAULT_VOICE = "coral"
+
+    fun liveVoice(requested: String): String = requested.lowercase().takeIf { it in voices } ?: DEFAULT_VOICE
+
     /** Tools the voice host can use; the session implements them. */
     val tools: List<RealtimeTool> = listOf(
         RealtimeTool(
@@ -212,6 +218,11 @@ class RealtimeClient(
                 channel.trySend(RealtimeEvent.Error(msg))
                 channel.trySend(RealtimeEvent.Closed(msg))
                 channel.close()
+            }
+
+            override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                // Server-initiated close: acknowledge so onClosed fires and the session ends promptly.
+                webSocket.close(1000, null)
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {

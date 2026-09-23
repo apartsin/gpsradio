@@ -271,4 +271,93 @@ class LiveVoiceTest {
             assertTrue(c.closed)
         }
     }
+
+    @Test
+    fun radioControlsCloseAnOpenLiveConversation() = runTest {
+        val r = Radio(listOf(place("a", Geo.destination(here, 0.0, 100.0))))
+        val conns = mutableListOf<FakeConnection>()
+        val pcm = FakePcm()
+        val s = session(r, conns, pcm)
+        running(s) {
+            for ((name, control) in listOf<Pair<String, () -> Unit>>("resume" to { s.resume() }, "skip" to { s.skip() }, "pause" to { s.pause() }, "repeat" to { s.repeat() })) {
+                s.toggleLive(); runCurrent()
+                val c = conns.last()
+                c.server.trySend(RealtimeEvent.SessionReady); runCurrent()
+                assertTrue(pcm.capturing)
+                control(); runCurrent()
+                assertTrue(c.closed, "$name must close the live session")
+                assertEquals(false, pcm.capturing)
+                assertNull(s.state.value.live)
+                s.resume(); runCurrent()
+            }
+        }
+    }
+
+    @Test
+    fun typedQuestionWhileHostSpeaksCancelsTheActiveResponse() = runTest {
+        val r = Radio(listOf(place("a", Geo.destination(here, 0.0, 100.0))))
+        val conns = mutableListOf<FakeConnection>()
+        val pcm = FakePcm()
+        val s = session(r, conns, pcm)
+        running(s) {
+            s.toggleLive(); runCurrent()
+            val c = conns.single()
+            c.server.trySend(RealtimeEvent.SessionReady)
+            c.server.trySend(RealtimeEvent.AudioDelta(ByteArray(480))); runCurrent()
+            s.ask("Actually, what about the lake?"); runCurrent()
+            val types = c.types()
+            val cancel = types.lastIndexOf("response.cancel")
+            assertTrue(cancel >= 0 && cancel < types.lastIndexOf("conversation.item.create"), types.toString())
+            assertEquals("response.create", types.last())
+            // Leftover audio of the cancelled answer is not played.
+            val before = pcm.played
+            c.server.trySend(RealtimeEvent.AudioDelta(ByteArray(480))); runCurrent()
+            assertEquals(before, pcm.played)
+        }
+    }
+
+    @Test
+    fun setupErrorBeforeAnyAudioEndsLiveWithAMessage() = runTest {
+        val r = Radio(listOf(place("a", Geo.destination(here, 0.0, 100.0))))
+        val conns = mutableListOf<FakeConnection>()
+        val s = session(r, conns, FakePcm())
+        running(s) {
+            s.toggleLive(); runCurrent()
+            val c = conns.single()
+            c.server.trySend(RealtimeEvent.SessionReady)
+            c.server.trySend(RealtimeEvent.Error("Invalid value: 'onyx'. Supported values are: ...")); runCurrent()
+            assertNull(s.state.value.live)
+            assertTrue(c.closed)
+            assertTrue(s.state.value.status!!.text.startsWith("Voice conversation unavailable"))
+        }
+    }
+
+    @Test
+    fun ttsOnlyVoicesFallBackForTheLiveModel() {
+        assertEquals("coral", RealtimeProtocol.liveVoice("onyx"))
+        assertEquals("marin", RealtimeProtocol.liveVoice("Marin"))
+    }
+
+    @Test
+    fun backToRadioDropsAPendingOffer() = runTest {
+        val rich = "The castle was built on a rock in the lake. ".repeat(30)
+        val r = Radio(
+            listOf(
+                place("a", Geo.destination(here, 0.0, 100.0)),
+                place("b", Geo.destination(here, 90.0, 110.0)),
+                place("c", Geo.destination(here, 180.0, 120.0)).copy(extract = rich),
+            ),
+        )
+        val conns = mutableListOf<FakeConnection>()
+        val s = session(r, conns, FakePcm())
+        running(s) {
+            s.onLocation(LocationSample(here.lat, here.lon, 5f, 1_000_000, 0f)); runCurrent()
+            var t = 0
+            while (s.state.value.pendingOffer == null && t < 600) { advanceTimeBy(1_000); runCurrent(); t++ }
+            assertEquals("c", s.state.value.pendingOffer)
+            s.resume(); runCurrent()
+            assertNull(s.state.value.pendingOffer)
+            assertTrue(conns.all { it.closed })
+        }
+    }
 }

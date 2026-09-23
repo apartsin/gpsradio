@@ -49,7 +49,7 @@ class LiveConversation(
     private val audio: PcmAudio,
     private val host: LiveHost,
     private val scope: CoroutineScope,
-    private val idleTimeoutMs: Long = 25_000,
+    private val idleTimeoutMs: Long = 15_000,
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
     private var connection: RealtimeConnection? = null
@@ -58,6 +58,10 @@ class LiveConversation(
     private var lastActivityMs = 0L
     private var speaking = false
     private var pendingOpening: String? = null
+    private var gotFirstAudio = false
+    /** After a barge-in, drop leftover audio from the interrupted response until it is done. */
+    private var dropStaleAudio = false
+    private var toolRunning = false
 
     @Volatile
     var isOpen: Boolean = false
@@ -90,7 +94,7 @@ class LiveConversation(
         watchdog = scope.launch {
             while (isOpen) {
                 delay(1_000)
-                if (!speaking && clock() - lastActivityMs > idleTimeoutMs) {
+                if (!speaking && !toolRunning && clock() - lastActivityMs > idleTimeoutMs) {
                     end()
                     break
                 }
@@ -102,6 +106,13 @@ class LiveConversation(
     fun sendText(text: String) {
         val conn = connection ?: return
         lastActivityMs = clock()
+        if (speaking) {
+            // Only one response can be active: interrupt the current one first.
+            conn.send(RealtimeProtocol.cancelResponse())
+            audio.stopPlayback()
+            speaking = false
+            dropStaleAudio = true
+        }
         conn.send(RealtimeProtocol.userText(text))
         conn.send(RealtimeProtocol.responseCreate())
     }
@@ -136,6 +147,7 @@ class LiveConversation(
             RealtimeEvent.SpeechStarted -> {
                 // Barge-in: the listener talks over the host, so stop the host immediately.
                 lastActivityMs = clock()
+                if (speaking) dropStaleAudio = true
                 speaking = false
                 audio.stopPlayback()
                 host.onLiveState(LiveState.USER_SPEAKING)
@@ -146,6 +158,8 @@ class LiveConversation(
             }
             is RealtimeEvent.UserTranscript -> host.onUserSaid(e.text)
             is RealtimeEvent.AudioDelta -> {
+                if (dropStaleAudio) return
+                gotFirstAudio = true
                 lastActivityMs = clock()
                 if (!speaking) host.onLiveState(LiveState.ASSISTANT_SPEAKING)
                 speaking = true
@@ -155,12 +169,16 @@ class LiveConversation(
             is RealtimeEvent.FunctionCall -> {
                 lastActivityMs = clock()
                 val args = runCatching { json.parseToJsonElement(e.arguments).jsonObject }.getOrElse { buildJsonObject { } }
+                toolRunning = true
                 val output = try {
                     host.callTool(e.name, args)
                 } catch (ex: CancellationException) {
                     throw ex
                 } catch (ex: Exception) {
                     "error: ${ex.message}"
+                } finally {
+                    toolRunning = false
+                    lastActivityMs = clock()
                 }
                 // A tool may have ended the conversation (e.g. "back to the radio").
                 if (isOpen) {
@@ -171,13 +189,18 @@ class LiveConversation(
             RealtimeEvent.ResponseDone -> {
                 lastActivityMs = clock()
                 speaking = false
+                dropStaleAudio = false
                 if (isOpen) host.onLiveState(LiveState.LISTENING)
             }
             is RealtimeEvent.Error -> {
-                // Non-fatal errors (e.g. a cancelled response) keep the conversation open.
-                if (e.message.contains("API key") || e.message.startsWith("HTTP") || e.message.contains("failed")) fail(e.message)
+                // Before the host has spoken, an error means setup failed (bad key, rejected session.update):
+                // surface it. Later errors (e.g. a cancelled response) keep the conversation open.
+                val fatal = !gotFirstAudio || e.message.contains("API key") || e.message.startsWith("HTTP") || e.message.contains("failed")
+                if (fatal) fail(e.message)
             }
-            is RealtimeEvent.Closed -> if (isOpen) end()
+            is RealtimeEvent.Closed -> if (isOpen) {
+                if (!gotFirstAudio) fail(e.reason.ifBlank { "connection closed" }) else end()
+            }
         }
     }
 
