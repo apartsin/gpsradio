@@ -15,7 +15,7 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 /**
- * Plays one MP3 clip with transient audio focus (ducking music/navigation), and stops
+ * Plays one MP3 (OpenAI) or WAV (on-device voice) clip with transient audio focus (ducking music/navigation), and stops
  * immediately when the coroutine is cancelled (skip, barge-in, pause).
  */
 class MediaAudioOutput(
@@ -32,8 +32,11 @@ class MediaAudioOutput(
 
     override suspend fun play(audio: ByteArray) {
         if (audio.isEmpty()) return
+        // OpenAI speech is MP3; the on-device voice renders WAV ("RIFF" header).
+        val isWav = audio.size > 4 && audio[0] == 'R'.code.toByte() && audio[1] == 'I'.code.toByte() &&
+            audio[2] == 'F'.code.toByte() && audio[3] == 'F'.code.toByte()
         val file = withContext(Dispatchers.IO) {
-            File.createTempFile("segment", ".mp3", context.cacheDir).apply { writeBytes(audio) }
+            File.createTempFile("segment", if (isWav) ".wav" else ".mp3", context.cacheDir).apply { writeBytes(audio) }
         }
         val focus = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
             .setAudioAttributes(attributes)

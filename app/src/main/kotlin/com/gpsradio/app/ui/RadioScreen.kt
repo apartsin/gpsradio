@@ -469,7 +469,29 @@ private fun NowPlaying(state: RadioUiState) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp)) {
             Text(title, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+            // "Why this story?" in one line, e.g. "Close by (200 m) · matches your interest in history".
+            if (seg != null) state.nowPlayingReason?.let { reason ->
+                Text(
+                    reason,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             Text(text, style = MaterialTheme.typography.bodyLarge)
+            // How well-founded the story is: "Documented" / "Includes legend".
+            seg?.basis?.let { basis ->
+                Text(
+                    basis.label,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    modifier = Modifier
+                        .padding(top = 6.dp)
+                        .background(MaterialTheme.colorScheme.secondaryContainer, MaterialTheme.shapes.small)
+                        .padding(horizontal = 8.dp, vertical = 2.dp),
+                )
+            }
             sources.take(3).forEach { src ->
                 Text(
                     "Source: ${src.title}",

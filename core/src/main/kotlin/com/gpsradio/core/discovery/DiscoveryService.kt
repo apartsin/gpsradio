@@ -5,8 +5,12 @@ import com.gpsradio.core.geo.Geo
 import com.gpsradio.core.model.GeoPoint
 import com.gpsradio.core.model.PlaceCandidate
 import com.gpsradio.core.model.ResearchStatus
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withContext
+import java.io.IOException
 import kotlin.math.min
 
 /** Something that can list grounded nearby entities. A future backend can implement this too. */
@@ -30,6 +34,11 @@ class DiscoveryService(
     private val articlesPerLanguage: Int = 20,
     private val partialCacheTtlMs: Long = 5 * 60_000L,
     private val maxOsmRadiusM: Int = 3_000,
+    /** Areas kept on disk so previously visited places still work offline; null keeps memory only. */
+    private val diskCache: AreaDiskCache? = null,
+    /** Network state; when offline, cached areas are served without trying the network. */
+    private val isOnline: () -> Boolean = { true },
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : PlacesProvider {
 
     private data class CacheEntry(val atMs: Long, val places: List<PlaceCandidate>, val ttlMs: Long)
@@ -41,6 +50,7 @@ class DiscoveryService(
     override suspend fun discover(center: GeoPoint, radiusM: Int, languageBase: String): List<PlaceCandidate> {
         val key = cacheKey(center, radiusM, languageBase)
         synchronized(cache) { cache[key] }?.let { if (clock() - it.atMs < it.ttlMs) return it.places }
+        if (!isOnline()) return fromDisk(key, center, radiusM, languageBase, IOException("You're offline"))
 
         val query = Geo.quantize(center)
         val langs = listOf(languageBase, "en").distinct()
@@ -51,7 +61,7 @@ class DiscoveryService(
             wiki.map { it.await() } to osm.await()
         }
         val failures = wikiResults.mapNotNull { it.second.exceptionOrNull() } + listOfNotNull(osmResult.exceptionOrNull())
-        if (failures.size == wikiResults.size + 1) throw failures.first()
+        if (failures.size == wikiResults.size + 1) return fromDisk(key, center, radiusM, languageBase, failures.first())
 
         val merged = merge(
             wiki = wikiResults.flatMap { it.second.getOrDefault(emptyList()) },
@@ -61,7 +71,21 @@ class DiscoveryService(
         // Partial results (a source failed) are cached briefly so the missing source is retried soon.
         val ttl = if (failures.isEmpty()) cacheTtlMs else partialCacheTtlMs
         synchronized(cache) { cache[key] = CacheEntry(clock(), merged, ttl) }
+        // Only complete results go to disk, so an offline area is never a half-empty one.
+        if (failures.isEmpty() && diskCache != null) {
+            withContext(ioDispatcher) { synchronized(diskCache) { diskCache.put(key, center, radiusM, languageBase, merged) } }
+        }
         return merged
+    }
+
+    /** Offline or every source failed: serve previously visited places around here, or rethrow [cause]. */
+    private suspend fun fromDisk(key: String, center: GeoPoint, radiusM: Int, languageBase: String, cause: Throwable): List<PlaceCandidate> {
+        val disk = diskCache ?: throw cause
+        val places = withContext(ioDispatcher) { synchronized(disk) { disk.around(center, radiusM, languageBase) } }
+        if (places.isEmpty()) throw cause
+        // Keep briefly in memory; the network is tried again once it expires.
+        synchronized(cache) { cache[key] = CacheEntry(clock(), places, partialCacheTtlMs) }
+        return places
     }
 
     private suspend fun wikiCandidates(lang: String, center: GeoPoint, radiusM: Int): List<PlaceCandidate> {

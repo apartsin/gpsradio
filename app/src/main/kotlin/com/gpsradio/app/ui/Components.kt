@@ -100,7 +100,7 @@ fun StatusCard(state: RadioUiState, onMode: (TravelMode?) -> Unit, onFixKey: () 
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(st.text, color = color, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
-                    if (st.needsKey) TextButton(onClick = onFixKey) { Text("Open Settings") }
+                    if (st.needsKey) TextButton(onClick = onFixKey) { Text(st.actionLabel ?: "Open Settings") }
                 }
             }
         }

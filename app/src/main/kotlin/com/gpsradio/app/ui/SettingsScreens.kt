@@ -55,7 +55,12 @@ private const val AUTO = "auto"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SetupScreen(settings: AppSettings, onSave: (AppSettings) -> Unit) {
+fun SetupScreen(
+    settings: AppSettings,
+    onSave: (AppSettings) -> Unit,
+    /** Keyless preview: start listening with Wikipedia facts read by the phone's own voice. */
+    onTryWithoutKey: (AppSettings) -> Unit = {},
+) {
     Scaffold(topBar = { TopAppBar(title = { Text("Welcome to GPS Radio") }) }) { pad ->
         SettingsForm(
             initial = settings,
@@ -67,6 +72,9 @@ fun SetupScreen(settings: AppSettings, onSave: (AppSettings) -> Unit) {
             saveLabel = "Save and start listening",
             showAdvanced = false,
             onSave = onSave,
+            secondaryLabel = "Try without a key (on-device voice)",
+            secondaryHint = "Short notes from Wikipedia, read by your phone's voice. Questions need a key.",
+            onSecondary = { onTryWithoutKey(it.copy(apiKey = "", previewMode = true)) },
         )
     }
 }
@@ -97,6 +105,8 @@ fun SettingsScreen(
             saveLabel = "Save",
             showAdvanced = true,
             onSave = onSave,
+            // In the keyless preview, other settings can be saved before a key is added.
+            requireKey = !settings.previewMode,
             extra = {
                 MemorySection(memory, onForgetMemory, onForgetAllMemory)
                 OutlinedButton(onClick = onClearHistory, modifier = Modifier.fillMaxWidth()) {
@@ -117,6 +127,10 @@ private fun SettingsForm(
     showAdvanced: Boolean,
     onSave: (AppSettings) -> Unit,
     extra: @Composable () -> Unit = {},
+    requireKey: Boolean = true,
+    secondaryLabel: String? = null,
+    secondaryHint: String? = null,
+    onSecondary: (AppSettings) -> Unit = {},
 ) {
     var apiKey by remember { mutableStateOf(initial.apiKey) }
     var language by remember { mutableStateOf(if (initial.languageAuto) AUTO else initial.preferredLanguage) }
@@ -202,32 +216,36 @@ private fun SettingsForm(
             extra()
         }
 
+        fun collect() = initial.copy(
+            apiKey = apiKey.trim(),
+            languageAuto = language == AUTO,
+            preferredLanguage = if (language == AUTO) initial.preferredLanguage else language,
+            interests = interests,
+            hostStyle = hostStyle,
+            liveVoice = liveVoice,
+            // Adding a key ends the keyless preview.
+            previewMode = initial.previewMode && apiKey.isBlank(),
+            models = initial.models.copy(
+                narrationModel = narrationModel.trim().ifBlank { initial.models.narrationModel },
+                conversationModel = conversationModel.trim().ifBlank { initial.models.conversationModel },
+                ttsModel = ttsModel.trim().ifBlank { initial.models.ttsModel },
+                ttsVoice = ttsVoice.trim().ifBlank { initial.models.ttsVoice },
+                transcriptionModel = sttModel.trim().ifBlank { initial.models.transcriptionModel },
+                realtimeModel = realtimeModel.trim().ifBlank { initial.models.realtimeModel },
+            ),
+        )
+
         Spacer(Modifier.height(4.dp))
         Row {
             Button(
-                enabled = apiKey.isNotBlank(),
+                enabled = apiKey.isNotBlank() || !requireKey,
                 modifier = Modifier.fillMaxWidth(),
-                onClick = {
-                    onSave(
-                        initial.copy(
-                            apiKey = apiKey.trim(),
-                            languageAuto = language == AUTO,
-                            preferredLanguage = if (language == AUTO) initial.preferredLanguage else language,
-                            interests = interests,
-                            hostStyle = hostStyle,
-                            liveVoice = liveVoice,
-                            models = initial.models.copy(
-                                narrationModel = narrationModel.trim().ifBlank { initial.models.narrationModel },
-                                conversationModel = conversationModel.trim().ifBlank { initial.models.conversationModel },
-                                ttsModel = ttsModel.trim().ifBlank { initial.models.ttsModel },
-                                ttsVoice = ttsVoice.trim().ifBlank { initial.models.ttsVoice },
-                                transcriptionModel = sttModel.trim().ifBlank { initial.models.transcriptionModel },
-                                realtimeModel = realtimeModel.trim().ifBlank { initial.models.realtimeModel },
-                            ),
-                        ),
-                    )
-                },
+                onClick = { onSave(collect()) },
             ) { Text(saveLabel) }
+        }
+        if (secondaryLabel != null) {
+            OutlinedButton(onClick = { onSecondary(collect()) }, modifier = Modifier.fillMaxWidth()) { Text(secondaryLabel) }
+            secondaryHint?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
         }
     }
 }

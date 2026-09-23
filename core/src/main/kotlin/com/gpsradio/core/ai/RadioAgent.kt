@@ -52,6 +52,10 @@ data class Segment(
     val sources: List<SourceRef>,
     val imageUrl: String? = null,
     val point: GeoPoint? = null,
+    /** Model-judged basis of the story's claims; null when unknown (plain-text reply or on-device notes). */
+    val basis: StoryBasis? = null,
+    /** Language of [text] when it differs from the session language (on-device notes read a source extract). */
+    val language: String? = null,
 )
 
 data class NarrationRequest(
@@ -128,6 +132,8 @@ data class ModelConfig(
 class RadioAgent(
     private val openAi: OpenAiClient,
     private val models: () -> ModelConfig,
+    /** Ask for {text, basis} JSON so the UI can show how well-founded a story is; plain text still parses. */
+    private val structuredNarration: Boolean = true,
 ) : Narrator {
 
     override suspend fun narrate(req: NarrationRequest): Segment {
@@ -148,16 +154,17 @@ class RadioAgent(
             put("format", req.format.name.lowercase())
             req.tripContext?.let { put("trip", it) }
         }
-        val res = openAi.respond(
-            OpenAiClient.ResponseRequest(
-                model = models().narrationModel,
-                instructions = narrationInstructions(req.language, req.style),
-                input = listOf(OpenAiClient.Message("user", context.toString())),
-                maxOutputTokens = 900,
-            ),
+        val request = OpenAiClient.ResponseRequest(
+            model = models().narrationModel,
+            instructions = narrationInstructions(req.language, req.style),
+            input = listOf(OpenAiClient.Message("user", context.toString())),
+            jsonSchema = if (structuredNarration) "radio_story" to storySchema else null,
+            maxOutputTokens = 900,
         )
+        val res = if (structuredNarration) respondStructured(request) else openAi.respond(request)
+        val (text, basis) = parseNarration(res.text)
         val sources = listOfNotNull(c.place.url?.let { SourceRef(c.place.name, it) })
-        return Segment(cleanForSpeech(res.text), c.place.id, c.place.name, sources, c.place.imageUrl, c.place.point)
+        return Segment(text, c.place.id, c.place.name, sources, c.place.imageUrl, c.place.point, basis = basis)
     }
 
     override suspend fun converse(req: ConversationRequest, onSearching: suspend () -> Unit): ConversationReply {
@@ -278,8 +285,38 @@ class RadioAgent(
             - format "teaser": instead of the full story, give a one or two sentence irresistible hook and end by asking
               whether they want to hear the story (for example "Want the full story?"). Do not tell the story itself yet.
             - Speak ${Languages.displayName(language)} ($language). Keep original place names, adding a short translation when useful.
-            - Output plain spoken text only: no lists, markdown, URLs, emojis or stage directions.
+            - The spoken text is plain speech only: no lists, markdown, URLs, emojis or stage directions.
+            - When a JSON format is requested, put the spoken segment in "text" and set "basis" to how well-founded
+              its claims are: documented (all from the facts), disputed (includes contested claims), legend (mostly
+              folklore or legend), mixed (documented facts plus some legend or disputed claims).
         """.trimIndent()
+
+        /** Structured narration: the spoken text plus the basis of its claims. */
+        val storySchema: JsonObject = buildJsonObject {
+            put("type", "object")
+            put("additionalProperties", false)
+            putJsonObject("properties") {
+                putJsonObject("text") { put("type", "string") }
+                putJsonObject("basis") {
+                    put("type", "string")
+                    putJsonArray("enum") { StoryBasis.entries.forEach { add(JsonPrimitive(it.key)) } }
+                }
+            }
+            putJsonArray("required") { add(JsonPrimitive("text")); add(JsonPrimitive("basis")) }
+        }
+
+        /** Parses {text, basis} JSON, or treats the whole reply as plain spoken text (basis unknown). */
+        fun parseNarration(raw: String): Pair<String, StoryBasis?> {
+            val trimmed = raw.trim()
+            if (trimmed.startsWith("{")) {
+                val obj = runCatching { json.parseToJsonElement(trimmed).jsonObject }.getOrNull()
+                val text = (obj?.get("text") as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() }
+                if (obj != null && text != null) {
+                    return cleanForSpeech(text) to StoryBasis.parse((obj["basis"] as? JsonPrimitive)?.contentOrNull)
+                }
+            }
+            return cleanForSpeech(trimmed) to null
+        }
 
         fun conversationContext(req: ConversationRequest): String {
             val loc = req.location

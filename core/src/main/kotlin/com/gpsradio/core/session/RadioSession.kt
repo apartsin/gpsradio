@@ -16,6 +16,7 @@ import com.gpsradio.core.ai.Segment
 import com.gpsradio.core.discovery.PlacesProvider
 import com.gpsradio.core.editorial.EditorialRanker
 import com.gpsradio.core.editorial.HeardHistory
+import com.gpsradio.core.editorial.StoryReason
 import com.gpsradio.core.geo.Geo
 import com.gpsradio.core.lang.Languages
 import com.gpsradio.core.ai.RadioAgent
@@ -75,7 +76,13 @@ data class FocusPlace(
 enum class StatusLevel { INFO, WORKING, ERROR }
 
 /** A user-facing status line. [needsKey] marks errors fixed by entering a valid API key. */
-data class Status(val text: String, val level: StatusLevel, val needsKey: Boolean = false)
+data class Status(
+    val text: String,
+    val level: StatusLevel,
+    val needsKey: Boolean = false,
+    /** Label for the key action (default "Open Settings"), e.g. "Add key" in preview mode. */
+    val actionLabel: String? = null,
+)
 
 data class RadioUiState(
     val radioState: RadioState = RadioState.IDLE,
@@ -85,6 +92,8 @@ data class RadioUiState(
     val theme: Topic? = null,
     val area: AreaLabel? = null,
     val nowPlaying: Segment? = null,
+    /** "Why this story?": e.g. "Close by (200 m) · matches your interest in history · well documented". */
+    val nowPlayingReason: String? = null,
     val focus: FocusPlace? = null,
     val memory: List<MemoryItem> = emptyList(),
     val favorites: List<FavoritePlace> = emptyList(),
@@ -131,6 +140,11 @@ class RadioSession(
     private val offerWindowMs: Long = 25_000,
     private val teaserGapMs: Long = 8 * 60_000L,
     private val teaserMinFactsChars: Int = 900,
+    /** On-device notes + voice used without a key or while OpenAI is unreachable (spec B §17). */
+    private val fallbackNarrator: Narrator? = null,
+    private val fallbackSpeech: SpeechService? = null,
+    /** Network state: when offline, stories go straight to the fallback and questions are declined quickly. */
+    private val isOnline: () -> Boolean = { true },
 ) {
     data class Timeouts(
         val narrationMs: Long = 25_000,
@@ -188,6 +202,7 @@ class RadioSession(
     private var backoffMs = 0L
     private var prefetched: Prepared? = null
     private var lastNearbyKey: List<Any>? = null
+    private val fallbackGate = FallbackGate(clock)
 
     private var schedulerJob: Job? = null
     private var discoveryJob: Job? = null
@@ -209,7 +224,7 @@ class RadioSession(
     fun start() = scope.launch {
         if (schedulerJob?.isActive == true) return@launch
         heard.restore(historyStore.load(), clock())
-        _state.update { it.copy(radioState = RadioState.RADIO, sessionLanguage = sessionLanguage, status = null) }
+        _state.update { it.copy(radioState = RadioState.RADIO, sessionLanguage = sessionLanguage, status = previewNote()) }
         schedulerJob = scope.launch {
             while (isActive) {
                 tick()
@@ -232,7 +247,7 @@ class RadioSession(
         pendingOffer = null
         tripAsked = false
         tripContext = null
-        _state.update { it.copy(radioState = RadioState.IDLE, nowPlaying = null, discovering = false, pendingOffer = null, tripContext = null) }
+        _state.update { it.copy(radioState = RadioState.IDLE, nowPlaying = null, nowPlayingReason = null, discovering = false, pendingOffer = null, tripContext = null) }
     }
 
     fun pause() = scope.launch { doPause() }
@@ -270,7 +285,7 @@ class RadioSession(
         pendingId = null
         engagedUntilMs = 0
         if (_state.value.radioState !in setOf(RadioState.IDLE, RadioState.PAUSED)) setRadioState(RadioState.RADIO)
-        _state.update { it.copy(nowPlaying = null) }
+        _state.update { it.copy(nowPlaying = null, nowPlayingReason = null) }
         rerank()
     }
 
@@ -314,6 +329,7 @@ class RadioSession(
         beginConversation()
         val hint = ranked.take(15).joinToString(", ") { it.place.name }
         speechJob = scope.launch {
+            if (questionsUnavailable()) { endConversation(); return@launch }
             val text = try {
                 setStatus("Transcribing…", StatusLevel.WORKING)
                 timed(timeouts.transcriptionMs, "Transcription") { speech.transcribe(audioBytes, fileName, mimeType, hint) }
@@ -337,7 +353,7 @@ class RadioSession(
     fun whatsNearby() = ask("What else is interesting nearby?")
 
     /** Whether the natural, hands-free voice is available and enabled. */
-    val liveVoiceEnabled: Boolean get() = liveFactory != null && config().liveVoice
+    val liveVoiceEnabled: Boolean get() = liveFactory != null && config().liveVoice && !config().previewMode
 
     /** Opens a hands-free voice conversation (tap the mic), or closes it if already open. */
     fun toggleLive() = scope.launch {
@@ -440,12 +456,12 @@ class RadioSession(
                 lastRefreshMode = ctx.travelMode
                 lastRefreshMs = clock()
                 lastRefreshLang = lang
-                if (_state.value.status?.text?.startsWith("Couldn't load") == true) setStatus(null)
+                if (_state.value.status?.text?.let { it.startsWith("Couldn't load") || it == OFFLINE_NO_PLACES } == true) setStatus(null)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 // Keep whatever is cached; never invent places to fill the gap. Retry in about a minute.
-                setStatus("Couldn't load nearby places. Retrying shortly…", StatusLevel.ERROR)
+                if (isOnline()) setStatus("Couldn't load nearby places. Retrying shortly…", StatusLevel.ERROR) else setStatus(OFFLINE_NO_PLACES)
                 lastRefreshMs = clock() - 14 * 60_000L
                 lastRefreshPoint = lastRefreshPoint ?: ctx.point
                 lastRefreshMode = lastRefreshMode ?: ctx.travelMode
@@ -501,9 +517,10 @@ class RadioSession(
                 activeId = c.place.id
                 lastAudio = bytes
                 addTranscript(TranscriptEntry(Speaker.RADIO, segment.text, clock(), c.place.id, segment.sources))
-                _state.update { it.copy(radioState = RadioState.NARRATING, nowPlaying = segment, focus = FocusPlace.of(c.place)) }
+                _state.update { it.copy(radioState = RadioState.NARRATING, nowPlaying = segment, nowPlayingReason = reasonFor(c), focus = FocusPlace.of(c.place)) }
                 loadGallery(c.place)
-                if (format == SegmentFormat.TEASER) {
+                // A teaser that failed over to on-device notes is told as a plain story instead.
+                if (format == SegmentFormat.TEASER && !fallbackGate.degraded) {
                     audio.play(bytes)
                     // Wait for "yes/no"; the story stays unheard until it is actually told.
                     pendingOffer = c.place
@@ -548,16 +565,53 @@ class RadioSession(
         format: SegmentFormat = SegmentFormat.STORY,
     ): Pair<Segment, ByteArray> {
         val cfg = config()
-        val segment = timed(timeouts.narrationMs, "Narration") {
-            narrator.narrate(
-                NarrationRequest(
-                    c, loc, lang, cfg.interests, recentTitles.toList(), memory.promptLines(),
-                    style = cfg.style, format = format, tripContext = tripContext,
-                ),
-            )
+        val request = NarrationRequest(
+            c, loc, lang, cfg.interests, recentTitles.toList(), memory.promptLines(),
+            style = cfg.style, format = format, tripContext = tripContext,
+        )
+        if (onDeviceNow()) return prepareOnDevice(request)
+        var segment: Segment? = null
+        return try {
+            val s = timed(timeouts.narrationMs, "Narration") { narrator.narrate(request) }
+            segment = s
+            val bytes = timed(timeouts.speechMs, "Speech") { speech.synthesize(s.text, lang, cfg.style) }
+            fallbackGate.onPrimarySuccess()
+            clearNotes(DEGRADED_NOTE, OFFLINE_NOTE)
+            s to bytes
+        } catch (e: Exception) {
+            // OpenAI unavailable: read the source notes on the device instead of going silent.
+            if (!hasFallback || !FallbackGate.isOutage(e)) throw e
+            fallbackGate.onPrimaryFailure()
+            prepareOnDevice(request, spoken = segment)
         }
-        val bytes = timed(timeouts.speechMs, "Speech") { speech.synthesize(segment.text, lang, cfg.style) }
+    }
+
+    private val hasFallback: Boolean get() = fallbackNarrator != null && fallbackSpeech != null
+
+    /** Keyless preview, offline, or OpenAI resting after an outage: narrate on the device. */
+    private fun onDeviceNow(): Boolean =
+        hasFallback && (config().previewMode || !isOnline() || fallbackGate.primaryResting())
+
+    /** On-device notes and voice; [spoken] is model text that was generated but could not be voiced. */
+    private suspend fun prepareOnDevice(req: NarrationRequest, spoken: Segment? = null): Pair<Segment, ByteArray> {
+        if (!config().previewMode) setStatus(if (isOnline()) DEGRADED_NOTE else OFFLINE_NOTE)
+        val segment = spoken?.takeIf { req.format == SegmentFormat.STORY }
+            ?: fallbackNarrator!!.narrate(req.copy(format = SegmentFormat.STORY))
+        val bytes = timed(timeouts.speechMs, "Speech") {
+            fallbackSpeech!!.synthesize(segment.text, segment.language ?: req.language, req.style)
+        }
         return segment to bytes
+    }
+
+    private fun clearNotes(vararg notes: String) {
+        if (_state.value.status?.text in notes) setStatus(null)
+    }
+
+    /** "Why this story?" from the score breakdown, using stated and learned interests. */
+    private fun reasonFor(c: RankedCandidate): String? {
+        val learned = memory.topicWeights()
+        val likes = (config().interests + learned.filterValues { it >= 0.7 }.keys) - learned.filterValues { it < 0.3 }.keys
+        return StoryReason.of(c, likes, _state.value.theme)
     }
 
     /** While a story plays, prepare the next likely one so it can start without "Preparing…" dead air. */
@@ -618,6 +672,7 @@ class RadioSession(
             ConversationAction.PAUSE -> { doPause(); return }
             else -> Unit
         }
+        if (questionsUnavailable()) { endConversation(); return }
         val active = activeId?.let { id -> ranked.firstOrNull { it.place.id == id } }
         val reply: ConversationReply = try {
             timed(timeouts.conversationMs, "Answer") {
@@ -742,6 +797,7 @@ class RadioSession(
     private fun openLive(opening: String?) {
         val factory = liveFactory ?: return
         if (live?.isOpen == true) return
+        if (questionsUnavailable()) return
         speechJob?.cancel()
         pendingId = null
         engagedUntilMs = Long.MAX_VALUE
@@ -868,7 +924,7 @@ class RadioSession(
         }
     }
 
-    private fun shouldTease(c: RankedCandidate): Boolean = teaserEligible(c) && storiesSinceTeaser >= 2
+    private fun shouldTease(c: RankedCandidate): Boolean = teaserEligible(c) && storiesSinceTeaser >= 2 && !onDeviceNow()
 
     private fun clearOffer() {
         pendingOffer = null
@@ -894,6 +950,8 @@ class RadioSession(
     private fun maybeAskAboutTrip(): Boolean {
         val loc = _state.value.location ?: return false
         if (tripAsked || tripContext != null || loc.travelMode != TravelMode.DRIVING) return false
+        // The question needs a model to understand the answer.
+        if (config().previewMode || !isOnline()) return false
         tripAsked = true
         if (liveVoiceEnabled) {
             // The live host asks in its natural voice and hears the answer hands-free.
@@ -980,8 +1038,25 @@ class RadioSession(
 
     private fun setRadioState(s: RadioState) = _state.update { it.copy(radioState = s) }
 
+    /** Clearing the status falls back to the preview-mode note while there is no key. */
     private fun setStatus(msg: String?, level: StatusLevel = StatusLevel.INFO) =
-        _state.update { it.copy(status = msg?.let { m -> Status(m, level) }) }
+        _state.update { it.copy(status = msg?.let { m -> Status(m, level) } ?: previewNote()) }
+
+    private fun previewNote(): Status? =
+        if (config().previewMode) Status(PREVIEW_NOTE, StatusLevel.INFO, needsKey = true, actionLabel = "Add key") else null
+
+    /** Questions need OpenAI: in preview mode or offline, say so (once per question) and return true. */
+    private fun questionsUnavailable(): Boolean {
+        val preview = config().previewMode
+        val msg = when {
+            preview -> PREVIEW_QUESTIONS
+            !isOnline() -> OFFLINE_QUESTIONS
+            else -> return false
+        }
+        _state.update { it.copy(status = Status(msg, StatusLevel.INFO, needsKey = preview, actionLabel = if (preview) "Add key" else null)) }
+        addTranscript(TranscriptEntry(Speaker.SYSTEM, msg, clock()))
+        return true
+    }
 
     private fun fail(msg: String) {
         val keyProblem = "API key" in msg || "401" in msg
@@ -995,6 +1070,13 @@ class RadioSession(
 
     companion object {
         fun langBase(tag: String): String = tag.substringBefore('-').lowercase()
+
+        const val PREVIEW_NOTE = "Preview mode — add an OpenAI key for full stories and questions"
+        const val PREVIEW_QUESTIONS = "Questions need an OpenAI key. Add one to ask about anything you pass."
+        const val OFFLINE_QUESTIONS = "You're offline, so I can't answer questions right now."
+        const val DEGRADED_NOTE = "OpenAI is unreachable, so I'm reading quick notes with the on-device voice."
+        const val OFFLINE_NOTE = "You're offline, so I'm reading quick notes with the on-device voice."
+        const val OFFLINE_NO_PLACES = "You're offline and no places around here are saved yet. Stories resume when you're back online."
 
         private val yes = setOf("yes", "yeah", "yep", "sure", "ok", "okay", "go on", "go ahead", "tell me", "please", "yes please", "да", "давай", "конечно", "ja", "oui", "sí", "si", "כן")
         private val no = setOf("no", "nope", "not now", "no thanks", "skip", "нет", "не надо", "nein", "non", "לא")

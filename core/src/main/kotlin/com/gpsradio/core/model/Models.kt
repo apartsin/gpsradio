@@ -57,7 +57,8 @@ enum class Topic(val key: String) {
 
 enum class ResearchStatus { UNRESEARCHED, RESEARCHING, READY, FAILED }
 
-/** A nearby entity from a places/geographic source (spec B §5.2). */
+/** A nearby entity from a places/geographic source (spec B §5.2). Serializable for the offline area cache. */
+@Serializable
 data class PlaceCandidate(
     val id: String,
     val name: String,

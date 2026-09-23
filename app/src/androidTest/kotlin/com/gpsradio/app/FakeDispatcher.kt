@@ -23,6 +23,10 @@ class FakeDispatcher : Dispatcher() {
             path.startsWith("/wiki/") -> json("""{"query":{"pages":[{"pageid":101,"title":"Schloss Ort",
                 "extract":"Schloss Ort is a castle in Gmunden on Lake Traun, built on an island and linked to the shore by a long wooden bridge. It dates back to the 11th century and became famous as the setting of a television series.",
                 "description":"castle in Upper Austria","pageprops":{"wikibase_item":"Q1"}}]}}""")
+            // Structured narration: the story plus its claim basis.
+            path.endsWith("/responses") && body.contains("radio_story") -> json(responses(
+                """{\"text\":\"FAKE-STORY: Schloss Ort sits on its own island, about a hundred metres ahead.\",\"basis\":\"documented\"}""",
+            ))
             path.endsWith("/responses") && body.contains("json_schema") -> json(responses(
                 """{\"reply\":\"FAKE-ANSWER: the bridge is about 130 metres long.\",\"action\":\"none\",\"language\":null,\"persist_language\":false,\"theme\":null,\"entity_id\":\"wiki:en:101\",\"remember\":[{\"category\":\"style\",\"text\":\"Keep stories short\",\"topic\":null}],\"forget\":[]}""",
             ))
