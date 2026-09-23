@@ -74,13 +74,13 @@ class EditorialRanker(
      * Driving pacing (spec B §24): a hard minimum gap of [minGapMs] since the host last spoke (the
      * conversation cost alone is only a soft penalty), and silence through junctions.
      */
-    fun holdForPacing(loc: LocationContext?, lastSpeechEndMs: Long?, nowMs: Long): Boolean {
+    fun holdForPacing(loc: LocationContext?, lastSpeechEndMs: Long?, nowMs: Long, pacing: Pacing = Pacing.BALANCED): Boolean {
         if (loc == null || loc.travelMode != TravelMode.DRIVING) return false
-        if (lastSpeechEndMs != null && nowMs - lastSpeechEndMs < minGapMs(TravelMode.DRIVING)) return true
+        if (lastSpeechEndMs != null && nowMs - lastSpeechEndMs < minGapMs(TravelMode.DRIVING, pacing)) return true
         return holdForManeuver(loc, nowMs)
     }
 
-    /** The gap between segments for this mode, scaled by the pacing dial (driving ≥ 90 s). */
+    /** The gap between segments for this mode, scaled by the pacing dial (driving ≥ [Pacing.drivingMinGapMs]). */
     fun minGapMs(mode: TravelMode, pacing: Pacing): Long = pacing.scaleGap(minGapMs(mode), mode)
 
     /** The speak threshold scaled by the pacing dial. */

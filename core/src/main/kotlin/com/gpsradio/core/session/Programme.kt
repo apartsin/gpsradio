@@ -99,8 +99,8 @@ class Programme(val config: Config = Config()) {
     val toldFacets: List<String> get() = usedFacetIds.toList()
 
     /** The hard minimum silence before any segment: the full gap when driving, a quarter of it otherwise. */
-    fun storyGapMs(mode: TravelMode, minGapMs: Long): Long =
-        if (mode == TravelMode.DRIVING) minGapMs.coerceAtLeast(Pacing.DRIVING_MIN_GAP_MS) else minGapMs / 4
+    fun storyGapMs(mode: TravelMode, minGapMs: Long, pacing: Pacing = Pacing.BALANCED): Long =
+        if (mode == TravelMode.DRIVING) minGapMs.coerceAtLeast(pacing.drivingMinGapMs) else minGapMs / 4
 
     fun isDense(s: Situation): Boolean =
         s.mode == TravelMode.DRIVING && s.ranked.count { it.distanceM <= config.denseRadiusM } >= config.denseCount
@@ -108,7 +108,7 @@ class Programme(val config: Config = Config()) {
     fun next(s: Situation): Plan {
         pendingQuiz?.let { return Plan.RevealQuiz(it) }
         val sinceSpeech = s.lastSpeechEndMs?.let { s.nowMs - it } ?: Long.MAX_VALUE
-        if (sinceSpeech < storyGapMs(s.mode, s.minGapMs)) return Plan.Wait
+        if (sinceSpeech < storyGapMs(s.mode, s.minGapMs, s.pacing)) return Plan.Wait
         val nonstop = s.pacing == Pacing.NONSTOP
         if ((lastWasFiller && !nonstop) || isDense(s)) return Plan.None
         if (storiesSinceStationId >= config.stationIdEveryStories && s.recentTitles.size >= config.stationIdMinTitles) {

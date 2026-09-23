@@ -19,6 +19,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.DirectionsBike
 import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.Chair
 import androidx.compose.material.icons.filled.DirectionsCar
@@ -117,6 +118,7 @@ data class ModeInfo(val icon: ImageVector, val title: String, val detail: String
 
 fun modeInfo(mode: TravelMode): ModeInfo = when (mode) {
     TravelMode.DRIVING -> ModeInfo(Icons.Default.DirectionsCar, "Driving mode", "Looking ahead along the road · fewer, shorter stories · hands-free")
+    TravelMode.CYCLING -> ModeInfo(Icons.AutoMirrored.Filled.DirectionsBike, "Cycling mode", "Stories a little further ahead · short and hands-free")
     TravelMode.WALKING -> ModeInfo(Icons.AutoMirrored.Filled.DirectionsWalk, "Walking mode", "Very local stories · things you can see around you")
     TravelMode.STATIONARY -> ModeInfo(Icons.Default.Chair, "Standing still", "Deeper stories about what's around you")
     TravelMode.UNKNOWN -> ModeInfo(Icons.Default.Explore, "Detecting your pace…", "Walk or drive and the radio adapts")

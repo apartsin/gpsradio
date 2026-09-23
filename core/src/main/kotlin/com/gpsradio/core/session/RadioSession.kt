@@ -499,7 +499,7 @@ class RadioSession(
 
         if (_state.value.radioState != RadioState.RADIO || speaking || discoveryJob?.isActive == true) return
         if (now < engagedUntilMs || now < nextNarrationAllowedMs) return
-        if (ranker.holdForPacing(_state.value.location, lastSpeechEndMs, now)) return
+        if (ranker.holdForPacing(_state.value.location, lastSpeechEndMs, now, config().pacing)) return
         if (maybeAskAboutTrip()) return
         rerank()
         if (runProgramme(now)) return
