@@ -138,7 +138,11 @@ jobs:
           # Make sure the versioned release exists (the build job's publish step may have hit a GitHub hiccup).
           gh release view "$TAG" >/dev/null 2>&1 || retry gh release create "$TAG" --title "GPS Radio ${VERSION}" --notes "GPS Radio ${VERSION} (${GITHUB_SHA::7})" --target "$GITHUB_SHA"
           # The build job usually uploaded it already (same artifact); re-uploading can fail with 422 "already exists".
-          has_apk() { gh api "repos/${GH_REPO}/releases/tags/${TAG}" --jq '.assets[].name' 2>/dev/null | grep -qx "gpsradio-${VERSION}.apk"; }
+          # The release's own asset list (the by-tag endpoint can lag and show no assets).
+          has_apk() {
+            local id; id="$(gh api "repos/${GH_REPO}/releases/tags/${TAG}" --jq '.id' 2>/dev/null)" || return 1
+            gh api "repos/${GH_REPO}/releases/${id}/assets" --jq '.[].name' 2>/dev/null | grep -qx "gpsradio-${VERSION}.apk"
+          }
           has_apk || retry gh release upload "$TAG" "gpsradio-${VERSION}.apk" --clobber || has_apk
           echo "$VERSION" > version.txt
           OLD=""
