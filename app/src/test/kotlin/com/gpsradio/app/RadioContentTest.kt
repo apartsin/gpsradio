@@ -104,6 +104,31 @@ class RadioContentTest {
     }
 
     @Test
+    fun primaryButtonFollowsTheRadioState() {
+        val calls = mutableListOf<String>()
+        val actions = RadioActions(
+            onPause = { calls += "pause" },
+            onResume = { calls += "resume" },
+            onStop = { calls += "stop" },
+            onSkip = { calls += "skip" },
+        )
+        val state = androidx.compose.runtime.mutableStateOf(RadioUiState(radioState = RadioState.NARRATING, location = loc))
+        compose.setContent { GpsRadioTheme { RadioContent(state.value, false, actions, placePanel = { _, _ -> }) } }
+        // Playing: Pause.
+        compose.onNodeWithContentDescription("Pause").performClick()
+        // Paused: the same button is Resume.
+        state.value = state.value.copy(radioState = RadioState.PAUSED)
+        compose.onNodeWithContentDescription("Resume").performClick()
+        // In a conversation: "Back to radio" (resume).
+        state.value = state.value.copy(radioState = RadioState.CONVERSING)
+        compose.onNodeWithContentDescription("Back to radio").performClick()
+        // Skip and Stop work in every running state.
+        compose.onNodeWithContentDescription("Skip").performClick()
+        compose.onNodeWithText("Stop").performClick()
+        assertEquals(listOf("pause", "resume", "resume", "skip", "stop"), calls)
+    }
+
+    @Test
     fun nearbyTabListsPlacesAndTapTellsAboutThem() {
         var told: String? = null
         show(RadioUiState(radioState = RadioState.RADIO, location = loc, nearby = listOf(ranked)), RadioActions(onTellAbout = { told = it }))

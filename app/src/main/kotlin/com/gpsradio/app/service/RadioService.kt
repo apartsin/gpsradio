@@ -88,6 +88,8 @@ class RadioService : Service() {
                 override fun onPlay() { session.resume() }
                 override fun onPause() { session.pause() }
                 override fun onSkipToNext() { session.skip() }
+                // "Previous" on a headset or steering wheel: hear the last clip again (the app's Repeat).
+                override fun onSkipToPrevious() { session.repeat() }
                 override fun onStop() { stopRadio() }
             })
             isActive = true
@@ -210,7 +212,7 @@ class RadioService : Service() {
                 .setActions(
                     PlaybackStateCompat.ACTION_PLAY or PlaybackStateCompat.ACTION_PAUSE or
                         PlaybackStateCompat.ACTION_PLAY_PAUSE or PlaybackStateCompat.ACTION_SKIP_TO_NEXT or
-                        PlaybackStateCompat.ACTION_STOP,
+                        PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS or PlaybackStateCompat.ACTION_STOP,
                 )
                 .setState(if (playing) PlaybackStateCompat.STATE_PLAYING else PlaybackStateCompat.STATE_PAUSED, 0L, 1f)
                 .build(),
