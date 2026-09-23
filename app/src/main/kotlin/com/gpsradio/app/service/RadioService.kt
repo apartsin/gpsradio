@@ -24,6 +24,7 @@ import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import com.gpsradio.app.GpsRadioApp
 import com.gpsradio.app.R
+import com.gpsradio.app.platform.ActivityTransitions
 import com.gpsradio.app.ui.MainActivity
 import com.gpsradio.core.model.LocationSample
 import com.gpsradio.core.model.TravelMode
@@ -118,6 +119,8 @@ class RadioService : Service() {
         }
         session.start()
         requestUpdates(currentMode ?: TravelMode.UNKNOWN)
+        // Walk / cycle / vehicle / still transitions sharpen mode detection (best effort).
+        ActivityTransitions.start(this)
         seedLastKnownLocation()
         if (stateWatcher == null) stateWatcher = scope.launch {
             session.state.map { Triple(it.radioState, it.nowPlaying?.title ?: it.focus?.name, it.area?.city) }
@@ -153,6 +156,9 @@ class RadioService : Service() {
                 .build()
             TravelMode.DRIVING -> LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 4_000)
                 .setMinUpdateDistanceMeters(30f)
+                .build()
+            TravelMode.CYCLING -> LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 6_000)
+                .setMinUpdateDistanceMeters(20f)
                 .build()
             // 10 s / 15 m is plenty for a ~400 m walking proximity scale, and kinder to the battery.
             else -> LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 10_000)
@@ -203,6 +209,7 @@ class RadioService : Service() {
     override fun onDestroy() {
         runCatching { mediaSession.release() }
         runCatching { fused.removeLocationUpdates(callback) }
+        ActivityTransitions.stop(this)
         scope.cancel()
         session.stop()
         super.onDestroy()

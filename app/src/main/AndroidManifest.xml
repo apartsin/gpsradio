@@ -10,6 +10,11 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Activity recognition (walk / cycle / vehicle / still) as a prior for travel-mode detection. -->
+    <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
+    <uses-permission
+        android:name="com.google.android.gms.permission.ACTIVITY_RECOGNITION"
+        android:maxSdkVersion="28" />
 
     <application
         android:name=".GpsRadioApp"
@@ -36,5 +41,9 @@
             android:name=".service.RadioService"
             android:exported="false"
             android:foregroundServiceType="location|mediaPlayback|microphone" />
+
+        <receiver
+            android:name=".platform.ActivityTransitionReceiver"
+            android:exported="false" />
     </application>
 </manifest>

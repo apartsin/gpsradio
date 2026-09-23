@@ -7,6 +7,7 @@ import android.os.Build
 import com.gpsradio.core.model.AreaLabel
 import com.gpsradio.core.model.GeoPoint
 import com.gpsradio.core.session.AreaLabeler
+import com.gpsradio.core.editorial.InterestStore
 import com.gpsradio.core.favorites.FavoritesStore
 import com.gpsradio.core.memory.MemoryStore
 import com.gpsradio.core.session.HistoryStore
@@ -26,6 +27,13 @@ class FileHistoryStore(context: Context) : HistoryStore {
 /** Learned listener preferences; stays on the device (excluded from backups). */
 class FileMemoryStore(context: Context) : MemoryStore {
     private val file = File(context.filesDir, "user_memory.json")
+    override fun load(): String? = file.takeIf { it.exists() }?.readText()
+    override fun save(serialized: String) = file.writeText(serialized)
+}
+
+/** Implicitly learned topic interests (full listens, early skips, follow-ups); stays on the device. */
+class FileInterestStore(context: Context) : InterestStore {
+    private val file = File(context.filesDir, "learned_interests.json")
     override fun load(): String? = file.takeIf { it.exists() }?.readText()
     override fun save(serialized: String) = file.writeText(serialized)
 }

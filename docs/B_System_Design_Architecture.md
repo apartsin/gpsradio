@@ -423,6 +423,14 @@ Per-mode settings:
   A worth-a-stop segment ends with an offer; answering "take me there" goes through the existing NAVIGATE action.
 - **Driving pacing:** at least 90 s between segments, at most 30 s per segment, and silence while speed changes sharply (junctions).
 
+**Implemented (23 Sep 2026).**
+- **Cycling mode:** 3.5 km radius, centre shifted ~1 km ahead, 1.2 km proximity scale, 60 s gap, ahead-weighted direction. Without a prior, 3.5–6.5 m/s from walking/rest reads as cycling (exit below 2.2 m/s, to driving above 9 m/s).
+- **Activity prior:** `LocationProcessor.setActivity()` takes the latest transition (`ActivityType`); it resolves the ambiguous 3–7 m/s band (runner / cyclist / slow car), keeps a stopped car in driving, shortens the mode hold to 5 s when it agrees, and is ignored when speed clearly contradicts it or after 60 min. The app registers the Transition API in `RadioService` (`platform/ActivityTransitions.kt`, `ACTIVITY_RECOGNITION` asked with location) and forwards enters to `RadioSession.onActivity()`.
+- **Corridor:** `Corridor` (pure geometry: cells at +2/+6/+10 km with 4 km radius, along/cross-track, distance to route, detour) and `CorridorCache`; `CorridorDiscovery` fetches only cells not covered by a fresh cached cell, so each refresh normally fetches just the new far cell.
+- **Road-trip ranking:** `RoadTrip.classify` flags `VISIBLE` (landmark kinds from OSM category/description, ≤ 12 km, not behind) and `WORTH_A_STOP` (relevance ≥ 0.65, ahead, ≤ 5 km from the route line; peaks excluded); bonus weight 0.6. `RankedCandidate.roadTrip` flows into `NarrationRequest.roadTrip`; the narration ends a worth-a-stop story with one navigation offer (with a rough detour), and "take me there" maps to NAVIGATE.
+- **Driving pacing:** hard 90 s gap and `ManeuverDetector` (20 s window: speed range ≥ 4 m/s with the minimum < 65 % of the maximum, or ≥ 45° turn above 2 m/s) → `LocationContext.maneuvering` → `EditorialRanker.holdForPacing`.
+- **Implicit personalization:** `InterestModel` (full listen +0.05, skip within 8 s −0.25, follow-up question +0.15; once per story and signal; bounded ±0.5; 7-day half-life) adjusts interest weights except remembered likes/avoids; persisted via `InterestStore` (`learned_interests.json`).
+
 ## 25. Latency Plan
 
 The target is first audio within about 1–2 s of the user finishing speaking (spec A §9). Current pipelines are serial:

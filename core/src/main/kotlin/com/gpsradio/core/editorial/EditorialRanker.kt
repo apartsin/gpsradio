@@ -12,7 +12,8 @@ import kotlin.math.exp
 /**
  * Transparent scoring model from spec B §8:
  * score = wR·relevance + wI·interest + wN·novelty + wP·proximity + wD·direction + wQ·source_quality
- *         − wX·repetition − wC·conversation_cost
+ *         + wT·road_trip − wX·repetition − wC·conversation_cost
+ * where road_trip is the driving bonus for places visible from the road or worth a stop (spec B §24).
  * A separate speak threshold decides whether the best candidate gets airtime; otherwise silence.
  */
 class EditorialRanker(
@@ -28,6 +29,7 @@ class EditorialRanker(
         val sourceQuality: Double = 0.5,
         val repetition: Double = 3.0,
         val conversationCost: Double = 1.0,
+        val roadTrip: Double = 0.6,
     )
 
     data class Context(
@@ -47,13 +49,34 @@ class EditorialRanker(
     fun proximityScaleM(mode: TravelMode): Double = when (mode) {
         TravelMode.WALKING, TravelMode.UNKNOWN -> 400.0
         TravelMode.STATIONARY -> 600.0
+        TravelMode.CYCLING -> 1_200.0
         TravelMode.DRIVING -> 3_000.0
     }
 
+    /** Minimum silence between segments (driving: at least 90 s, spec B §24). */
     fun minGapMs(mode: TravelMode): Long = when (mode) {
         TravelMode.WALKING, TravelMode.UNKNOWN -> 45_000
         TravelMode.STATIONARY -> 60_000
-        TravelMode.DRIVING -> 60_000
+        TravelMode.CYCLING -> 60_000
+        TravelMode.DRIVING -> 90_000
+    }
+
+    /**
+     * Whether stories must wait even though the gap has passed: while driving through a junction or
+     * roundabout (speed or heading changing sharply), the host stays quiet. A stale fix (no update for
+     * [staleMs], e.g. in a tunnel) does not hold stories forever.
+     */
+    fun holdForManeuver(loc: LocationContext?, nowMs: Long, staleMs: Long = 30_000): Boolean =
+        loc != null && loc.travelMode == TravelMode.DRIVING && loc.maneuvering && nowMs - loc.timestampMs < staleMs
+
+    /**
+     * Driving pacing (spec B §24): a hard minimum gap of [minGapMs] since the host last spoke (the
+     * conversation cost alone is only a soft penalty), and silence through junctions.
+     */
+    fun holdForPacing(loc: LocationContext?, lastSpeechEndMs: Long?, nowMs: Long): Boolean {
+        if (loc == null || loc.travelMode != TravelMode.DRIVING) return false
+        if (lastSpeechEndMs != null && nowMs - lastSpeechEndMs < minGapMs(TravelMode.DRIVING)) return true
+        return holdForManeuver(loc, nowMs)
     }
 
     fun rank(candidates: Collection<PlaceCandidate>, ctx: Context): List<RankedCandidate> {
@@ -84,9 +107,14 @@ class EditorialRanker(
                 val direction = if (heading == null || loc.travelMode == TravelMode.STATIONARY || d < 50) 0.5
                 else {
                     val c = Math.cos(Math.toRadians(Geo.angleDiff(bearing, heading)))
-                    // When driving, things behind are almost useless; walking is more forgiving.
-                    if (loc.travelMode == TravelMode.DRIVING) c.coerceAtLeast(0.0) else (c + 1) / 2
+                    // When driving, things behind are almost useless; cycling is ahead-weighted; walking is more forgiving.
+                    when (loc.travelMode) {
+                        TravelMode.DRIVING -> c.coerceAtLeast(0.0)
+                        TravelMode.CYCLING -> ((c + 1) / 2).let { it * it }
+                        TravelMode.WALKING, TravelMode.STATIONARY, TravelMode.UNKNOWN -> (c + 1) / 2
+                    }
                 }
+                val roadTrip = RoadTrip.classify(place, loc)
                 val b = ScoreBreakdown(
                     relevance = place.baseRelevance.coerceIn(0.0, 1.0),
                     interest = interest.coerceIn(0.0, 1.0),
@@ -96,15 +124,16 @@ class EditorialRanker(
                     sourceQuality = place.sourceConfidence.coerceIn(0.0, 1.0),
                     repetition = if (heard) 1.0 else 0.0,
                     conversationCost = convCost,
+                    roadTrip = RoadTrip.bonus(roadTrip),
                 )
-                RankedCandidate(place, d, bearing, score(b), b)
+                RankedCandidate(place, d, bearing, score(b), b, roadTrip)
             }
             .sortedByDescending { it.score }
     }
 
     fun score(b: ScoreBreakdown): Double = with(weights) {
         relevance * b.relevance + interest * b.interest + novelty * b.novelty + proximity * b.proximity +
-            direction * b.direction + sourceQuality * b.sourceQuality -
+            direction * b.direction + sourceQuality * b.sourceQuality + roadTrip * b.roadTrip -
             repetition * b.repetition - conversationCost * b.conversationCost
     }
 

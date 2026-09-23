@@ -2,11 +2,13 @@ package com.gpsradio.core.ai
 
 import com.gpsradio.core.geo.Geo
 import com.gpsradio.core.lang.Languages
+import com.gpsradio.core.location.Corridor
 import com.gpsradio.core.memory.MemoryCategory
 import com.gpsradio.core.model.AreaLabel
 import com.gpsradio.core.model.GeoPoint
 import com.gpsradio.core.model.LocationContext
 import com.gpsradio.core.model.RankedCandidate
+import com.gpsradio.core.model.RoadTripKind
 import com.gpsradio.core.model.SourceRef
 import com.gpsradio.core.model.Topic
 import com.gpsradio.core.model.TravelMode
@@ -66,6 +68,8 @@ data class NarrationRequest(
     val format: SegmentFormat = SegmentFormat.STORY,
     /** What the listener told us about this trip, e.g. "driving to Salzburg for a concert". */
     val tripContext: String? = null,
+    /** Road-trip category while driving; WORTH_A_STOP ends the story with an offer to navigate there. */
+    val roadTrip: RoadTripKind? = candidate.roadTrip,
 )
 
 data class ConversationTurn(val fromUser: Boolean, val text: String)
@@ -147,6 +151,10 @@ class RadioAgent(
             put("target_length_words", (seconds * 2.3).toInt())
             put("format", req.format.name.lowercase())
             req.tripContext?.let { put("trip", it) }
+            roadTripContext(req)?.let { (kind, detour) ->
+                put("road_trip", kind)
+                detour?.let { put("detour", it) }
+            }
         }
         val res = openAi.respond(
             OpenAiClient.ResponseRequest(
@@ -230,8 +238,10 @@ class RadioAgent(
         /** Enough for a rich story; keeps per-call tokens (and cost) bounded. */
         const val MAX_FACTS_CHARS = 1500
 
+        /** Target spoken length; driving segments stay at or under 30 s (spec B §24). */
         fun targetSeconds(mode: TravelMode): Int = when (mode) {
             TravelMode.DRIVING -> 30
+            TravelMode.CYCLING -> 35
             TravelMode.WALKING, TravelMode.UNKNOWN -> 40
             TravelMode.STATIONARY -> 50
         }
@@ -250,6 +260,19 @@ class RadioAgent(
             } else "to the " + Geo.compass(c.bearingDeg)
         }
 
+        /** The "road_trip" label and, for a worth-a-stop place, a rough detour description. */
+        fun roadTripContext(req: NarrationRequest): Pair<String, String?>? {
+            val kind = req.roadTrip ?: return null
+            return when (kind) {
+                RoadTripKind.VISIBLE -> "visible_from_road" to null
+                RoadTripKind.WORTH_A_STOP -> {
+                    val heading = req.location.headingDeg
+                    val detour = heading?.let { Corridor.detourM(req.location.point, it, req.candidate.place.point) }
+                    "worth_a_stop" to detour?.let { if (it < 300) "right by the route" else "about ${maxOf(1L, Math.round(it / 1000))} km there and back" }
+                }
+            }
+        }
+
         /** Strip markdown so TTS does not read symbols aloud. */
         fun cleanForSpeech(s: String): String = s
             .replace(Regex("\\[([^\\]]+)]\\([^)]+\\)"), "$1")
@@ -258,7 +281,7 @@ class RadioAgent(
             .trim()
 
         fun narrationInstructions(language: String, style: HostStyle = HostStyle.ENTERTAINING): String = """
-            You host a personal, location-aware radio show. The listener is out in the real world (walking or driving)
+            You host a personal, location-aware radio show. The listener is out in the real world (walking, cycling or driving)
             and hears you through headphones or the car speakers. You are ${style.persona}
 
             Write ONE spoken segment about the place in the JSON input.
@@ -274,6 +297,12 @@ class RadioAgent(
             - Stay close to target_length_words; with thin facts, be shorter rather than padding.
             - Do not repeat anything from already_told_this_trip. No greetings or sign-offs.
             - If "trip" is given, you may connect the place to where the listener is heading, briefly.
+            - travel_mode "driving": keep it short (never over target_length_words) and never ask the driver to look at a screen.
+            - road_trip "visible_from_road": help them spot it from the car in a glance ("the peak on your right"), without
+              asking the driver to look away from the road for long.
+            - road_trip "worth_a_stop": after the story, end with ONE short, low-pressure offer to take them there
+              (for example "Want me to navigate there?"), mentioning "detour" if given. Never invent opening hours,
+              parking, prices or access details, and do not offer more than once.
             - Respect listener_profile: lean into what they like, avoid what they avoid, follow their style wishes.
             - format "teaser": instead of the full story, give a one or two sentence irresistible hook and end by asking
               whether they want to hear the story (for example "Want the full story?"). Do not tell the story itself yet.
@@ -306,6 +335,7 @@ class RadioAgent(
                         if (loc != null) put("direction", describeDirection(a, loc))
                         put("facts", (a.place.extract ?: a.place.description ?: "").take(MAX_FACTS_CHARS))
                         a.place.url?.let { put("source_url", it) }
+                        if (a.roadTrip == RoadTripKind.WORTH_A_STOP) put("offered_navigation", true)
                     }
                 }
                 putJsonArray("nearby") {
@@ -361,7 +391,8 @@ class RadioAgent(
                 - skip: listener wants to skip the current story.
                 - change_language: listener asks to speak another language; set "language" to a BCP-47 tag and reply in that language. persist_language=true only if they explicitly ask to make it their default.
                 - set_theme: listener wants a theme (theme one of: ${Topic.entries.joinToString { it.key }}); clear_theme to remove it.
-                - navigate: listener wants to go to a place; set entity_id from nearby/active_story.
+                - navigate: listener wants to go to a place; set entity_id from nearby/active_story. If active_story has
+                  offered_navigation and the listener says yes / take me there, that is navigate with its entity_id.
                 - refresh_nearby: listener asks what else is nearby and the list is empty or stale.
                 - accept_offer / decline_offer: answer to pending_offer (see above).
                 - star_place: listener wants to save/star/favourite a place for later; set entity_id (active story if unclear).

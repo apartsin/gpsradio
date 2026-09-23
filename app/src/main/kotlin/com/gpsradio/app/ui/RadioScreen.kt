@@ -158,7 +158,9 @@ fun RadioScreen(vm: MainViewModel, onOpenSettings: () -> Unit, autoStart: Boolea
         if (granted(Manifest.permission.ACCESS_FINE_LOCATION) || granted(Manifest.permission.ACCESS_COARSE_LOCATION)) {
             vm.startRadio()
         } else {
-            startPermissions.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+            // Activity recognition (API 29+ runtime permission) is asked together with location; it only sharpens mode detection.
+            val activity = if (Build.VERSION.SDK_INT >= 29) arrayOf(Manifest.permission.ACTIVITY_RECOGNITION) else emptyArray<String>()
+            startPermissions.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION) + activity)
         }
     }
     LaunchedEffect(autoStart) {
