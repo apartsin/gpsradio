@@ -165,6 +165,12 @@ jobs:
             --arg commit "${GITHUB_SHA::7}" --arg notes "$SUBJECT" \
             '{version:$v, build:$b, apk:$apk, sha256:$sha, size:$size, commit:$commit, notes:$notes}' > update.json
           cat update.json
+          # Replace latest's files: delete the old ones by id first (--clobber relies on the by-tag view, which can lag).
+          LATEST_ID="$(gh api "repos/${GH_REPO}/releases/tags/latest" --jq '.id')"
+          for f in gpsradio.apk version.txt update.json; do
+            gh api "repos/${GH_REPO}/releases/${LATEST_ID}/assets" --jq ".[] | select(.name == \"$f\") | .id" \
+              | while read -r aid; do gh api -X DELETE "repos/${GH_REPO}/releases/assets/${aid}"; done
+          done
           retry gh release upload latest gpsradio.apk version.txt update.json --clobber
           gh release edit latest --title "GPS Radio – latest tested build" --notes "GPS Radio ${VERSION} (${GITHUB_SHA::7}), passed unit, UI and emulator tests. Install on Android 8.0+ (allow installs from your browser). Any GPS Radio build installs over any other, forward or back, keeping your settings. Previous tested build: https://github.com/${GH_REPO}/releases/download/previous/gpsradio.apk"
           gh release edit "$TAG" --prerelease=false --title "GPS Radio ${VERSION}"
