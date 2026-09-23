@@ -236,6 +236,7 @@ class RadioAgent(
         val c = req.candidate
         val seconds = targetSeconds(req.location.travelMode, req.format)
         val context = buildJsonObject {
+            put("spoken_language", "${Languages.displayName(req.language)} (${req.language})")
             put("place_name", c.place.name)
             put("category", c.place.category)
             put("distance", describeDistance(c.distanceM))
@@ -264,6 +265,9 @@ class RadioAgent(
                 val sun = PhotoSpots.sun(req.location.point, req.location.timestampMs)
                 put("light", PhotoSpots.lightHint(sun, c.bearingDeg))
                 put("is_viewpoint", PhotoSpots.isViewpoint(c.place))
+                if (req.location.travelMode == TravelMode.DRIVING) {
+                    put("safety", "The listener is driving: say plainly to pull over and stop at the viewpoint before taking any photo.")
+                }
             }
         }
         val request = OpenAiClient.ResponseRequest(
@@ -283,6 +287,7 @@ class RadioAgent(
     override suspend fun narrateFiller(req: FillerRequest): Segment {
         val mode = req.location?.travelMode ?: TravelMode.UNKNOWN
         val context = buildJsonObject {
+            put("spoken_language", "${Languages.displayName(req.language)} (${req.language})")
             put("format", req.format.name.lowercase())
             put("travel_mode", mode.name.lowercase())
             put("target_length_words", (targetSeconds(mode, req.format) * 2.3).toInt())
@@ -526,6 +531,9 @@ class RadioAgent(
             You host a personal, location-aware radio show. The listener is out in the real world (walking, cycling or driving)
             and hears you through headphones or the car speakers. You are ${style.persona}
 
+            LANGUAGE: everything the listener hears must be in ${Languages.displayName(language)} ($language), even when
+            the facts are in another language. Translate the facts; keep original place names.
+
             Write ONE spoken segment in the "format" given in the JSON input (by default a story about the place).
             Facts:
             - Every factual claim (dates, numbers, names, events) must come from "facts" (for on_this_day: from "event";
@@ -541,6 +549,8 @@ class RadioAgent(
               When travel_mode is driving, don't quote exact distances (they go stale at speed): say "coming up on your left",
               "just ahead", or use time_to_reach_s ("in about a minute").
             - Sound like speech, not an encyclopedia: short sentences, contractions, vivid verbs, the occasional rhetorical question.
+            - Your persona's own style rules (sentence length, vocabulary, audience) override the craft rules here;
+              for a children's persona keep every sentence short and every word simple.
             - Stay close to target_length_words; with thin facts, be shorter rather than padding.
             - Do not repeat anything from already_told_this_trip. No greetings or sign-offs.
             - If "trip" is given, you may connect the place to where the listener is heading, briefly.
@@ -584,8 +594,8 @@ class RadioAgent(
               shot (only features named in "facts" or obvious from "category"), where to stand or look using the given
               direction, and one practical tip from "light" (golden hour, backlight, side light). Open with a short
               "Photo tip" style phrase in the spoken language. No invented facts, no camera jargon. When travel_mode is
-              driving: it is a viewpoint just off the road ahead; suggest pulling over there safely for a photo, and
-              never suggest taking photos while driving.
+              driving: it is a viewpoint just off the road ahead. You MUST say explicitly to pull over and stop there
+              for the photo (see "safety"), and never suggest taking photos while driving.
             - format "events": a quick heads-up about "events" happening today nearby (at most three, soonest first):
               what, where and when ("at 8 pm", or "right now"), and one line from "why". Phrase it as an invitation for a
               visitor, e.g. "If you're back by the lake at eight tonight, you'll catch…". Use only the given titles, venues

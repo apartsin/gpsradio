@@ -328,7 +328,8 @@ class LiveEvalTest {
                 Result("memory: respects 'avoid war' preference", g.pass, g.reason + "; " + s.text.take(200))
             },
             suspend {
-                val r = agent.converse(conv("continue"))
+                // "continue"/"skip"/"pause" are handled on the device (localCommand); this phrasing reaches the model.
+                val r = agent.converse(conv("ok, that's enough talking, back to the radio please"))
                 val words = r.reply.split(Regex("\\s+")).size
                 Result("control reply is a few words", r.action == ConversationAction.RESUME_RADIO && words <= 10, "words=$words reply=${r.reply}")
             },
