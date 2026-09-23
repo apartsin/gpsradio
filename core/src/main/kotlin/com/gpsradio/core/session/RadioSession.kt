@@ -969,7 +969,13 @@ class RadioSession(
             }
         }
         when (localCommand(text)) {
-            ConversationAction.SKIP -> { skip(); return }
+            ConversationAction.SKIP -> {
+                // Saying "skip" already stopped the story (the utterance interrupts it), so skip() alone would see
+                // nothing on air and the same story would come back: drop the interrupted one explicitly.
+                (storyPlayback?.first ?: activeId)?.let { id -> candidates[id]?.let { penalize(it) } }
+                skip()
+                return
+            }
             ConversationAction.RESUME_RADIO -> { endConversation(); return }
             ConversationAction.PAUSE -> { doPause(); return }
             else -> Unit
@@ -2229,15 +2235,53 @@ class RadioSession(
             }
         }
 
-        /** Unambiguous one-word commands handled without a model round trip. */
+        /**
+         * Radio controls said in so many words, handled on the device: instant, and they work offline. Anything
+         * longer or less direct goes to the model, which calls the same actions.
+         */
         fun localCommand(text: String): ConversationAction? {
-            val t = text.lowercase().trim().trimEnd('.', '!', '?')
+            var t = text.lowercase().replace('ё', 'е').replace(Regex("[,.!?¡¿]+"), " ").replace(Regex("\\s+"), " ").trim()
+            // Politeness and fillers around the command: "ok, skip please", "ну, дальше", "стоп, пожалуйста".
+            repeat(2) {
+                t = t.removeSuffix(" please").removeSuffix(" пожалуйста").removeSuffix(" bitte").removeSuffix(" por favor")
+                    .removeSuffix(" s'il te plaît").removeSuffix(" s'il vous plaît").removeSuffix(" בבקשה")
+                    .removePrefix("ok ").removePrefix("okay ").removePrefix("окей ").removePrefix("ок ").removePrefix("ну ")
+                    .removePrefix("так ").removePrefix("ладно ").removePrefix("please ").removePrefix("пожалуйста ")
+                    .trim()
+            }
             return when (t) {
-                "skip", "next", "skip it", "дальше", "пропустить" -> ConversationAction.SKIP
-                "continue", "resume", "go on", "back to the radio", "продолжай", "продолжить" -> ConversationAction.RESUME_RADIO
-                "pause", "stop", "be quiet", "quiet", "пауза", "стоп" -> ConversationAction.PAUSE
+                in SKIP_WORDS -> ConversationAction.SKIP
+                in RESUME_WORDS -> ConversationAction.RESUME_RADIO
+                in PAUSE_WORDS -> ConversationAction.PAUSE
                 else -> null
             }
         }
+
+        private val SKIP_WORDS = setOf(
+            "skip", "next", "skip it", "skip this", "skip this one", "next one", "next story", "something else",
+            "дальше", "давай дальше", "пропусти", "пропустить", "пропусти это", "следующий", "следующая", "следующее",
+            "следующую", "другое", "давай другое", "неинтересно", "не интересно",
+            "הבא", "דלג", "תדלג", "הלאה",
+            "weiter", "nächste", "nächstes", "überspringen",
+            "siguiente", "saltar", "salta", "otra",
+            "suivant", "passe", "passer", "au suivant",
+        )
+        private val RESUME_WORDS = setOf(
+            "continue", "resume", "go on", "carry on", "play", "back to the radio", "back to radio", "go back to the radio",
+            "продолжай", "продолжи", "продолжить", "вернись к радио", "назад к радио", "обратно к радио", "вернись",
+            "возвращайся к радио", "играй", "включи радио", "радио",
+            "המשך", "תמשיך", "חזור לרדיו", "תחזור לרדיו",
+            "fortsetzen", "weitermachen", "zurück zum radio", "mach weiter",
+            "continúa", "continua", "continuar", "sigue", "volver a la radio", "vuelve a la radio",
+            "continuer", "reprends", "reprendre", "retour à la radio",
+        )
+        private val PAUSE_WORDS = setOf(
+            "pause", "stop", "be quiet", "quiet", "hold on", "silence", "shush", "shut up",
+            "пауза", "стоп", "хватит", "замолчи", "помолчи", "тише", "тихо", "подожди", "остановись", "стой",
+            "עצור", "תעצור", "הפסק", "תפסיק", "שקט", "רגע",
+            "stopp", "ruhe", "halt", "warte",
+            "pausa", "para", "detente", "espera",
+            "arrête", "arrete", "attends", "tais-toi",
+        )
     }
 }

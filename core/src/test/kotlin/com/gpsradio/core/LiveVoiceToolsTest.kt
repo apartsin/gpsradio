@@ -54,11 +54,18 @@ class LiveVoiceToolsTest {
         val (control, controlArgs) = calledTool("Great, that's all, go back to the radio please.")
         val (save, saveArgs) = calledTool("Save this castle for later, I want to visit it.")
         val (mem, memArgs) = calledTool("Remember that I love castles.")
+        // The same radio controls said in Russian (the default language).
+        val (ruBack, ruBackArgs) = calledTool("Всё, спасибо, возвращайся к радио.")
+        val (ruSkip, ruSkipArgs) = calledTool("Пропусти эту историю, давай следующую.")
+        val (ruPause, ruPauseArgs) = calledTool("Помолчи немного, мне нужно позвонить.")
         val failures = buildList {
             if (search != "web_search") add("current info → web_search, got $search")
             if (control != "radio_control" || "resume_radio" !in controlArgs) add("back to radio → radio_control resume_radio, got $control $controlArgs")
             if (save != "radio_control" || "star_place" !in saveArgs) add("save → radio_control star_place, got $save $saveArgs")
             if (mem != "remember" || "castle" !in memArgs.lowercase()) add("remember → remember(castles), got $mem $memArgs")
+            if (ruBack != "radio_control" || "resume_radio" !in ruBackArgs) add("ru back to radio → resume_radio, got $ruBack $ruBackArgs")
+            if (ruSkip != "radio_control" || "skip" !in ruSkipArgs) add("ru skip → skip, got $ruSkip $ruSkipArgs")
+            if (ruPause != "radio_control" || "pause" !in ruPauseArgs) add("ru pause → pause, got $ruPause $ruPauseArgs")
         }
         assertTrue(failures.isEmpty(), failures.joinToString("; "))
     }

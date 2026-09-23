@@ -308,6 +308,19 @@ class LiveEvalTest {
                 val r = agent.converse(conv("Skip this one, not interested"))
                 Result("action: skip", r.action == ConversationAction.SKIP, "action=${r.action}")
             },
+            // Indirect Russian commands (the short ones are handled on the device): the model must act on them.
+            suspend {
+                val r = agent.converse(conv("Ладно, хватит вопросов, возвращайся к своим историям", lang = "ru-RU"))
+                Result("action (ru): back to the stories → resume_radio", r.action == ConversationAction.RESUME_RADIO, "action=${r.action}; reply=${r.reply}")
+            },
+            suspend {
+                val r = agent.converse(conv("Эта история мне не интересна, давай что-нибудь другое", lang = "ru-RU"))
+                Result("action (ru): not interested → skip", r.action == ConversationAction.SKIP, "action=${r.action}; reply=${r.reply}")
+            },
+            suspend {
+                val r = agent.converse(conv("Помолчи пару минут, мне надо позвонить", lang = "ru-RU"))
+                Result("action (ru): be quiet for a call → pause", r.action == ConversationAction.PAUSE, "action=${r.action}; reply=${r.reply}")
+            },
             suspend {
                 val r = agent.converse(conv("Only tell me about war history for a while"))
                 Result("action: theme → set_theme war", r.action == ConversationAction.SET_THEME && r.theme == Topic.WAR, "action=${r.action} theme=${r.theme}")

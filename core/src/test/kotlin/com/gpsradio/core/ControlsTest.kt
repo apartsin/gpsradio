@@ -1,5 +1,6 @@
 package com.gpsradio.core
 
+import com.gpsradio.core.ai.ConversationAction
 import com.gpsradio.core.ai.ConversationReply
 import com.gpsradio.core.ai.ConversationRequest
 import com.gpsradio.core.ai.NarrationRequest
@@ -262,6 +263,57 @@ class ControlsTest {
             // After all that, the radio still works: it ends up back on air.
             s.resume(); runCurrent()
             waitFor(s, RadioState.NARRATING, maxMs = 300_000)
+        }
+    }
+
+    @Test
+    fun spokenControlsAreRecognizedInEveryLanguageOnTheDevice() {
+        val cases = mapOf(
+            ConversationAction.SKIP to listOf(
+                "Skip", "next!", "OK, skip it please", "Дальше", "ну, давай дальше", "Следующий.", "пропусти, пожалуйста",
+                "הבא", "Weiter", "siguiente", "Suivant",
+            ),
+            ConversationAction.RESUME_RADIO to listOf(
+                "Back to the radio", "go on", "Continue.", "Вернись к радио", "Продолжай!", "ладно, продолжай", "назад к радио",
+                "חזור לרדיו", "Zurück zum Radio", "sigue", "reprends",
+            ),
+            ConversationAction.PAUSE to listOf(
+                "Stop", "pause", "be quiet", "Стоп", "Хватит!", "помолчи", "пауза, пожалуйста", "עצור", "Stopp", "pausa", "arrête",
+            ),
+        )
+        for ((action, phrases) in cases) for (p in phrases) {
+            assertEquals(action, RadioSession.localCommand(p), "'$p'")
+        }
+        // Real questions are not commands; they go to the model.
+        for (q in listOf("What's next to the castle?", "Стоп, а что это за башня?", "Tell me more", "Когда это построили?")) {
+            assertEquals(null, RadioSession.localCommand(q), "'$q'")
+        }
+    }
+
+    @Test
+    fun spokenCommandsDriveTheRadio() = runTest {
+        val r = Radio(places())
+        onAir(r) { s ->
+            val first = s.state.value.nowPlaying!!.entityId
+            // "Следующий": skips to a different story, without asking the model.
+            s.ask("Следующий"); runCurrent()
+            waitFor(s, RadioState.NARRATING)
+            assertTrue(s.state.value.nowPlaying!!.entityId != first)
+            // "Хватит": paused, silent.
+            s.ask("Хватит!"); runCurrent()
+            assertEquals(RadioState.PAUSED, s.state.value.radioState)
+            assertEquals(0, r.playing)
+            // "Вернись к радио": stories again.
+            s.ask("Вернись к радио"); runCurrent()
+            waitFor(s, RadioState.NARRATING)
+            // A real question, then "back to the radio" from the conversation.
+            s.ask("Когда это построили?"); runCurrent()
+            assertEquals(RadioState.CONVERSING, s.state.value.radioState)
+            advanceTimeBy(1_000); runCurrent()
+            s.ask("Back to the radio"); runCurrent()
+            waitFor(s, RadioState.NARRATING)
+            assertEquals(1, r.asked, "only the real question reached the model")
+            assertEquals(1, r.maxConcurrent)
         }
     }
 }
