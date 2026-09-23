@@ -22,11 +22,20 @@ The `.docx` files are the source of truth; the Markdown versions are converted c
 
 ## Getting the app
 
-**📱 Download: [gpsradio.apk (latest build)](https://github.com/apartsin/gpsradio/releases/download/latest/gpsradio.apk)**
+**📱 Download: [gpsradio.apk (latest tested build)](https://github.com/apartsin/gpsradio/releases/download/latest/gpsradio.apk)**
 
-Open that link on an Android 8.0+ phone, allow installing from your browser when asked, and install. Newer builds install over older ones (same signing key). Every push to the main or development branch refreshes this link. The [releases page](https://github.com/apartsin/gpsradio/releases/tag/latest) shows which commit it was built from.
+Open that link on an Android 8.0+ phone, allow installing from your browser when asked, and install.
 
-On first launch, paste your own OpenAI API key. It is stored encrypted on the phone only and is never part of this repository. A dedicated key with a monthly spending limit is recommended.
+| Link | What it is |
+|---|---|
+| [latest](https://github.com/apartsin/gpsradio/releases/download/latest/gpsradio.apk) | The newest build that passed unit, UI and emulator tests. It only changes when a new build has passed, so it keeps working while the next one is built and tested. |
+| [previous](https://github.com/apartsin/gpsradio/releases/download/previous/gpsradio.apk) | The tested build before `latest`, to go back if a new build misbehaves. |
+| [all builds](https://github.com/apartsin/gpsradio/releases) | Every push gets its own release `v0.5.<build>` (the newest 15 are kept). It is marked *pre-release (testing)* until its tests pass. |
+
+- Any GPS Radio build installs over any other, newer or older, and keeps your settings: the signing key and version code are the same for all builds.
+- The installed version is shown at the bottom of **Settings**, for example "GPS Radio 0.5.142 · build a1b2c3d · 2026-09-23".
+
+The app ships with a built-in OpenAI key (the owner's choice), so it works out of the box. You can enter your own key in Settings. It is stored encrypted on the phone only and is never part of this repository. If the key runs out of credit, the app tells you and asks for another key.
 
 ## Building locally
 

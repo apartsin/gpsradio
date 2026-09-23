@@ -42,6 +42,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
@@ -115,6 +116,12 @@ fun SettingsScreen(
                 OutlinedButton(onClick = onClearHistory, modifier = Modifier.fillMaxWidth()) {
                     Text("Forget stories I've already heard")
                 }
+                Text(
+                    versionLabel(),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.fillMaxWidth().testTag("appVersion"),
+                )
             },
         )
     }
@@ -327,3 +334,7 @@ private fun LanguagePicker(selected: String, onSelect: (String) -> Unit) {
 private fun ModelField(label: String, value: String, onChange: (String) -> Unit) {
     OutlinedTextField(value = value, onValueChange = onChange, label = { Text(label) }, singleLine = true, modifier = Modifier.fillMaxWidth())
 }
+
+/** e.g. "GPS Radio 0.5.142 · build a1b2c3d · 2026-09-23". */
+fun versionLabel(): String =
+    "GPS Radio ${com.gpsradio.app.BuildConfig.VERSION_NAME} · build ${com.gpsradio.app.BuildConfig.GIT_SHA} · ${com.gpsradio.app.BuildConfig.BUILD_DATE}"

@@ -5,6 +5,15 @@ val embeddedOpenAiKey: String = (System.getenv("OPENAI_API_KEY") ?: "").trim()
 fun scramble(key: String): String =
     key.toByteArray().mapIndexed { i, b -> (b.toInt() xor (0x5A + i % 7)) and 0xFF }.joinToString(",")
 
+// Versioning: every CI run gets its own build number in versionName ("0.5.<run>"), so each APK is
+// identifiable. versionCode stays fixed on purpose: Android refuses to install a lower versionCode over a
+// higher one, and a fixed code lets testers switch between any two builds (back to the previous release
+// too) without uninstalling and losing their settings. Bump it only for a store release.
+val buildNumber: Int = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 0
+val appVersionName: String = if (buildNumber > 0) "0.5.$buildNumber" else "0.5.0-local"
+val gitSha: String = System.getenv("GITHUB_SHA")?.take(7) ?: "local"
+val buildDate: String = java.time.LocalDate.now(java.time.ZoneOffset.UTC).toString()
+
 plugins {
     id("com.android.application")
     kotlin("android")
@@ -19,8 +28,10 @@ android {
         applicationId = "com.gpsradio.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 100
+        versionName = appVersionName
+        buildConfigField("String", "GIT_SHA", "\"$gitSha\"")
+        buildConfigField("String", "BUILD_DATE", "\"$buildDate\"")
         testInstrumentationRunner = "com.gpsradio.app.GpsRadioTestRunner"
         buildConfigField("String", "EMBEDDED_KEY", "\"${scramble(embeddedOpenAiKey)}\"")
     }

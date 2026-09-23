@@ -47,17 +47,23 @@ jobs:
           name: gpsradio-debug-apk
           path: app/build/outputs/apk/debug/*.apk
 
-      # Rolling "latest" release so the README can link straight to the newest APK.
-      - name: Publish latest APK
+      # Every push gets its own versioned (pre)release, v0.5.<run>, kept alongside the tested "latest".
+      # "latest" only moves after all tests pass (see the promote job), so it stays usable while the next
+      # build is being made and tested.
+      - name: Publish versioned build
         if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/claude/android-app-mvp')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk gpsradio.apk
-          NOTES="Built from ${GITHUB_REF_NAME} @ ${GITHUB_SHA::7}. Install on Android 8.0+ (allow installs from your browser). Enter your own OpenAI API key on first launch."
-          gh release view latest >/dev/null 2>&1 || gh release create latest --title "GPS Radio – latest build" --notes "$NOTES" --target "$GITHUB_SHA"
-          gh release upload latest gpsradio.apk --clobber
-          gh release edit latest --notes "$NOTES"
+          VERSION="0.5.${GITHUB_RUN_NUMBER}"
+          TAG="v${VERSION}"
+          cp app/build/outputs/apk/debug/app-debug.apk "gpsradio-${VERSION}.apk"
+          SUBJECT="$(git log -1 --pretty=%s)"
+          NOTES="GPS Radio ${VERSION}, built from ${GITHUB_REF_NAME} @ ${GITHUB_SHA::7}: ${SUBJECT}
+
+          Testing build: emulator tests are still running. The tested build is always at https://github.com/apartsin/gpsradio/releases/download/latest/gpsradio.apk"
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --prerelease --title "GPS Radio ${VERSION} (testing)" --notes "$NOTES" --target "$GITHUB_SHA"
+          gh release upload "$TAG" "gpsradio-${VERSION}.apk" --clobber
 
       - uses: actions/upload-artifact@v4
         if: failure()
@@ -102,6 +108,45 @@ jobs:
         with:
           name: e2e-reports
           path: app/build/reports/androidTests/
+
+  # Moves "latest" to this build once unit, UI and emulator tests all passed; the build it replaces
+  # stays available as "previous". Older versioned builds beyond the newest 15 are pruned.
+  promote:
+    needs: [build, emulator-e2e]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/claude/android-app-mvp')
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Promote to latest (keep the old one as previous)
+        run: |
+          VERSION="0.5.${GITHUB_RUN_NUMBER}"
+          TAG="v${VERSION}"
+          gh release download "$TAG" -p "gpsradio-${VERSION}.apk"
+          cp "gpsradio-${VERSION}.apk" gpsradio.apk
+          echo "$VERSION" > version.txt
+          OLD=""
+          if gh release view latest >/dev/null 2>&1; then
+            gh release download latest -p version.txt -O old-version.txt 2>/dev/null && OLD="$(cat old-version.txt)"
+            if [ "$OLD" != "$VERSION" ] && gh release download latest -p gpsradio.apk -O previous.apk 2>/dev/null; then
+              mkdir -p prev && mv previous.apk prev/gpsradio.apk && echo "${OLD:-unknown}" > prev/version.txt
+              gh release view previous >/dev/null 2>&1 || gh release create previous --title "GPS Radio – previous tested build" --notes "The tested build before latest." --target "$GITHUB_SHA"
+              gh release upload previous prev/gpsradio.apk prev/version.txt --clobber
+              gh release edit previous --notes "GPS Radio ${OLD:-unknown}: the tested build before latest. Installs over any other GPS Radio build (settings are kept)."
+            fi
+          else
+            gh release create latest --title "GPS Radio – latest tested build" --notes "Latest tested build." --target "$GITHUB_SHA"
+          fi
+          gh release upload latest gpsradio.apk version.txt --clobber
+          gh release edit latest --title "GPS Radio – latest tested build" --notes "GPS Radio ${VERSION} (${GITHUB_SHA::7}), passed unit, UI and emulator tests. Install on Android 8.0+ (allow installs from your browser). Any GPS Radio build installs over any other, forward or back, keeping your settings. Previous tested build: https://github.com/${GH_REPO}/releases/download/previous/gpsradio.apk"
+          gh release edit "$TAG" --prerelease=false --title "GPS Radio ${VERSION}"
+
+      - name: Prune old versioned builds (keep 15)
+        run: |
+          gh release list --limit 100 --json tagName --jq '.[].tagName' | grep '^v0\.' | tail -n +16 | while read -r t; do
+            gh release delete "$t" --cleanup-tag -y || true
+          done
 
   live-smoke:
     # Real OpenAI + Wikipedia + OSM. Costs a few cents; runs on manual dispatch and weekly,

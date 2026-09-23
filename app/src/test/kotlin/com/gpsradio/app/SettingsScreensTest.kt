@@ -4,7 +4,9 @@ import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
@@ -66,5 +68,18 @@ class SettingsScreensTest {
         compose.onNodeWithText("Forget everything about me").performScrollTo().performClick()
         assertEquals(listOf("m2"), forgotten)
         assertTrue(all)
+    }
+
+    @Test
+    fun settingsShowsTheAppVersion() {
+        compose.setContent {
+            GpsRadioTheme {
+                SettingsScreen(
+                    AppSettings(apiKey = "sk-x"), onSave = {}, onClearHistory = {}, onBack = {},
+                    memory = emptyList(), onForgetMemory = {}, onForgetAllMemory = {},
+                )
+            }
+        }
+        compose.onNodeWithTag("appVersion").performScrollTo().assertTextContains(BuildConfig.VERSION_NAME, substring = true)
     }
 }
