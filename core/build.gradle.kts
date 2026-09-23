@@ -29,4 +29,6 @@ dependencies {
 
 tasks.test {
     useJUnitPlatform()
+    // Show the live smoke test's story/answer in CI logs.
+    testLogging { showStandardStreams = System.getenv("OPENAI_API_KEY") != null }
 }
