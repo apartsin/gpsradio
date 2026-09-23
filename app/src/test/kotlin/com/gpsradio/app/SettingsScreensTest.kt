@@ -80,6 +80,6 @@ class SettingsScreensTest {
                 )
             }
         }
-        compose.onNodeWithTag("appVersion").performScrollTo().assertTextContains(BuildConfig.VERSION_NAME, substring = true)
+        compose.onNodeWithTag("appVersion", useUnmergedTree = true).performScrollTo().assertTextContains(BuildConfig.VERSION_NAME, substring = true)
     }
 }

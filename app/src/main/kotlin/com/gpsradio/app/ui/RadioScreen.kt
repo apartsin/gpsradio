@@ -1,5 +1,7 @@
 package com.gpsradio.app.ui
 
+import com.gpsradio.app.platform.UpdateState
+import com.gpsradio.core.update.UpdateInfo
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -141,6 +143,7 @@ fun RadioScreen(vm: MainViewModel, onOpenSettings: () -> Unit, autoStart: Boolea
     val state by vm.radio.collectAsStateWithLifecycle()
     val settings by vm.settings.collectAsStateWithLifecycle()
     val recording by vm.recording.collectAsStateWithLifecycle()
+    val update by vm.update.collectAsStateWithLifecycle()
     val context = LocalContext.current
     fun granted(p: String) = ContextCompat.checkSelfPermission(context, p) == PackageManager.PERMISSION_GRANTED
 
@@ -231,6 +234,9 @@ fun RadioScreen(vm: MainViewModel, onOpenSettings: () -> Unit, autoStart: Boolea
         actions = actions,
         // Natural voice needs the mic; until it's granted, the mic falls back to hold-to-talk (which asks for it).
         liveMode = settings.liveVoice && micGranted,
+        update = update,
+        onInstallUpdate = vm::installUpdate,
+        onAllowInstalls = vm::allowInstalls,
         locationDenied = locationDenied,
         approximateOnly = approximateOnly,
         onRequestPrecise = {
@@ -256,6 +262,9 @@ fun RadioContent(
     onRequestPrecise: () -> Unit = {},
     /** Natural voice: the mic is tap-to-talk hands-free instead of hold-to-talk. */
     liveMode: Boolean = false,
+    update: UpdateState = UpdateState.Idle,
+    onInstallUpdate: (UpdateInfo) -> Unit = {},
+    onAllowInstalls: () -> Unit = {},
 ) {
     val running = state.radioState != RadioState.IDLE
     val driving = (state.modeOverride ?: state.location?.travelMode) == TravelMode.DRIVING
@@ -288,6 +297,8 @@ fun RadioContent(
             StatusCard(state, onMode = actions.onMode, onFixKey = actions.onOpenSettings)
             if (locationDenied) PermissionCard(onOpenAppSettings)
             if (approximateOnly && running) PreciseLocationCard(onRequestPrecise)
+            // Never distract the driver with an update prompt.
+            if (!driving) UpdateBanner(update, onInstallUpdate, onAllowInstalls)
             state.pendingOffer?.let { OfferCard(it, actions.onAnswerOffer) }
             if (!running) {
                 IdleContent(state, actions, starredIds, Modifier.weight(1f))

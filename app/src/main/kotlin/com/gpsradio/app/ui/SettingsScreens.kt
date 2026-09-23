@@ -43,6 +43,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import com.gpsradio.app.platform.UpdateState
+import com.gpsradio.core.update.UpdateInfo
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
@@ -93,6 +95,10 @@ fun SettingsScreen(
     memory: List<MemoryItem> = emptyList(),
     onForgetMemory: (String) -> Unit = {},
     onForgetAllMemory: () -> Unit = {},
+    update: UpdateState = UpdateState.Idle,
+    onCheckUpdate: () -> Unit = {},
+    onInstallUpdate: (UpdateInfo) -> Unit = {},
+    onAllowInstalls: () -> Unit = {},
 ) {
     Scaffold(
         topBar = {
@@ -116,12 +122,7 @@ fun SettingsScreen(
                 OutlinedButton(onClick = onClearHistory, modifier = Modifier.fillMaxWidth()) {
                     Text("Forget stories I've already heard")
                 }
-                Text(
-                    versionLabel(),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.fillMaxWidth().testTag("appVersion"),
-                )
+                UpdatesSection(update, onCheckUpdate, onInstallUpdate, onAllowInstalls)
             },
         )
     }

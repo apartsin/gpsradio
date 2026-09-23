@@ -65,6 +65,12 @@ open class GpsRadioApp : Application() {
         private set
     lateinit var session: RadioSession
         private set
+    lateinit var updater: com.gpsradio.app.platform.AppUpdater
+        private set
+
+    /** Self-update source (the app isn't in a store); tests return null to disable it. */
+    protected open fun updateClient(http: OkHttpClient): com.gpsradio.core.update.UpdateClient? =
+        com.gpsradio.core.update.UpdateClient(http)
 
     protected open fun endpoints(): Endpoints = Endpoints()
 
@@ -113,6 +119,7 @@ open class GpsRadioApp : Application() {
         val online = isOnline()
         val wikipedia = WikipediaClient(http, userAgent, ep.wikipedia)
 
+        updater = com.gpsradio.app.platform.AppUpdater(this, updateClient(http))
         session = RadioSession(
             places = DiscoveryService(
                 wikipedia,

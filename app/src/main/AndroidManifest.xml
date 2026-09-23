@@ -19,6 +19,9 @@
     <!-- Offline detection: prefer cached places and the on-device voice without waiting for timeouts. -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
+    <!-- Self-update: the app is not distributed through a store (spec B §36). -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <!-- Android 11+ package visibility: lets TextToSpeech find the installed speech engine. -->
     <queries>
         <intent>
@@ -54,6 +57,10 @@
 
         <receiver
             android:name=".platform.ActivityTransitionReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".platform.InstallResultReceiver"
             android:exported="false" />
     </application>
 </manifest>

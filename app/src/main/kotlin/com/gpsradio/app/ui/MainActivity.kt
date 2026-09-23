@@ -27,6 +27,7 @@ class MainActivity : ComponentActivity() {
             GpsRadioTheme {
                 val settings by vm.settings.collectAsStateWithLifecycle()
                 val radio by vm.radio.collectAsStateWithLifecycle()
+                val update by vm.update.collectAsStateWithLifecycle()
                 var showSettings by remember { mutableStateOf(false) }
                 var autoStart by remember { mutableStateOf(false) }
                 val openSettings by openSettingsRequest
@@ -58,6 +59,10 @@ class MainActivity : ComponentActivity() {
                         onForgetMemory = vm::forgetMemory,
                         onForgetAllMemory = vm::clearMemory,
                         onBack = { showSettings = false },
+                        update = update,
+                        onCheckUpdate = { vm.checkForUpdate(manual = true) },
+                        onInstallUpdate = vm::installUpdate,
+                        onAllowInstalls = vm::allowInstalls,
                     )
                     else -> RadioScreen(
                         vm,
@@ -68,6 +73,12 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Rate-limited to every 6 h; also re-evaluates after returning from the "install unknown apps" page.
+        vm.checkForUpdate(manual = false)
     }
 
     override fun onNewIntent(intent: Intent) {

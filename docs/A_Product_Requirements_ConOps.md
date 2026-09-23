@@ -389,3 +389,17 @@ The radio keeps going with short on-device notes. The warning clears once credit
 | ID | Capability | Requirement |
 |---|---|---|
 | PR-46 | Out-of-credit notice | Detect exhausted OpenAI credit, notify the listener on screen, by notification and by voice, and offer to add a key. |
+
+## 27. Versions and In-App Updates
+
+GPS Radio is not distributed through a store:
+- Settings shows the installed version.
+- The app checks for new tested builds and installs them after one tap.
+- It never prompts while you are driving.
+- An older build can always be reinstalled over a newer one without losing settings.
+
+| ID | Capability | Requirement |
+|---|---|---|
+| PR-47 | Version info | Show version, build and date in Settings. |
+| PR-48 | Self-update | Check for tested builds (auto, at most every 6 h, and on demand), download with integrity check, install via the system installer. |
+| PR-49 | Safe releases | "latest" moves only after all tests pass; "previous" and per-build releases stay available. |

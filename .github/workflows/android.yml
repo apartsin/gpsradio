@@ -138,7 +138,15 @@ jobs:
           else
             gh release create latest --title "GPS Radio – latest tested build" --notes "Latest tested build." --target "$GITHUB_SHA"
           fi
-          gh release upload latest gpsradio.apk version.txt --clobber
+          # Self-update manifest the app polls (spec B §36): version, checksum, what changed.
+          SUBJECT="$(gh api "repos/${GH_REPO}/commits/${GITHUB_SHA}" --jq '.commit.message' | head -n1)"
+          jq -n --arg v "$VERSION" --argjson b "$GITHUB_RUN_NUMBER" \
+            --arg apk "https://github.com/${GH_REPO}/releases/download/${TAG}/gpsradio-${VERSION}.apk" \
+            --arg sha "$(sha256sum gpsradio.apk | cut -d' ' -f1)" --argjson size "$(stat -c%s gpsradio.apk)" \
+            --arg commit "${GITHUB_SHA::7}" --arg notes "$SUBJECT" \
+            '{version:$v, build:$b, apk:$apk, sha256:$sha, size:$size, commit:$commit, notes:$notes}' > update.json
+          cat update.json
+          gh release upload latest gpsradio.apk version.txt update.json --clobber
           gh release edit latest --title "GPS Radio – latest tested build" --notes "GPS Radio ${VERSION} (${GITHUB_SHA::7}), passed unit, UI and emulator tests. Install on Android 8.0+ (allow installs from your browser). Any GPS Radio build installs over any other, forward or back, keeping your settings. Previous tested build: https://github.com/${GH_REPO}/releases/download/previous/gpsradio.apk"
           gh release edit "$TAG" --prerelease=false --title "GPS Radio ${VERSION}"
 

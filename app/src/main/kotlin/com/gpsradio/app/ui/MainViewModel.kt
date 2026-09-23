@@ -4,7 +4,9 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import com.gpsradio.app.GpsRadioApp
 import com.gpsradio.app.data.AppSettings
+import com.gpsradio.app.platform.UpdateState
 import com.gpsradio.app.platform.VoiceRecorder
+import com.gpsradio.core.update.UpdateInfo
 import com.gpsradio.app.service.RadioService
 import android.content.Intent
 import android.net.Uri
@@ -27,6 +29,17 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     val settings: StateFlow<AppSettings> = graph.settings.settings
     val radio: StateFlow<RadioUiState> = session.state
+    val update: StateFlow<UpdateState> = graph.updater.state
+
+    /** Automatic checks are rate-limited (every 6 h); manual ones run now. */
+    fun checkForUpdate(manual: Boolean) = graph.updater.check(manual)
+
+    fun installUpdate(info: UpdateInfo) = graph.updater.install(info)
+
+    /** Opens the system page to allow installs from GPS Radio. */
+    fun allowInstalls() {
+        runCatching { getApplication<Application>().startActivity(graph.updater.permissionIntent()) }
+    }
 
     private val _recording = MutableStateFlow(false)
     val recording: StateFlow<Boolean> = _recording.asStateFlow()

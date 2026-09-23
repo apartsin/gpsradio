@@ -622,3 +622,19 @@ When the key's credit or billing limit runs out, OpenAI answers HTTP 429 with `i
   - Fillers are skipped.
   - The warning clears on the next successful OpenAI story, or at once when the key changes in Settings (`onApiKeyChanged`).
 - **App:** a heads-up notification on the "Alerts" channel. Tapping it or its action opens Settings. It is cancelled when credit returns.
+
+## 36. Versions, Releases and Self-Update
+
+The app is not in a store, so it manages its own releases and updates.
+
+- **Versions:** `versionName` is `0.5.<CI run>`. `BuildConfig.GIT_SHA` and `BUILD_DATE` complete it, and Settings shows all three. `versionCode` is fixed (100), so any build installs over any other, older or newer, and keeps settings. The signing key is the committed debug key.
+- **Releases (CI):**
+  - Every push creates a pre-release `v0.5.<run>` with `gpsradio-0.5.<run>.apk`.
+  - The `promote` job runs only after unit, Robolectric and emulator tests pass. It moves `latest` (`gpsradio.apk`, `version.txt`, `update.json`) to this build and keeps the replaced one as `previous`.
+  - Only the newest 15 versioned builds are kept.
+- **Update manifest:** `latest/update.json` has the fields `version`, `build`, `apk` (the immutable versioned asset), `sha256`, `size`, `commit` and `notes`.
+- **Self-update:**
+  - `UpdateClient` (core) parses the manifest. It requires https and a 64-hex checksum, compares build numbers (local builds never update), and streams the APK while verifying its SHA-256.
+  - `AppUpdater` (app) checks on app resume at most every 6 h, or on demand in Settings.
+  - Installing first asks for "Install unknown apps" if needed, then downloads into the app cache and commits a `PackageInstaller` session. On Android 12+ it sets `USER_ACTION_NOT_REQUIRED`, so later updates need no tap. `InstallResultReceiver` starts the confirmation screen when Android asks for one and reports failures, such as a signature conflict.
+  - A banner offers the update on the radio screen, but never while driving. Nothing installs without a tap.
