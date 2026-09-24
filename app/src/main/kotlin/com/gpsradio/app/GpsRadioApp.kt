@@ -62,7 +62,7 @@ data class Endpoints(
  * Wikipedia and OpenStreetMap; there is no app backend. Open for instrumentation tests,
  * which swap endpoints, audio output and geocoding.
  */
-open class GpsRadioApp : Application() {
+open class GpsRadioApp : Application(), coil.ImageLoaderFactory {
     lateinit var settings: SettingsRepository
         private set
     lateinit var session: RadioSession
@@ -93,6 +93,21 @@ open class GpsRadioApp : Application() {
         com.gpsradio.core.update.UpdateClient(http)
 
     protected open fun endpoints(): Endpoints = Endpoints()
+
+    /**
+     * Photos (Coil): Wikimedia's image servers refuse clients that don't identify themselves (User-Agent policy),
+     * so the image loader sends the same identifying User-Agent as every other request the app makes.
+     */
+    override fun newImageLoader(): coil.ImageLoader {
+        val ua = "GpsRadio/${BuildConfig.VERSION_NAME} (Android; https://github.com/apartsin/gpsradio)"
+        val client = OkHttpClient.Builder()
+            .addInterceptor { chain -> chain.proceed(chain.request().newBuilder().header("User-Agent", ua).build()) }
+            .build()
+        return coil.ImageLoader.Builder(this)
+            .okHttpClient(client)
+            .crossfade(true)
+            .build()
+    }
 
     /**
      * The interface language: the narration language (Russian by default, spec A §49), not the phone's, so the

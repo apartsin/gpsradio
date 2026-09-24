@@ -788,3 +788,10 @@ Android usually asks "Install this update?" (always on the first self-update, an
 - **The offer.** When a newer tested build exists, a dialog offers it: "Update available: GPS Radio x. Update now?", with **Update** and **Later**.
   - **Update** installs it. If installs from GPS Radio aren't allowed yet, it opens that permission page first.
   - **Later** hides the dialog for that version until the next start. The Install banner stays in the menu.
+
+### Photos: the image loader identifies itself (fix)
+
+Photos load with Coil, which used its own HTTP client and the generic `okhttp/…` User-Agent. Wikimedia's image servers refuse clients that don't identify themselves (Wikimedia User-Agent policy), so the photo panel showed only the map.
+
+- **The fix.** `GpsRadioApp` is Coil's `ImageLoaderFactory`: the image loader sends the same identifying User-Agent as every other request the app makes (`GpsRadio/<version> (Android; <repo URL>)`).
+- **Test.** The live CI test `LivePhotoTest` downloads a real Wikipedia lead photo and gallery images this way. It also prints what a generic client gets.
