@@ -1014,3 +1014,19 @@ Photos merely taken near a place or near the listener were often unrelated (cars
   - the place's own article photos;
   - the photos of what the story names (§62): the Wikipedia photo of that exact thing, or a search for it near the listener, then anywhere, then Openverse;
   - the photos of an area story's subject.
+
+## 66. Entities Written with the Story
+
+The story model returns `entities` with the story, in the same call: up to 6 things the story names that a listener would like to see. Each has a caption in the story's language, an English Wikipedia title, search words, and the phrase where it's mentioned.
+
+- Their photos are looked up in parallel the moment the story is ready (Wikipedia, then Commons near the listener, then anywhere, then Openverse).
+- They are timed to their phrase (§62).
+- No extra model call. `PictureScout` remains for area stories, events and answers.
+
+## 67. Layout Fixes; No Repeated Photos
+
+- **Captions.** Small (labelSmall), up to two lines, the full width left of the map inset: no longer cut short.
+- **Status line.** Smaller and centred. "Next story…" is now in the session language («Следующая история…»).
+- **Searching indicator.** The dots animate in a fixed slot.
+- **Controls.** The three controls are top-aligned with one-line labels of the same width, so they line up. Russian mic labels are shorter: «Мик. вкл.» / «Мик. выкл.».
+- **No repeated photos.** A photo shown with one story isn't shown again with another (the place's own photos excepted). For example, area stories no longer all fall back to the same photo of the town; a story whose only photo was already used shows the map instead.

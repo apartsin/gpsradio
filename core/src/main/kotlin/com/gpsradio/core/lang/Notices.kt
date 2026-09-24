@@ -19,6 +19,8 @@ enum class Notice {
     WAIT_1,
     WAIT_2,
     WAIT_3,
+    /** Shown the moment "next" is heard (spec A §59). */
+    NEXT_STORY,
 }
 
 object Notices {
@@ -36,6 +38,7 @@ object Notices {
             Notice.WAIT_1 to "Just a moment…",
             Notice.WAIT_2 to "Still looking, almost there.",
             Notice.WAIT_3 to "Nearly ready…",
+            Notice.NEXT_STORY to "Next story…",
         ),
         "ru" to mapOf(
             Notice.ANSWER_FAILED to "Извините, сейчас не получилось ответить. Попробуйте чуть позже.",
@@ -50,6 +53,7 @@ object Notices {
             Notice.WAIT_1 to "Секундочку…",
             Notice.WAIT_2 to "Ещё ищу, почти готово.",
             Notice.WAIT_3 to "Уже почти…",
+            Notice.NEXT_STORY to "Следующая история…",
         ),
         "he" to mapOf(
             Notice.ANSWER_FAILED to "סליחה, לא הצלחתי לענות כרגע. נסו שוב בעוד רגע.",
@@ -64,6 +68,7 @@ object Notices {
             Notice.WAIT_1 to "רק רגע…",
             Notice.WAIT_2 to "עדיין מחפש, כמעט שם.",
             Notice.WAIT_3 to "כמעט מוכן…",
+            Notice.NEXT_STORY to "הסיפור הבא…",
         ),
         "de" to mapOf(
             Notice.ANSWER_FAILED to "Entschuldigung, das konnte ich gerade nicht beantworten. Versuch es gleich noch einmal.",
@@ -78,6 +83,7 @@ object Notices {
             Notice.WAIT_1 to "Einen Moment…",
             Notice.WAIT_2 to "Ich suche noch, gleich geht's weiter.",
             Notice.WAIT_3 to "Fast fertig…",
+            Notice.NEXT_STORY to "Nächste Geschichte…",
         ),
         "es" to mapOf(
             Notice.ANSWER_FAILED to "Lo siento, ahora no pude responder. Inténtalo de nuevo en un momento.",
@@ -92,6 +98,7 @@ object Notices {
             Notice.WAIT_1 to "Un momento…",
             Notice.WAIT_2 to "Sigo buscando, ya casi.",
             Notice.WAIT_3 to "Casi listo…",
+            Notice.NEXT_STORY to "Siguiente historia…",
         ),
         "fr" to mapOf(
             Notice.ANSWER_FAILED to "Désolé, je n'ai pas pu répondre pour l'instant. Réessayez dans un moment.",
@@ -106,6 +113,7 @@ object Notices {
             Notice.WAIT_1 to "Un instant…",
             Notice.WAIT_2 to "Je cherche encore, presque prêt.",
             Notice.WAIT_3 to "Presque prêt…",
+            Notice.NEXT_STORY to "Histoire suivante…",
         ),
     )
 

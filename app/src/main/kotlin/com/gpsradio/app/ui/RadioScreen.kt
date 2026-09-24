@@ -410,8 +410,8 @@ fun RadioContent(
                     }
                     NowLine(state, micOpen, onFixKey = actions.onOpenSettings)
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(24.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(20.dp),
+                        verticalAlignment = Alignment.Top,
                         modifier = Modifier.padding(bottom = 16.dp),
                     ) {
                         RadioOnOffButton(running, onStart = actions.onStart, onStop = actions.onStop)
@@ -474,8 +474,9 @@ private fun NowLine(state: RadioUiState, micOpen: Boolean, onFixKey: () -> Unit)
             }
             Text(
                 it,
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.bodySmall,
                 color = color,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis,
                 modifier = if (status?.needsKey == true) Modifier.clickable(onClickLabel = status?.actionLabel ?: openSettings, onClick = onFixKey) else Modifier,
@@ -503,7 +504,7 @@ private fun RadioOnOffButton(running: Boolean, onStart: () -> Unit, onStop: () -
         ) {
             Icon(if (running) Icons.Default.Stop else Icons.Default.PlayArrow, stringResource(if (running) R.string.stop_radio else R.string.start_radio), Modifier.size(56.dp))
         }
-        Text(stringResource(if (running) R.string.stop else R.string.start), style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 4.dp))
+        ControlLabel(stringResource(if (running) R.string.stop else R.string.start))
     }
 }
 
@@ -533,13 +534,29 @@ private fun SearchingIndicator(modifier: Modifier = Modifier) {
             tint = MaterialTheme.colorScheme.primary,
             modifier = Modifier.size(20.dp).graphicsLayer { scaleX = pulse; scaleY = pulse; alpha = 0.6f + (pulse - 0.85f) },
         )
+        // The dots animate in a fixed slot so the text never jumps or gets cut.
         Text(
-            searching + ".".repeat(dots.toInt().coerceIn(0, 3)),
-            style = MaterialTheme.typography.bodyMedium,
+            searching + ".".repeat(dots.toInt().coerceIn(0, 3)) + "\u2007".repeat(3 - dots.toInt().coerceIn(0, 3)),
+            style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(start = 6.dp).width(120.dp),
+            maxLines = 1,
+            modifier = Modifier.padding(start = 6.dp),
         )
     }
+}
+
+/** A control's label: one line, same size under every button, so the three controls line up. */
+@Composable
+private fun ControlLabel(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelMedium,
+        maxLines = 1,
+        softWrap = false,
+        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+        modifier = Modifier.padding(top = 4.dp).width(CONTROL_SIZE + 12.dp),
+    )
 }
 
 /** The three main controls side by side, sized to fit a phone (spec A §57). */
@@ -558,7 +575,7 @@ private fun NextButton(running: Boolean, onNext: () -> Unit) {
         ) {
             Icon(Icons.Default.SkipNext, stringResource(R.string.next_story), Modifier.size(48.dp))
         }
-        Text(stringResource(R.string.next), style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 4.dp))
+        ControlLabel(stringResource(R.string.next))
     }
 }
 
@@ -593,7 +610,7 @@ private fun MicSwitch(open: Boolean, running: Boolean, live: LiveState?, recordi
                 Icon(if (open) Icons.Default.Mic else Icons.Default.MicOff, null, Modifier.size(48.dp))
             }
         }
-        Text(stringResource(if (open) R.string.mic_on else R.string.mic_off), style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 4.dp))
+        ControlLabel(stringResource(if (open) R.string.mic_on else R.string.mic_off))
     }
 }
 

@@ -97,7 +97,7 @@ Never invent things the text doesn't mention.
         }
 
         /** The pictures, in the order the text mentions them (by where their quote appears), at most 5. */
-        fun parse(raw: String, text: String): List<PictureRef> {
+        fun parse(raw: String, text: String, max: Int = 5): List<PictureRef> {
             val items = runCatching { (json.parseToJsonElement(raw.trim()).jsonObject["pictures"] as? JsonArray).orEmpty() }.getOrDefault(emptyList())
             fun JsonObject.s(k: String) = (this[k] as? JsonPrimitive)?.contentOrNull?.trim().orEmpty()
             return items.mapNotNull { it as? JsonObject }.mapNotNull { o ->
@@ -107,7 +107,7 @@ Never invent things the text doesn't mention.
                 else PictureRef(caption, o.s("wikipedia").ifEmpty { null }?.take(120), search, o.s("quote").take(60))
             }.distinctBy { it.wikipedia ?: it.search }
                 .sortedBy { p -> position(text, p.quote) ?: Int.MAX_VALUE }
-                .take(5)
+                .take(max)
         }
 
         /** Where [quote] is said in [text] (character index), tolerant of case; null if it isn't there. */

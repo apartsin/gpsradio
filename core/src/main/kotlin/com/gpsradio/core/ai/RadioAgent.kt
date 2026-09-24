@@ -145,6 +145,11 @@ data class Segment(
     val language: String? = null,
     /** English Wikipedia titles of people, buildings and views named in [text], for the photo slideshow (spec A §55). */
     val pictures: List<String> = emptyList(),
+    /**
+     * What the story names that a listener would like to see (people, buildings, objects, views, scenes), written by
+     * the story model together with the story (spec A §66): used to search Wikipedia, Commons and Openverse.
+     */
+    val entities: List<PictureRef> = emptyList(),
 )
 
 data class NarrationRequest(
@@ -321,7 +326,7 @@ class RadioAgent(
         val (spoken, answer) = if (req.format == SegmentFormat.QUIZ) splitQuiz(text) else text to null
         return Segment(
             cleanForSpeech(spoken), c.place.id, c.place.name, sources, c.place.imageUrl, c.place.point, answer?.let(::cleanForSpeech),
-            basis = basis, pictures = parsePictures(res.text),
+            basis = basis, pictures = parsePictures(res.text), entities = parseEntities(res.text, text),
         )
     }
 
@@ -712,9 +717,14 @@ class RadioAgent(
             - The spoken text is plain speech only: no lists, markdown, URLs, emojis or stage directions.
             - When a JSON format is requested, put the spoken segment in "text" and set "basis" to how well-founded
               its claims are: documented (all from the facts), disputed (includes contested claims), legend (mostly
-              folklore or legend), mixed (documented facts plus some legend or disputed claims). Put in "pictures" up
-              to 3 exact English Wikipedia article titles of the people, buildings or views your text names (not the
-              place itself), so the listener sees them in a photo slideshow; [] if none.
+              folklore or legend), mixed (documented facts plus some legend or disputed claims). Put in "entities" up
+              to 6 things your text names that a listener would like to SEE, in the order you say them: people,
+              buildings, monuments, objects, views, landscapes, historical scenes (including the place itself when
+              your text describes it). For each: "caption" (2 to 6 words in the story's language saying exactly what
+              the photo shows), "wikipedia" (the exact English Wikipedia article title, or "" if none), "search"
+              (2 to 5 English words to find a real photo of it, with the place name), and "quote" (1 to 4 words
+              copied exactly from your text where it's mentioned). Put in "pictures" the same "wikipedia" titles
+              (without empty ones).
         """.trimIndent()
 
         /** Structured narration: the spoken text plus the basis of its claims. */
@@ -731,8 +741,21 @@ class RadioAgent(
                     put("type", "array")
                     putJsonObject("items") { put("type", "string") }
                 }
+                putJsonObject("entities") {
+                    put("type", "array")
+                    putJsonObject("items") {
+                        put("type", "object")
+                        put("additionalProperties", false)
+                        putJsonObject("properties") {
+                            for (k in listOf("caption", "wikipedia", "search", "quote")) putJsonObject(k) { put("type", "string") }
+                        }
+                        putJsonArray("required") { listOf("caption", "wikipedia", "search", "quote").forEach { add(JsonPrimitive(it)) } }
+                    }
+                }
             }
-            putJsonArray("required") { add(JsonPrimitive("text")); add(JsonPrimitive("basis")); add(JsonPrimitive("pictures")) }
+            putJsonArray("required") {
+                add(JsonPrimitive("text")); add(JsonPrimitive("basis")); add(JsonPrimitive("pictures")); add(JsonPrimitive("entities"))
+            }
         }
 
         /** The "pictures" titles of a structured story (at most 3, trimmed); empty for plain text. */
@@ -740,6 +763,13 @@ class RadioAgent(
             (json.parseToJsonElement(raw.trim()).jsonObject["pictures"] as? kotlinx.serialization.json.JsonArray).orEmpty()
                 .mapNotNull { (it as? JsonPrimitive)?.contentOrNull?.trim()?.takeIf { t -> t.isNotEmpty() && t.length <= 120 } }
                 .distinct().take(3)
+        }.getOrDefault(emptyList())
+
+        /** The story's "entities" (spec A §66), in the order they're said; empty for plain text. */
+        fun parseEntities(raw: String, spoken: String): List<PictureRef> = runCatching {
+            val obj = json.parseToJsonElement(raw.trim()).jsonObject
+            val list = obj["entities"] as? kotlinx.serialization.json.JsonArray ?: return@runCatching emptyList()
+            PictureScout.parse(buildJsonObject { put("pictures", list) }.toString(), spoken, max = 6)
         }.getOrDefault(emptyList())
 
         /** Parses {text, basis} JSON, or treats the whole reply as plain spoken text (basis unknown). */

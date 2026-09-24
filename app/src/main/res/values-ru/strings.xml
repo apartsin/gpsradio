@@ -75,8 +75,8 @@
     <string name="mic_turn_off">Выключить микрофон</string>
     <string name="mic_state_open">Микрофон включён</string>
     <string name="mic_state_closed">Микрофон выключен</string>
-    <string name="mic_on">Микрофон вкл.</string>
-    <string name="mic_off">Микрофон выкл.</string>
+    <string name="mic_on">Мик. вкл.</string>
+    <string name="mic_off">Мик. выкл.</string>
     <string name="hint_connecting">Подключаюсь…</string>
     <string name="hint_listening">Слушаю…</string>
     <string name="hint_interrupt">Говорите в любой момент, чтобы перебить</string>

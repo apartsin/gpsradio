@@ -96,6 +96,50 @@ class PhotoFollowsStoryTest {
     }
 
     @Test
+    fun theStoryModelListsItsEntitiesWithTheStory() {
+        val text = "Эрцгерцог Иоганн купил замок. Мост длиной 123 метра ведёт к нему."
+        val raw = """{"text":${kotlinx.serialization.json.JsonPrimitive(text)},"basis":"documented","pictures":["Johann Orth"],
+            "entities":[{"caption":"Мост к замку","wikipedia":"","search":"Schloss Ort bridge","quote":"Мост длиной"},
+                        {"caption":"Эрцгерцог Иоганн Орт","wikipedia":"Johann Orth","search":"Johann Orth portrait","quote":"Эрцгерцог Иоганн"}]}"""
+        val e = com.gpsradio.core.ai.RadioAgent.parseEntities(raw, text)
+        assertEquals(listOf("Эрцгерцог Иоганн Орт", "Мост к замку"), e.map { it.caption }, "in spoken order")
+        assertEquals(null, e[1].wikipedia)
+        val schema = com.gpsradio.core.ai.RadioAgent.storySchema.toString()
+        assertTrue("\"entities\"" in schema && "\"quote\"" in schema)
+        assertTrue("\"entities\"" in com.gpsradio.core.ai.RadioAgent.narrationInstructions("ru-RU"))
+    }
+
+    @Test
+    fun entitiesFromTheStoryAreShownWithoutAnExtraModelCall() = runTest {
+        val castle = place("castle", Geo.destination(here, 0.0, 150.0), name = "Castle").copy(imageUrl = "https://img/castle.jpg")
+        var scoutCalls = 0
+        val finder = com.gpsradio.core.ai.PictureFinder { _, _, _ -> scoutCalls++; emptyList() }
+        val r = object : Radio(listOf(castle)) {
+            override suspend fun narrate(req: NarrationRequest) = Segment(
+                "Story about Franz Joseph and the castle", req.candidate.place.id, req.candidate.place.name, emptyList(),
+                entities = listOf(com.gpsradio.core.ai.PictureRef("Kaiser Franz Joseph", "Franz Joseph I of Austria", "Franz Joseph", "Franz Joseph")),
+            )
+        }
+        val s = RadioSession(
+            places = r, narrator = r, speech = r, audio = r, historyStore = r,
+            config = { SessionConfig("en-US", setOf(Topic.HISTORY)) },
+            clock = { testScheduler.currentTime + 1_000_000 },
+            dispatcher = StandardTestDispatcher(testScheduler),
+            pictureFinder = finder,
+        )
+        try {
+            s.start(); runCurrent()
+            s.onLocation(LocationSample(here.lat, here.lon, 5f, 1_000_000, 0f)); runCurrent()
+            advanceTimeBy(5_000); runCurrent()
+            val f = s.state.value.focus!!
+            assertEquals("Kaiser Franz Joseph", f.captions["https://upload.wikimedia.org/x/FJ.jpg"])
+            assertEquals(0, scoutCalls, "the story's own entities were used")
+        } finally {
+            s.stop(); runCurrent()
+        }
+    }
+
+    @Test
     fun storiesNameThePeopleAndBuildingsToShow() {
         assertEquals(listOf("Franz Joseph I of Austria", "Kaiservilla"),
             com.gpsradio.core.ai.RadioAgent.parsePictures("""{"text":"t","basis":"documented","pictures":[" Franz Joseph I of Austria ","Kaiservilla",""]}"""))
@@ -112,7 +156,7 @@ class PhotoFollowsStoryTest {
         assertNull(AngleScout.subject("""{"found":true,"subject":""}"""))
     }
 
-    private class Radio(val places: List<PlaceCandidate>) : PlacesProvider, Narrator, SpeechService, AudioOutput, HistoryStore, AngleResearch {
+    private open class Radio(val places: List<PlaceCandidate>) : PlacesProvider, Narrator, SpeechService, AudioOutput, HistoryStore, AngleResearch {
         val photoAsked = mutableListOf<String>()
         override suspend fun discover(center: GeoPoint, radiusM: Int, languageBase: String) = places
         override suspend fun articlePhoto(lang: String, title: String): Triple<String, String, String>? {
@@ -125,7 +169,7 @@ class PhotoFollowsStoryTest {
         }
         override suspend fun articleGallery(lang: String, title: String) =
             if (title == "Traunsee") listOf("https://upload.wikimedia.org/x/Traunsee_view.jpg", "https://upload.wikimedia.org/x/Traunstein.jpg") else emptyList()
-        override suspend fun narrate(req: NarrationRequest) =
+        override suspend fun narrate(req: NarrationRequest): Segment =
             Segment("Story ${req.candidate.place.name}", req.candidate.place.id, req.candidate.place.name, emptyList(), imageUrl = req.candidate.place.imageUrl)
         override suspend fun narrateFiller(req: FillerRequest) = Segment("Area story about the deep lake", null, "Area", emptyList())
         override suspend fun converse(req: ConversationRequest, onSearching: suspend () -> Unit) = ConversationReply("ok")

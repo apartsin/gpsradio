@@ -125,19 +125,19 @@ fun PlacePanel(state: RadioUiState, modifier: Modifier = Modifier) {
                 }
                 // What this slide shows (a person, building or view named in the story).
                 photos.getOrNull(pager.currentPage)?.let { focus?.captions?.get(it) }?.let { caption ->
+                    // Small and whole: up to two lines across the photo (left of the map inset), never cut short.
                     Text(
                         caption,
                         color = Color.White,
-                        style = MaterialTheme.typography.labelLarge,
-                        maxLines = 1,
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 2,
                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                         modifier = Modifier
                             .align(Alignment.BottomStart)
-                            .padding(start = 8.dp, bottom = 24.dp)
-                            .fillMaxWidth(0.6f)
-                            .clip(RoundedCornerShape(50))
-                            .background(Color.Black.copy(alpha = 0.5f))
-                            .padding(horizontal = 10.dp, vertical = 4.dp),
+                            .padding(start = 8.dp, end = 112.dp, bottom = 20.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color.Black.copy(alpha = 0.55f))
+                            .padding(horizontal = 8.dp, vertical = 3.dp),
                     )
                 }
                 // Author and licence of the photo on screen (spec A §45).

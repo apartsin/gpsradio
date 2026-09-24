@@ -53,6 +53,7 @@ import com.gpsradio.core.tour.TourState
 import com.gpsradio.core.tour.TourStop
 import com.gpsradio.core.tour.TourText
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
@@ -1721,6 +1722,7 @@ class RadioSession(
             addSlides(id, facet.related)
             for ((l, title) in tries) {
                 val photo = runCatching { places.articlePhoto(l, title) }.getOrNull() ?: continue
+                if (!photoOwner(photo.second, id)) continue // the town's photo again: try the next, else the map
                 _state.update { s ->
                     if (s.focus?.id != id) s else s.copy(focus = s.focus.copy(imageUrl = photo.second, url = s.focus.url ?: photo.third))
                 }
@@ -1744,12 +1746,22 @@ class RadioSession(
     /** Photo credits per place id (spec A §45). */
     private val photoCredits = HashMap<String, Map<String, String>>()
 
+    /** Which story (focus id) first showed each photo, so another story doesn't repeat it (spec A §67). */
+    private val usedPhotos = LinkedHashMap<String, String>()
+
+    private fun photoOwner(url: String, id: String): Boolean = usedPhotos[url].let { it == null || it == id }
+
     /** When each slide is due (epoch ms), per focus id (spec A §62). */
     private val timelines = HashMap<String, LinkedHashMap<String, Long>>()
 
     /** Pictures for a segment: the synced finder when there is one, else the story's own "pictures" list. */
     private fun illustrateOrSlides(id: String, segment: Segment, leadMs: Long) {
-        if (pictureFinder != null) illustrate(id, segment.text, leadMs) else addSlides(id, segment.pictures)
+        when {
+            // Entities written with the story (spec A §66): no extra model call, known before it plays.
+            segment.entities.isNotEmpty() -> illustrate(id, segment.text, leadMs, known = segment.entities)
+            pictureFinder != null -> illustrate(id, segment.text, leadMs)
+            else -> addSlides(id, segment.pictures)
+        }
     }
 
     /** Pictures for an answer (live or typed): on the current focus, or a new one where the listener is. */
@@ -1768,19 +1780,27 @@ class RadioSession(
      * Finds photos of the people, buildings, objects, views and scenes [text] names (spec A §62), each with a caption,
      * and schedules each for when its mention is spoken ([leadMs] from now, then by where it is in the text).
      */
-    private fun illustrate(id: String, text: String, leadMs: Long) {
-        val finder = pictureFinder ?: return
+    private fun illustrate(id: String, text: String, leadMs: Long, known: List<com.gpsradio.core.ai.PictureRef>? = null) {
+        val finder = pictureFinder
+        if (known.isNullOrEmpty() && finder == null) return
         val startMs = clock() + leadMs
         scope.launch {
-            val refs = runCatching { finder.find(text, sessionLanguage, _state.value.area) }.getOrDefault(emptyList())
-            for (ref in refs) {
-                // Wikipedia's photo of it; else a search near the listener, then anywhere, then openly licensed photos.
-                var credit: String? = null
-                val url = ref.wikipedia?.let { t -> runCatching { places.articlePhoto("en", t) }.getOrNull()?.second }
-                    ?: ref.search.takeIf { it.isNotBlank() }?.let { q ->
-                        runCatching { places.findPhoto(q, _state.value.location?.point) }.getOrNull()?.also { credit = it.second }?.first
-                    }
-                    ?: continue
+            val refs = known?.takeIf { it.isNotEmpty() }
+                ?: runCatching { finder!!.find(text, sessionLanguage, _state.value.area) }.getOrDefault(emptyList())
+            // Looked up side by side (each is a few web requests), then shown in the order they're said.
+            val point = _state.value.location?.point
+            val found = refs.map { ref ->
+                async {
+                    var credit: String? = null
+                    val url = ref.wikipedia?.let { t -> runCatching { places.articlePhoto("en", t) }.getOrNull()?.second }
+                        ?: ref.search.takeIf { it.isNotBlank() }?.let { q ->
+                            runCatching { places.findPhoto(q, point) }.getOrNull()?.also { credit = it.second }?.first
+                        }
+                    url?.let { Triple(ref, it, credit) }
+                }
+            }.awaitAll().filterNotNull()
+            for ((ref, url, credit) in found.filter { photoOwner(it.second, id) }.distinctBy { it.second }) {
+                // (Wikipedia's photo of it; else a search near the listener, then anywhere, then openly licensed photos.)
                 credit?.let { c -> photoCredits[id] = photoCredits[id].orEmpty() + (url to c) }
                 slides.getOrPut(id) { LinkedHashMap() }[url] = ref.caption
                 val at = com.gpsradio.core.ai.PictureScout.position(text, ref.quote)
@@ -1849,7 +1869,10 @@ class RadioSession(
         if (s.focus?.id != id) return@update s
         val own = galleries[id] ?: listOfNotNull(s.focus.imageUrl)
         val extra = slides[id].orEmpty()
-        val gallery = (own + extra.keys).distinct()
+        // A photo already shown with another story isn't shown again (spec A §67), unless it's this place's own.
+        val gallery = (own + extra.keys.filter { photoOwner(it, id) }).distinct()
+        gallery.forEach { url -> usedPhotos.putIfAbsent(url, id) }
+        while (usedPhotos.size > 400) usedPhotos.remove(usedPhotos.keys.first())
         // Every photo has a caption: the story's own, else what the file says it shows, else the place's name.
         val captions = gallery.associateWith { url -> extra[url] ?: PhotoCaptions.fromUrl(url) ?: s.focus.name }.filterValues { it.isNotBlank() }
         s.copy(focus = s.focus.copy(gallery = gallery, credits = photoCredits[id].orEmpty(), captions = captions, timeline = timelines[id].orEmpty().toMap()))
@@ -2807,8 +2830,8 @@ class RadioSession(
     /** The station sting plays before a story's words start. */
     private val STING_LEAD_MS = 700L
 
-    /** Shown the moment "next" is heard, until the next story starts. */
-    private val NEXT_STATUS = "Next story…"
+    /** Shown the moment "next" is heard, until the next story starts, in the session language. */
+    private val NEXT_STATUS: String get() = Notices.text(Notice.NEXT_STORY, sessionLanguage)
 
     /** The first "just a moment" after this long waiting, then one every [WAIT_CUE_EVERY_MS]. */
     private val WAIT_CUE_FIRST_MS = 4_000L
