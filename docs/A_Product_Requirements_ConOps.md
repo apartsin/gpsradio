@@ -858,3 +858,9 @@ Now:
   - «Другую историю», «ещё историю», «расскажи что-нибудь интересное», "surprise me" and similar are handled on the device as "next" (§52).
   - The live host is told never to ask what the listener wants to hear: the radio researches its 50 angles on its own. A named topic steers (§37).
   - The research returns the story's subject (§51). A subject already told, as a place story or under another angle, is not told again, across days too (§40).
+
+## 54. Every Topic On by Default
+
+- **Default.** All topics are on by default, including Jewish & Israel. The listener switches off what they don't want. This supersedes the opt-in default of §44. The living-person rule of §44 stays: faith and ethnicity only for people who have died.
+- **Migration.** Installs still on an earlier untouched default (either the 5-topic or the 4-topic set) move to all topics once; a set chosen by the listener is kept.
+- **Tiers.** With every topic on, interests express no preference, so they no longer lift angles a tier (§38) and the headliners still come first. A real selection still lifts matching angles.

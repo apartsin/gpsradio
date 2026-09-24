@@ -32,8 +32,8 @@ data class AppSettings(
     /** Russian by default; the listener can pick another language or Auto (phone language) in Settings. */
     val languageAuto: Boolean = false,
     val preferredLanguage: String = DEFAULT_LANGUAGE,
-    /** Jewish & Israel is opt-in (spec A §44): never on unless the listener chooses it. */
-    val interests: Set<Topic> = setOf(Topic.HISTORY, Topic.NATURE, Topic.ARCHITECTURE, Topic.CULTURE),
+    /** Every topic is on by default (spec A §54); the listener switches off what they don't want. */
+    val interests: Set<Topic> = Topic.entries.toSet(),
     val models: ModelConfig = ModelConfig(),
     val hostStyle: HostStyle = HostStyle.ENTERTAINING,
     /** Natural, hands-free voice conversation via the OpenAI Realtime API (falls back to classic). */
@@ -122,8 +122,8 @@ class SettingsRepository(context: Context) {
             languageAuto = if (langCurrent) plain.getBoolean(KEY_LANG_AUTO, d.languageAuto) else d.languageAuto,
             preferredLanguage = (if (langCurrent) plain.getString(KEY_LANG, null) else null) ?: d.preferredLanguage,
             interests = plain.getStringSet(KEY_INTERESTS, null)?.mapNotNull { Topic.fromKey(it) }?.toSet()
-                // v2: the old default had Jewish & Israel on; an untouched old default moves to the opt-in one.
-                ?.takeUnless { plain.getInt(KEY_INTERESTS_VERSION, 1) < INTERESTS_VERSION && it == OLD_DEFAULT_INTERESTS }
+                // v3: all topics on by default; an untouched earlier default moves to it once.
+                ?.takeUnless { plain.getInt(KEY_INTERESTS_VERSION, 1) < INTERESTS_VERSION && it in OLD_DEFAULT_INTERESTS }
                 ?: d.interests,
             models = ModelConfig(
                 // Models saved before v3 were older defaults: move to the new defaults once (spec A §38, §53).
@@ -187,8 +187,11 @@ class SettingsRepository(context: Context) {
         const val KEY_VOICE_VERSION = "voice_version"
         const val VOICE_VERSION = 2
         const val KEY_INTERESTS_VERSION = "interests_version"
-        const val INTERESTS_VERSION = 2
-        val OLD_DEFAULT_INTERESTS = setOf(Topic.HISTORY, Topic.NATURE, Topic.ARCHITECTURE, Topic.CULTURE, Topic.JEWISH)
+        const val INTERESTS_VERSION = 3
+        val OLD_DEFAULT_INTERESTS = setOf(
+            setOf(Topic.HISTORY, Topic.NATURE, Topic.ARCHITECTURE, Topic.CULTURE, Topic.JEWISH),
+            setOf(Topic.HISTORY, Topic.NATURE, Topic.ARCHITECTURE, Topic.CULTURE),
+        )
         const val KEY_CONVERSATION_MODEL = "conversation_model"
         const val KEY_TTS_MODEL = "tts_model"
         const val KEY_TTS_VOICE = "tts_voice"

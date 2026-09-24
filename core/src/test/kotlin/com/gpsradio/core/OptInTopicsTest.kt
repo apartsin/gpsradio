@@ -64,6 +64,15 @@ class OptInTopicsTest {
     }
 
     @Test
+    fun withEveryTopicOnTheTiersStandAsTheyAre() {
+        // The app's default (spec A §54): all topics on. That says nothing about preference, so nothing is lifted.
+        val all = Topic.entries.toSet()
+        for (a in StoryAngle.entries) assertEquals(a.tier, AnglePlanner.tierFor(a, all), a.name)
+        assertTrue(StoryAngle.JEWISH in AnglePlanner.ordered(all, null))
+        assertEquals(1, AnglePlanner.tierFor(StoryAngle.DRINKS, setOf(Topic.FOOD)), "a real preference still lifts")
+    }
+
+    @Test
     fun theAngleIsResearchedOnlyWhenChosenOrAskedFor() {
         assertTrue(Topic.JEWISH in Topic.OPT_IN)
         assertFalse(StoryAngle.JEWISH in AnglePlanner.ordered(setOf(Topic.HISTORY), null))

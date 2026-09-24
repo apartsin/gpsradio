@@ -67,7 +67,7 @@ class PreviewAndTrustUiTest {
         assertTrue(tried!!.previewMode)
         assertEquals("", tried!!.apiKey)
         assertTrue(tried!!.canListen)
-        assertTrue(Topic.FOOD in tried!!.interests)
+        assertTrue("every topic starts on: tapping Food switched it off", Topic.FOOD !in tried!!.interests)
     }
 
     @Test

@@ -124,7 +124,10 @@ object AnglePlanner {
 
     /** The angle's tier for this listener: one tier higher when it matches their interests. */
     fun tierFor(angle: StoryAngle, interests: Set<Topic>): Int =
-        if (angle.topics.any { it in interests }) maxOf(1, angle.tier - 1) else angle.tier
+        if (isSelective(interests) && angle.topics.any { it in interests }) maxOf(1, angle.tier - 1) else angle.tier
+
+    /** Interests say something only when some topics are left out; with all of them on, the tiers stand as they are. */
+    private fun isSelective(interests: Set<Topic>) = interests.isNotEmpty() && !interests.containsAll(Topic.entries)
 
     /**
      * Angles in the order to try: top tier first, random order within a tier (a fresh mix each trip); a theme

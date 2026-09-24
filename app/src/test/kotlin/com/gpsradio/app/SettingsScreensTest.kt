@@ -40,7 +40,8 @@ class SettingsScreensTest {
         compose.onNodeWithText("Late-night chill").performScrollTo().performClick()
         compose.onNodeWithText("Save and start listening").performScrollTo().assertIsEnabled().performClick()
         assertEquals("sk-test-123", saved!!.apiKey)
-        assertTrue(Topic.FOOD in saved!!.interests)
+        // Every topic is on by default: tapping Food switched it off.
+        assertTrue(Topic.FOOD !in saved!!.interests && Topic.HISTORY in saved!!.interests && Topic.JEWISH in saved!!.interests)
         // Russian is the default narration language.
         assertEquals(false, saved!!.languageAuto)
         assertEquals("ru-RU", saved!!.preferredLanguage)
