@@ -97,7 +97,10 @@ fun UpdateBanner(
                 Text(stringResource(R.string.update_banner_title, info.version), style = MaterialTheme.typography.titleSmall)
                 when (state) {
                     is UpdateState.Downloading -> LinearProgressIndicator(progress = { state.progress }, modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
-                    is UpdateState.Installing -> Text(stringResource(R.string.installing), style = MaterialTheme.typography.bodySmall)
+                    is UpdateState.Installing -> Text(
+                        stringResource(R.string.installing) + " " + stringResource(R.string.installing_play_protect_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
                     is UpdateState.NeedsPermission -> Text(stringResource(R.string.allow_installs_hint), style = MaterialTheme.typography.bodySmall)
                     is UpdateState.Failed -> Text(state.message, style = MaterialTheme.typography.bodySmall, maxLines = 3)
                     else -> info.notes.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodySmall, maxLines = 2) }

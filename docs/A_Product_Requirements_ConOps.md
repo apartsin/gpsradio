@@ -978,3 +978,17 @@ In Settings → Models, every model and the voice are chosen from a dropdown ins
   - A loading photo shows a camera icon on the panel colour.
   - The map (shown when there's no photo) now sends a full identifying User-Agent to OpenStreetMap. Its tile servers refuse clients that don't identify themselves, which showed as a grey map.
 - **Voice requests during a story.** The speech gate no longer needs the listener to be louder than a fixed high level while the radio plays. It measures how much of the playback the mic picks up while the listener is quiet, and needs 2.5× that, between a normal speaking voice and the old ceiling. At normal volume, a normal voice now interrupts at once.
+
+## 63. More Photo Sources; Shut Down, Update, Restart
+
+- **Photo search, in order:**
+  1. The Wikipedia lead photo of the named thing.
+  2. Commons photos near the listener: CirrusSearch `nearcoord:25km,<lat>,<lon>`, so "the bridge" is this town's bridge.
+  3. Commons anywhere.
+  4. **Openverse**: a free, keyless search over openly licensed images (Flickr's Creative Commons photos, museums). Only https results are used, each credited with author, licence and source ("Max · CC BY-SA 2.0 · Flickr via Openverse").
+- **Scenery around the listener.** When an area story or an answer still has fewer than 3 photos 6 s in, photos taken within 1.5 km of the listener (Commons geosearch) are added. They are captioned with what the file says, or the town's name.
+- **Keyed options for later:** Mapillary (street-level views) and the Flickr API both need a free key.
+- **Shut down, update, restart.**
+  - Before Android installs an update, the app stops the radio (service, mic, audio, location), so nothing holds on to the app while it's replaced.
+  - Whether it was on is remembered. After the update, the "updated, tap to open" notification opens the app, and the radio starts again if it was on.
+  - While installing, the banner says the radio will come back, and what to do if Play Protect keeps "scanning" (Install anyway, or Install manually). The app can't control Play Protect's own dialog.

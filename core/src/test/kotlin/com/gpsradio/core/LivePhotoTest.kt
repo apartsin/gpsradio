@@ -65,6 +65,10 @@ class LivePhotoTest {
             r.wikipedia?.let { t -> wiki.pagesByTitle("en", listOf(t)).firstOrNull()?.thumbnailUrl } ?: wiki.commonsPhotosOf(r.search).firstOrNull()
         }
         println("PICTURES resolved: ${found.size}/${refs.size}")
+        // More sources (spec A §63): Commons near Gmunden, and Openverse.
+        val near = wiki.commonsPhotosOf("bridge", near = com.gpsradio.core.model.GeoPoint(47.9105, 13.8013))
+        val ov = runCatching { com.gpsradio.core.discovery.OpenverseClient(http, userAgent).search("Traunsee Gmunden") }.getOrElse { e -> println("OPENVERSE error: $e"); emptyList() }
+        println("PICTURES near=${near.take(2)} openverse=${ov.take(2)}")
         assertTrue(found.size >= 2)
     }
 }

@@ -182,12 +182,14 @@ class WikipediaClient(
     }
 
     /** Commons photos matching a subject ("Traunsee", "Franz Joseph I"), for area stories (spec A §60). */
-    suspend fun commonsPhotosOf(query: String, limit: Int = 4): List<String> {
+    suspend fun commonsPhotosOf(query: String, limit: Int = 4, near: GeoPoint? = null, nearKm: Int = 25): List<String> {
+        // Near the listener first (Commons search's nearcoord): "the bridge" means this town's bridge (spec A §63).
+        val where = near?.let { " nearcoord:${nearKm}km,${"%.4f".format(java.util.Locale.ROOT, it.lat)},${"%.4f".format(java.util.Locale.ROOT, it.lon)}" }.orEmpty()
         val url = commonsUrl.newBuilder()
             .addQueryParameter("action", "query")
             .addQueryParameter("generator", "search")
             .addQueryParameter("gsrnamespace", "6")
-            .addQueryParameter("gsrsearch", "$query filetype:bitmap")
+            .addQueryParameter("gsrsearch", "$query filetype:bitmap$where")
             .addQueryParameter("gsrlimit", "20")
             .addQueryParameter("prop", "imageinfo")
             .addQueryParameter("iiprop", "url")

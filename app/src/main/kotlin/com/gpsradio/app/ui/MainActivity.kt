@@ -74,7 +74,8 @@ class MainActivity : ComponentActivity() {
                     if (installConfirm != null) (application as GpsRadioApp).updater.showPendingConfirm(this@MainActivity)
                 }
                 var showSettings by remember { mutableStateOf(false) }
-                var autoStart by remember { mutableStateOf(false) }
+                // Just updated while the radio was on: turn it back on ("shut down, update, restart").
+                var autoStart by remember { mutableStateOf((application as GpsRadioApp).updater.takeResumeAfterUpdate()) }
                 val openSettings by openSettingsRequest
                 LaunchedEffect(openSettings) {
                     if (openSettings) {

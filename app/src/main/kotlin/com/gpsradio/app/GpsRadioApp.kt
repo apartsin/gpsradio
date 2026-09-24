@@ -190,7 +190,12 @@ open class GpsRadioApp : Application(), coil.ImageLoaderFactory {
         val online = isOnline()
         val wikipedia = WikipediaClient(http, userAgent, baseUrl = ep.wikipedia)
 
-        updater = com.gpsradio.app.platform.AppUpdater(this, updateClient(http))
+        updater = com.gpsradio.app.platform.AppUpdater(this, updateClient(http), beforeInstall = {
+            // Shut down for the update: remember if the radio was on, then stop it (service, mic, audio).
+            val wasOn = ::session.isInitialized && session.state.value.radioState != com.gpsradio.core.model.RadioState.IDLE
+            updater.rememberResume(wasOn)
+            if (wasOn) com.gpsradio.app.service.RadioService.stop(this)
+        })
         session = RadioSession(
             places = DiscoveryService(
                 wikipedia,
@@ -198,6 +203,7 @@ open class GpsRadioApp : Application(), coil.ImageLoaderFactory {
                 diskCache = AreaDiskCache(FileAreaCacheStore(this)),
                 isOnline = online,
                 wikidata = com.gpsradio.core.discovery.WikidataClient(http, userAgent, ep.wikidataSparql),
+                openverse = com.gpsradio.core.discovery.OpenverseClient(http, userAgent),
             ),
             narrator = RadioAgent(openAi, models),
             speech = OpenAiSpeech(openAi, models),

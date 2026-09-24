@@ -281,4 +281,5 @@
     <string name="retry">Повторить</string>
     <string name="install_manually">Установить вручную</string>
     <string name="searching">Ищу</string>
+    <string name="installing_play_protect_hint">Радио остановится на время обновления и включится снова, когда вы откроете приложение. Если Play Protect долго «проверяет»: нажмите «Всё равно установить» или «Установить вручную».</string>
 </resources>

@@ -166,3 +166,39 @@ class CommonsPhotosTest {
         }
     }
 }
+
+/** Spec A §63: more photo sources — near the listener first, and openly licensed photos via Openverse. */
+class MorePhotoSourcesTest {
+    @Test
+    fun commonsSearchPrefersPhotosNearTheListener() = kotlinx.coroutines.runBlocking {
+        val server = okhttp3.mockwebserver.MockWebServer()
+        server.enqueue(okhttp3.mockwebserver.MockResponse().setBody("""{"query":{"pages":[{"title":"File:Bridge.jpg","imageinfo":[{"thumburl":"https://upload.wikimedia.org/br.jpg"}]}]}}"""))
+        server.start()
+        try {
+            val wiki = com.gpsradio.core.discovery.WikipediaClient(okhttp3.OkHttpClient(), "ua", commonsUrl = server.url("/c"))
+            assertEquals(listOf("https://upload.wikimedia.org/br.jpg"), wiki.commonsPhotosOf("wooden bridge", near = GeoPoint(47.9105, 13.8013)))
+            val q = server.takeRequest().requestUrl!!.queryParameter("gsrsearch")!!
+            assertTrue("nearcoord:25km,47.9105,13.8013" in q, q)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun openverseResultsCarryAuthorAndLicence() = kotlinx.coroutines.runBlocking {
+        val server = okhttp3.mockwebserver.MockWebServer()
+        server.enqueue(okhttp3.mockwebserver.MockResponse().setBody(
+            """{"results":[{"url":"http://insecure.example/a.jpg"},{"url":"https://live.staticflickr.com/1/traunsee.jpg","creator":"Max","license":"by-sa","license_version":"2.0","source":"flickr"}]}"""))
+        server.start()
+        try {
+            val ov = com.gpsradio.core.discovery.OpenverseClient(okhttp3.OkHttpClient(), "ua", server.url("/v1/images/"))
+            val photos = ov.search("Traunsee")
+            assertEquals(1, photos.size, "https only")
+            assertEquals("https://live.staticflickr.com/1/traunsee.jpg", photos[0].url)
+            assertEquals("Max · CC BY-SA 2.0 · Flickr via Openverse", photos[0].credit)
+            assertEquals("Traunsee", server.takeRequest().requestUrl!!.queryParameter("q"))
+        } finally {
+            server.shutdown()
+        }
+    }
+}

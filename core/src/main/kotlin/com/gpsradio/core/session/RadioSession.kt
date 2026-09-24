@@ -1700,6 +1700,7 @@ class RadioSession(
         val id = "area:${facet.id}"
         _state.update { it.copy(focus = FocusPlace(id, facet.title ?: facet.area, loc.point, null, facet.url)) }
         illustrate(id, segment.text, 0)
+        addSceneryIfSparse(id)
         scope.launch {
             val lang = langBase(sessionLanguage)
             val wikiTitle = facet.url?.takeIf { "wikipedia.org/wiki/" in it }?.substringAfter("/wiki/")?.replace('_', ' ')
@@ -1754,6 +1755,7 @@ class RadioSession(
             fid
         }
         illustrate(id, text, 0)
+        addSceneryIfSparse(id)
     }
 
     /**
@@ -1766,19 +1768,46 @@ class RadioSession(
         scope.launch {
             val refs = runCatching { finder.find(text, sessionLanguage, _state.value.area) }.getOrDefault(emptyList())
             for (ref in refs) {
+                // Wikipedia's photo of it; else a search near the listener, then anywhere, then openly licensed photos.
+                var credit: String? = null
                 val url = ref.wikipedia?.let { t -> runCatching { places.articlePhoto("en", t) }.getOrNull()?.second }
-                    ?: ref.search.takeIf { it.isNotBlank() }?.let { q -> runCatching { places.photosOf(q) }.getOrDefault(emptyList()).firstOrNull() }
+                    ?: ref.search.takeIf { it.isNotBlank() }?.let { q ->
+                        runCatching { places.findPhoto(q, _state.value.location?.point) }.getOrNull()?.also { credit = it.second }?.first
+                    }
                     ?: continue
+                credit?.let { c -> photoCredits[id] = photoCredits[id].orEmpty() + (url to c) }
                 slides.getOrPut(id) { LinkedHashMap() }[url] = ref.caption
                 val at = com.gpsradio.core.ai.PictureScout.position(text, ref.quote)
                 if (at != null) timelines.getOrPut(id) { LinkedHashMap() }[url] = startMs + at * 1000L / SPOKEN_CHARS_PER_SEC - 300
                 updateFocusGallery(id)
-                val credit = runCatching { places.photoCredits(listOf(url)) }.getOrDefault(emptyMap())
-                if (credit.isNotEmpty()) {
-                    photoCredits[id] = photoCredits[id].orEmpty() + credit
-                    updateFocusGallery(id)
+                if (credit == null) {
+                    val commons = runCatching { places.photoCredits(listOf(url)) }.getOrDefault(emptyMap())
+                    if (commons.isNotEmpty()) {
+                        photoCredits[id] = photoCredits[id].orEmpty() + commons
+                        updateFocusGallery(id)
+                    }
                 }
             }
+        }
+    }
+
+    /**
+     * Too few pictures for what's being said: add photos taken around the listener (spec A §63), captioned with
+     * what the file says or the town's name.
+     */
+    private fun addSceneryIfSparse(id: String) {
+        val point = _state.value.location?.point ?: return
+        scope.launch {
+            kotlinx.coroutines.delay(SCENERY_AFTER_MS) // after the story's own pictures had their chance
+            val have = (galleries[id].orEmpty() + slides[id]?.keys.orEmpty()).distinct().size
+            if (have >= 3) return@launch
+            val around = runCatching { places.photosNear(point, 1_500) }.getOrDefault(emptyList()).take(4 - have)
+            if (around.isEmpty()) return@launch
+            val town = _state.value.area?.city.orEmpty()
+            around.forEach { url -> slides.getOrPut(id) { LinkedHashMap() }[url] = PhotoCaptions.fromUrl(url) ?: town }
+            updateFocusGallery(id)
+            val c = runCatching { places.photoCredits(around) }.getOrDefault(emptyMap())
+            if (c.isNotEmpty()) { photoCredits[id] = photoCredits[id].orEmpty() + c; updateFocusGallery(id) }
         }
     }
 
@@ -2755,6 +2784,9 @@ class RadioSession(
 
     /** From Start until the first story airs: the listener is waiting for it. */
     private var firstStoryPending = false
+
+    /** Scenery around the listener is added this long after a sparse story starts. */
+    private val SCENERY_AFTER_MS = 6_000L
 
     /** About how fast the host speaks (characters per second), to time the photos to the words. */
     private val SPOKEN_CHARS_PER_SEC = 14L

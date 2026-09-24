@@ -36,6 +36,13 @@ interface PlacesProvider {
 
     /** Commons photos of a subject (spec A §60). */
     suspend fun photosOf(query: String): List<String> = emptyList()
+
+    /**
+     * The best photo for a search (spec A §63): Commons near [near] first, then Commons anywhere, then Openverse
+     * (openly licensed photos, e.g. Flickr). Returns the URL and, when the source gives it directly, its credit.
+     */
+    suspend fun findPhoto(query: String, near: GeoPoint?): Pair<String, String?>? =
+        photosOf(query).firstOrNull()?.let { it to null }
 }
 
 /**
@@ -46,6 +53,8 @@ class DiscoveryService(
     private val wikipedia: WikipediaClient,
     private val overpass: OverpassClient,
     private val clock: () -> Long = System::currentTimeMillis,
+    /** Openly licensed photos beyond Wikimedia (spec A §63); null leaves it out. */
+    private val openverse: OpenverseClient? = null,
     private val cacheTtlMs: Long = 6 * 3600_000L,
     private val maxCacheEntries: Int = 30,
     private val articlesPerLanguage: Int = 20,
@@ -163,6 +172,12 @@ class DiscoveryService(
 
     override suspend fun photosNear(point: GeoPoint, radiusM: Int): List<String> =
         runCatching { wikipedia.commonsPhotosNear(point, radiusM) }.getOrDefault(emptyList())
+
+    override suspend fun findPhoto(query: String, near: GeoPoint?): Pair<String, String?>? {
+        near?.let { p -> runCatching { wikipedia.commonsPhotosOf(query, limit = 1, near = p) }.getOrNull()?.firstOrNull()?.let { return it to null } }
+        runCatching { wikipedia.commonsPhotosOf(query, limit = 1) }.getOrNull()?.firstOrNull()?.let { return it to null }
+        return openverse?.let { o -> runCatching { o.search(query, limit = 1) }.getOrNull()?.firstOrNull()?.let { it.url to it.credit } }
+    }
 
     override suspend fun photosOf(query: String): List<String> =
         runCatching { wikipedia.commonsPhotosOf(query) }.getOrDefault(emptyList())

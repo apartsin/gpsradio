@@ -48,6 +48,8 @@ class AppUpdater(
     private val context: Context,
     private val client: UpdateClient?,
     private val currentVersion: String = BuildConfig.VERSION_NAME,
+    /** Stops the radio (voice, mic, location service) before Android installs the update: "shut down, update". */
+    private val beforeInstall: () -> Unit = {},
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val prefs = context.getSharedPreferences("updates", Context.MODE_PRIVATE)
@@ -110,6 +112,7 @@ class AppUpdater(
                     if (total > 0) _state.value = UpdateState.Downloading(info, (done.toFloat() / total).coerceIn(0f, 1f))
                 }
                 _state.value = UpdateState.Installing(info)
+                shutDownForUpdate()
                 withContext(Dispatchers.IO) { commit(apk) }
                 // Android normally answers within seconds (a confirmation or the result). If it never does, don't
                 // leave the listener on "Installing…" forever: offer to try again.
@@ -151,6 +154,25 @@ class AppUpdater(
         }
     }
 
+    /**
+     * Before installing: stop the radio cleanly (nothing holding the mic, audio or location while Android replaces the
+     * app) and remember whether it was on, so the updated app starts it again when opened (spec B §36).
+     */
+    private fun shutDownForUpdate() {
+        runCatching { beforeInstall() }
+    }
+
+    /** The radio was on when the update started: the updated app turns it back on (once). */
+    fun takeResumeAfterUpdate(): Boolean {
+        val resume = prefs.getBoolean(KEY_RESUME, false)
+        if (resume) prefs.edit().remove(KEY_RESUME).apply()
+        return resume
+    }
+
+    internal fun rememberResume(wasOn: Boolean) {
+        prefs.edit().putBoolean(KEY_RESUME, wasOn).apply()
+    }
+
     /** Back from the permission page: if installs are now allowed, the waiting update continues at once. */
     fun resumeAfterPermission() {
         val info = installWhenAllowed ?: return
@@ -170,6 +192,7 @@ class AppUpdater(
             install(info)
             return
         }
+        shutDownForUpdate()
         val uri = androidx.core.content.FileProvider.getUriForFile(context, context.packageName + ".updates", apk)
         val view = Intent(Intent.ACTION_VIEW)
             .setDataAndType(uri, "application/vnd.android.package-archive")
@@ -247,6 +270,7 @@ class AppUpdater(
 
     private companion object {
         const val KEY_LAST_CHECK = "last_check_ms"
+        const val KEY_RESUME = "resume_after_update"
         const val INSTALL_TIMEOUT_MS = 120_000L
         const val UPDATE_CHANNEL = "updates"
         const val UPDATE_NOTIFICATION_ID = 7
