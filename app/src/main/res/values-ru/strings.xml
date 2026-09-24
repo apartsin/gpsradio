@@ -243,4 +243,5 @@
     <string name="update_no_storage">Недостаточно места для обновления.</string>
     <string name="update_not_installed">Обновление не установлено.</string>
     <string name="update_not_installed_reason">Обновление не установлено: %1$s</string>
+    <string name="photo_credit">Фото: %1$s</string>
 </resources>

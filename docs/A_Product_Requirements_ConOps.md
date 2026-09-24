@@ -741,7 +741,7 @@ Trust needs a way to check. The listener can ask by voice, and every photo says 
 - **Live voice.** The live voice has the same two rules. The active story's context includes its `source` (Wikipedia, OpenStreetMap, a site's domain).
 - **Photo credits.**
   - Gallery photos come from Wikimedia Commons.
-  - Their author and licence are fetched from Commons metadata (one request per place) and shown under the photo: "Photo: Jane Doe · CC BY-SA 4.0 · Wikimedia Commons".
+  - Their author and licence are fetched from Commons metadata (one request per place) and shown on the photo: "Photo: Jane Doe · CC BY-SA 4.0 · Wikimedia Commons" («Фото: …» in Russian).
   - A photo whose file can't be identified shows no credit line rather than a wrong one.
 
 ## 46. Resolved Contradictions (R1.8)

@@ -131,8 +131,8 @@ class WikipediaClient(
     @Serializable private data class MetaValue(val value: String? = null)
 
     /**
-     * Author and licence of Wikimedia Commons photos (spec A §45), keyed by the image URL: "Photo: Jane Doe · CC BY-SA 4.0 ·
-     * Wikimedia Commons". Photos whose file can't be identified, or that have no metadata, are left out.
+     * Author and licence of Wikimedia Commons photos (spec A §45), keyed by the image URL: "Jane Doe · CC BY-SA 4.0 ·
+     * Wikimedia Commons" (the app adds a localized "Photo:"). Photos whose file can't be identified, or that have no metadata, are left out.
      */
     suspend fun photoCredits(urls: List<String>, lang: String = "en"): Map<String, String> {
         val byTitle = urls.mapNotNull { u -> fileTitle(u)?.let { "File:$it" to u } }.toMap()
@@ -186,13 +186,13 @@ class WikipediaClient(
             RegexOption.IGNORE_CASE,
         )
 
-        /** "Photo: Jane Doe · CC BY-SA 4.0 · Wikimedia Commons" from the raw (HTML) metadata; null when neither is known. */
+        /** "Jane Doe · CC BY-SA 4.0 · Wikimedia Commons" from the raw (HTML) metadata; null when neither is known. */
         fun credit(artistHtml: String?, license: String?): String? {
             val artist = artistHtml?.replace(Regex("<[^>]*>"), "")?.replace("&amp;", "&")?.replace("&nbsp;", " ")
                 ?.replace(Regex("\\s+"), " ")?.trim()?.take(80)?.ifBlank { null }
             val lic = license?.trim()?.ifBlank { null }
             if (artist == null && lic == null) return null
-            return "Photo: " + listOfNotNull(artist, lic, "Wikimedia Commons").joinToString(" · ")
+            return listOfNotNull(artist, lic, "Wikimedia Commons").joinToString(" · ")
         }
 
         /** The Commons file name in an upload.wikimedia.org URL (original or thumbnail), with spaces; null otherwise. */

@@ -86,6 +86,23 @@ fun PlacePanel(state: RadioUiState, modifier: Modifier = Modifier) {
                         modifier = Modifier.fillMaxSize(),
                     )
                 }
+                // Author and licence of the photo on screen (spec A §45).
+                photos.getOrNull(pager.currentPage)?.let { focus?.credits?.get(it) }?.let { credit ->
+                    Text(
+                        stringResource(R.string.photo_credit, credit),
+                        color = Color.White,
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(8.dp)
+                            .fillMaxWidth(0.62f)
+                            .clip(RoundedCornerShape(50))
+                            .background(Color.Black.copy(alpha = 0.45f))
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                    )
+                }
                 if (photos.size > 1) {
                     Row(
                         Modifier.align(Alignment.BottomCenter).padding(8.dp),

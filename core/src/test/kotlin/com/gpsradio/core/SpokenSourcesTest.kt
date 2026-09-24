@@ -117,7 +117,7 @@ class PhotoCreditsTest {
         assertEquals("Traunsee.jpg", com.gpsradio.core.discovery.WikipediaClient.fileTitle(
             "https://upload.wikimedia.org/wikipedia/commons/c/cd/Traunsee.jpg"))
         assertEquals(null, com.gpsradio.core.discovery.WikipediaClient.fileTitle("https://example.com/a.jpg"))
-        assertEquals("Photo: Jane Doe · CC BY-SA 4.0 · Wikimedia Commons",
+        assertEquals("Jane Doe · CC BY-SA 4.0 · Wikimedia Commons",
             com.gpsradio.core.discovery.WikipediaClient.credit("<a href=\"//commons.wikimedia.org/wiki/User:Jane\">Jane  Doe</a>", "CC BY-SA 4.0"))
         assertEquals(null, com.gpsradio.core.discovery.WikipediaClient.credit(" ", null))
     }
@@ -131,7 +131,7 @@ class PhotoCreditsTest {
         try {
             val wiki = com.gpsradio.core.discovery.WikipediaClient(okhttp3.OkHttpClient(), "ua", { server.url("/w/api.php") })
             val url = "https://upload.wikimedia.org/wikipedia/commons/thumb/c/cd/Traunsee.jpg/800px-Traunsee.jpg"
-            assertEquals(mapOf(url to "Photo: Max Muster · CC BY 3.0 · Wikimedia Commons"), wiki.photoCredits(listOf(url, "https://example.com/x.jpg")))
+            assertEquals(mapOf(url to "Max Muster · CC BY 3.0 · Wikimedia Commons"), wiki.photoCredits(listOf(url, "https://example.com/x.jpg")))
             val q = server.takeRequest().requestUrl!!
             assertEquals("File:Traunsee.jpg", q.queryParameter("titles"))
             assertEquals("extmetadata", q.queryParameter("iiprop"))
