@@ -908,3 +908,14 @@ The main screen now has three controls side by side: **Start/Stop**, **Next** an
 - Next does exactly what saying "next" does (§52): the current story stops at once, and the next one starts without the usual pause, with "Next story…" shown immediately.
 - Next is disabled while the radio is off.
 - Pause, repeat and the other controls stay voice-first (§36) and on the notification.
+
+## 58. A More Natural Story Voice (Same Model)
+
+Stories stay on gpt-4o-mini-tts in the `marin` voice (the owner chose not to pay for the realtime voice for stories). The voice now gets structured direction:
+
+- **Voice:** the host style's voice.
+- **Delivery:** talking, not reading.
+- **Pacing:** lively but unhurried; a short pause before the surprising fact; slower on names, dates and numbers.
+- **Emotion:** follows the content.
+- **Pronunciation:** a native speaker of the story's language, with natural intonation and word stress. Foreign names are said the local way without switching accent. Numbers and dates are read the way a native speaker says them.
+- **Russian notes:** standard literary pronunciation with correct stress, a conversational melody (not a newsreader or an audiobook), ё as ё, and numbers in the right grammatical case. Hebrew and German have short notes too.

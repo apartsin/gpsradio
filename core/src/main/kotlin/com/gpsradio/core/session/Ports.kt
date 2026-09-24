@@ -95,7 +95,7 @@ class OpenAiSpeech(
             text = text,
             model = m.ttsModel,
             voice = m.ttsVoice,
-            instructions = style.voiceDirection + " " + TALKING_NOT_READING + " Language: ${Languages.displayName(language)}.",
+            instructions = speechInstructions(style, language),
         )
         synchronized(cache) { cache[key] = bytes }
         return bytes
@@ -104,6 +104,34 @@ class OpenAiSpeech(
     override suspend fun transcribe(audio: ByteArray, fileName: String, mimeType: String, prompt: String?): String =
         openAi.transcribe(audio, fileName, mimeType, models().transcriptionModel, prompt)
 }
+
+/**
+ * How the story voice speaks (spec A §58): the host's voice, talking not reading, lively pacing, emotion that follows
+ * the content, and native pronunciation in the story's language (Russian by default).
+ */
+fun speechInstructions(style: HostStyle, language: String): String {
+    // The English name ("Russian"): the instructions are in English.
+    val lang = java.util.Locale.forLanguageTag(language).getDisplayLanguage(java.util.Locale.ENGLISH).ifBlank { Languages.displayName(language) }
+    val native = NATIVE_DELIVERY[language.substringBefore('-').lowercase()].orEmpty()
+    return listOf(
+        "Voice: ${style.voiceDirection}",
+        "Delivery: $TALKING_NOT_READING",
+        "Pacing: lively but unhurried, like good radio; a short pause just before the most surprising fact; slow down " +
+            "a little for names, dates and numbers so they land.",
+        "Emotion: genuine interest and warmth; light and playful for quirky facts, calm and respectful for tragedies.",
+        "Pronunciation: a native $lang speaker with natural $lang intonation and word stress. Say foreign place and " +
+            "personal names the local way but smoothly, without switching accent for the rest of the sentence. Read " +
+            "numbers, dates and years the way a native $lang speaker says them. $native",
+    ).joinToString("\n").trim()
+}
+
+/** Extra delivery notes per language (base code). */
+private val NATIVE_DELIVERY = mapOf(
+    "ru" to "Russian: standard literary pronunciation with correct stress, a lively conversational melody (not a " +
+        "newsreader, not an audiobook), ё pronounced as ё, and numbers and dates in the right grammatical case.",
+    "he" to "Hebrew: natural modern Israeli pronunciation and stress.",
+    "de" to "German: natural standard German, relaxed, not stiff.",
+)
 
 /** Delivery for every TTS clip (spec A §34): a host talking, never someone reading a text aloud. */
 const val TALKING_NOT_READING =

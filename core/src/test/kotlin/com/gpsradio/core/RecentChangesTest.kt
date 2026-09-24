@@ -181,3 +181,16 @@ class StoryModelTest {
         assertTrue("Never ask the listener what they'd like to hear" in live)
     }
 }
+
+/** Spec A §58: the story voice is directed like a native host, not a reader. */
+class SpeechDirectionTest {
+    @Test
+    fun theVoiceGetsStructuredNativeDirection() {
+        val ru = com.gpsradio.core.session.speechInstructions(com.gpsradio.core.ai.HostStyle.ENTERTAINING, "ru-RU")
+        for (part in listOf("Voice:", "Delivery:", "Pacing:", "Emotion:", "Pronunciation:", "native Russian speaker", "correct stress", "ё")) {
+            assertTrue(part in ru, part)
+        }
+        val en = com.gpsradio.core.session.speechInstructions(com.gpsradio.core.ai.HostStyle.CHILL, "en-US")
+        assertTrue("native English speaker" in en && "late-night" in en && "Russian" !in en)
+    }
+}
