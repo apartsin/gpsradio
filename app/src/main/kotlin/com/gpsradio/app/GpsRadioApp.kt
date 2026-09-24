@@ -69,6 +69,9 @@ open class GpsRadioApp : Application() {
         private set
     lateinit var updater: com.gpsradio.app.platform.AppUpdater
         private set
+    /** Estimated OpenAI spend (spec A §41), kept across launches for the daily limit. */
+    lateinit var meter: com.gpsradio.core.cost.CostMeter
+        private set
 
     /** The live voice's audio; told when the radio itself is playing (always-listening echo guard). */
     private var livePcm: AndroidPcmAudio? = null
@@ -111,7 +114,7 @@ open class GpsRadioApp : Application() {
 
     /** Natural hands-free voice (OpenAI Realtime); tests return null to use the classic pipeline. */
     protected open fun liveFactory(http: OkHttpClient, baseUrl: String): ((LiveHost, CoroutineScope) -> LiveConversation)? {
-        val realtime = RealtimeClient(http, { settings.current.effectiveApiKey })
+        val realtime = RealtimeClient(http, { settings.current.effectiveApiKey }, meter = meter)
         val pcm = AndroidPcmAudio(this).also { livePcm = it }
         return { host, scope -> LiveConversation({ model -> realtime.connect(model) }, pcm, host, scope) }
     }
@@ -138,6 +141,9 @@ open class GpsRadioApp : Application() {
     override fun onCreate() {
         super.onCreate()
         settings = SettingsRepository(this)
+        val costPrefs = getSharedPreferences("cost", MODE_PRIVATE)
+        meter = com.gpsradio.core.cost.CostMeter(onChange = { costPrefs.edit().putString("meter", it).apply() })
+            .also { it.restore(costPrefs.getString("meter", null)) }
         // OpenStreetMap tile servers require an identifying user agent.
         Configuration.getInstance().apply {
             userAgentValue = BuildConfig.APPLICATION_ID
@@ -153,7 +159,7 @@ open class GpsRadioApp : Application() {
             .readTimeout(90, TimeUnit.SECONDS)
             .callTimeout(120, TimeUnit.SECONDS)
             .build()
-        val openAi = OpenAiClient(http, apiKey = { settings.current.effectiveApiKey }, baseUrl = ep.openAiBaseUrl)
+        val openAi = OpenAiClient(http, apiKey = { settings.current.effectiveApiKey }, baseUrl = ep.openAiBaseUrl, meter = meter)
         val models = { settings.current.models }
         val online = isOnline()
         val wikipedia = WikipediaClient(http, userAgent, ep.wikipedia)
@@ -191,6 +197,8 @@ open class GpsRadioApp : Application() {
                         localEvents = it.localEvents,
                         // With the mic closed the listener can't answer: no teasers, offers or questions.
                         canReply = it.alwaysListening && it.liveVoice && micGranted() && it.hasApiKey,
+                        // Over the daily limit: free on-device notes until tomorrow or until the limit is raised.
+                        budgetReached = it.dailyBudgetUsd > 0 && meter.todayUsd() >= it.dailyBudgetUsd,
                     )
                 }
             },

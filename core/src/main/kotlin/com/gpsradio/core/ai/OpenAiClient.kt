@@ -54,6 +54,8 @@ class OpenAiClient(
     private val http: OkHttpClient,
     private val apiKey: () -> String,
     private val baseUrl: String = "https://api.openai.com/v1",
+    /** Estimated spend (spec A §41); null in tests that don't care. */
+    private val meter: com.gpsradio.core.cost.CostMeter? = null,
 ) {
     data class Message(val role: String, val content: String)
 
@@ -79,6 +81,9 @@ class OpenAiClient(
         /** Input tokens served from OpenAI's prompt cache (usage.input_tokens_details.cached_tokens). */
         val cachedTokens: Int = 0,
         val inputTokens: Int = 0,
+        val outputTokens: Int = 0,
+        /** Web searches the model ran (billed per call). */
+        val webSearches: Int = 0,
     )
 
     suspend fun respond(req: ResponseRequest): ResponseResult {
@@ -122,7 +127,10 @@ class OpenAiClient(
             req.maxOutputTokens?.let { put("max_output_tokens", if (reasoning) maxOf(it, 4000) else it) }
         }
         val raw = call { http.fetchString(post("/responses", body.toString().toRequestBody(JSON))) }
-        return parseResponse(raw)
+        return parseResponse(raw).also { r ->
+            val kind = if (req.webSearch) com.gpsradio.core.cost.CostMeter.Kind.RESEARCH else com.gpsradio.core.cost.CostMeter.Kind.STORIES
+            meter?.recordResponse(req.model, r.inputTokens, r.cachedTokens, r.outputTokens, r.webSearches, kind)
+        }
     }
 
     /** Text-to-speech; returns MP3 bytes. */
@@ -135,6 +143,7 @@ class OpenAiClient(
             if (instructions != null && model.contains("gpt")) put("instructions", instructions)
         }
         return call { http.fetchBytes(post("/audio/speech", body.toString().toRequestBody(JSON))) }
+            .also { meter?.recordSpeech(text.length) }
     }
 
     /** Speech-to-text for a recorded utterance. Language is auto-detected so users can switch by voice. */
@@ -148,6 +157,7 @@ class OpenAiClient(
             .addFormDataPart("file", fileName, audio.toRequestBody(mimeType.toMediaType()))
             .build()
         val raw = call { http.fetchString(post("/audio/transcriptions", body)) }
+        meter?.recordTranscription()
         return json.parseToJsonElement(raw).jsonObject["text"]?.jsonPrimitive?.contentOrNull.orEmpty().trim()
     }
 
@@ -224,7 +234,9 @@ class OpenAiClient(
             val usage = root["usage"] as? JsonObject
             val cached = ((usage?.get("input_tokens_details") as? JsonObject)?.get("cached_tokens") as? JsonPrimitive)?.contentOrNull?.toIntOrNull() ?: 0
             val input = (usage?.get("input_tokens") as? JsonPrimitive)?.contentOrNull?.toIntOrNull() ?: 0
-            return ResponseResult(text.toString().trim(), cites.values.toList(), cached, input)
+            val output = (usage?.get("output_tokens") as? JsonPrimitive)?.contentOrNull?.toIntOrNull() ?: 0
+            val searches = (root["output"] as? JsonArray).orEmpty().count { it.jsonObject["type"]?.jsonPrimitive?.contentOrNull == "web_search_call" }
+            return ResponseResult(text.toString().trim(), cites.values.toList(), cached, input, output, searches)
         }
 
         private fun JsonArray?.orEmpty(): List<kotlinx.serialization.json.JsonElement> = this ?: emptyList()

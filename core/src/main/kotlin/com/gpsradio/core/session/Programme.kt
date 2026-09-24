@@ -207,6 +207,9 @@ class Programme(val config: Config = Config()) {
         pendingQuiz = null
     }
 
+    /** Area stories told on earlier days (spec A §40): not told again. */
+    fun preloadToldFacets(ids: Collection<String>) { usedFacetIds += ids }
+
     fun reset() {
         lastWasFiller = false
         storiesSinceStationId = 0

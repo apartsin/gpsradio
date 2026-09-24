@@ -671,3 +671,32 @@ The listener's own voice is always sent at full quality: 16-bit PCM at 24 kHz. R
   - The mic already sends audio only while the listener speaks (on-device speech gate, §33).
   - Recognition gets the session language as a hint (Russian by default).
   - Any data saver works on the downstream side: story voice format, photos and map tiles.
+
+## 40. Remembered Across Days
+
+A second day in the same town must not repeat yesterday or pay to research it again.
+
+- **Places heard** are remembered for 180 days (was 30), by id and by name, so the same place from another source is also skipped.
+- **Area stories told and angles tried** (§37) are remembered for 90 days. On start, the session preloads them: told area stories are not aired again, and tried angles are not researched again.
+- After 90 days an angle may be researched again, since there may be news.
+
+## 41. Cost Meter and Daily Limit
+
+Every OpenAI call reports its usage to an on-device meter, priced at list prices. It gives an estimate, not a bill: prices change, and the OpenAI dashboard is the truth.
+
+- **What is counted:**
+  - Responses API tokens: input, cached input and output, by model. Unknown models are priced like gpt-4.1, so the meter never under-estimates.
+  - Web search calls, $0.025 each.
+  - Story voice: about $0.015 per 900 characters.
+  - Transcriptions.
+  - Realtime `response.done` usage: text and audio tokens, in and out.
+- **Buckets:** stories & answers, web research, story voice, and live conversation.
+- **Storage:** totals are kept per local day, for the last 31 days.
+- **Settings → Cost (estimate)** shows:
+  - today's total, this session's total, and the limit;
+  - today's spend by bucket.
+- **Daily limit:**
+  - Settings → "Daily spending limit, USD". Empty means no limit, which is the default.
+  - When today's estimate reaches the limit, the radio switches once to free on-device notes (the same as offline, §32) and says so in the session language.
+    - It keeps playing, but questions and standby research are off.
+    - It returns to OpenAI at local midnight, or as soon as the limit is raised.

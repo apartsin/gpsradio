@@ -39,6 +39,12 @@ data class RealtimeTool(val name: String, val description: String, val parameter
 
 /** Builds client events and parses server events. Pure functions, unit-tested. */
 object RealtimeProtocol {
+    /** The token usage of a `response.done` event (for the cost meter). */
+    fun usage(raw: String): JsonObject? = runCatching {
+        val root = Json.parseToJsonElement(raw) as? JsonObject
+        ((root?.get("response") as? JsonObject)?.get("usage")) as? JsonObject
+    }.getOrNull()
+
     const val SAMPLE_RATE = 24_000
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -256,6 +262,8 @@ class RealtimeClient(
     private val http: OkHttpClient,
     private val apiKey: () -> String,
     private val baseUrl: String = "wss://api.openai.com/v1/realtime",
+    /** Estimated spend: each response.done reports its token usage. */
+    private val meter: com.gpsradio.core.cost.CostMeter? = null,
 ) {
     fun connect(model: String): RealtimeConnection {
         val channel = Channel<RealtimeEvent>(Channel.UNLIMITED)
@@ -265,6 +273,7 @@ class RealtimeClient(
             .build()
         val socket = http.newWebSocket(request, object : WebSocketListener() {
             override fun onMessage(webSocket: WebSocket, text: String) {
+                if (meter != null && "\"response.done\"" in text) RealtimeProtocol.usage(text)?.let { meter.recordRealtime(it) }
                 RealtimeProtocol.parse(text)?.let { channel.trySend(it) }
             }
 

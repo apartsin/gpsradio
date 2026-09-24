@@ -1,5 +1,6 @@
 package com.gpsradio.app.ui
 
+import com.gpsradio.core.cost.CostMeter
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -99,6 +100,7 @@ fun SettingsScreen(
     onCheckUpdate: () -> Unit = {},
     onInstallUpdate: (UpdateInfo) -> Unit = {},
     onAllowInstalls: () -> Unit = {},
+    cost: CostMeter.Totals = CostMeter.Totals(),
 ) {
     Scaffold(
         topBar = {
@@ -117,7 +119,9 @@ fun SettingsScreen(
             onSave = onSave,
             // In the keyless preview, other settings can be saved before a key is added.
             requireKey = !settings.previewMode,
+            budget = true,
             extra = {
+                CostSection(cost, settings.dailyBudgetUsd)
                 MemorySection(memory, onForgetMemory, onForgetAllMemory)
                 OutlinedButton(onClick = onClearHistory, modifier = Modifier.fillMaxWidth()) {
                     Text("Forget stories I've already heard")
@@ -138,6 +142,7 @@ private fun SettingsForm(
     showAdvanced: Boolean,
     onSave: (AppSettings) -> Unit,
     extra: @Composable () -> Unit = {},
+    budget: Boolean = false,
     requireKey: Boolean = true,
     secondaryLabel: String? = null,
     secondaryHint: String? = null,
@@ -158,6 +163,7 @@ private fun SettingsForm(
     var soundEffects by remember { mutableStateOf(initial.soundEffects) }
     var localEvents by remember { mutableStateOf(initial.localEvents) }
     var pacing by remember { mutableStateOf(initial.pacing) }
+    var budgetText by remember { mutableStateOf(if (initial.dailyBudgetUsd > 0) formatUsd(initial.dailyBudgetUsd) else "") }
     var showKey by remember { mutableStateOf(false) }
 
     Column(
@@ -272,6 +278,18 @@ private fun SettingsForm(
             }
         }
 
+        if (budget) {
+            OutlinedTextField(
+                value = budgetText,
+                onValueChange = { budgetText = it.filter { c -> c.isDigit() || c == '.' || c == ',' } },
+                label = { Text("Daily spending limit, USD (empty = none)") },
+                supportingText = { Text("Over the limit the radio reads free on-device notes until tomorrow.") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Daily spending limit" },
+            )
+        }
+
         if (showAdvanced) {
             Text("Models", style = MaterialTheme.typography.titleSmall)
             ModelField("Narration model", narrationModel) { narrationModel = it }
@@ -294,6 +312,7 @@ private fun SettingsForm(
             soundEffects = soundEffects,
             localEvents = localEvents,
             pacing = pacing,
+            dailyBudgetUsd = if (budget) budgetText.replace(',', '.').toDoubleOrNull()?.coerceAtLeast(0.0) ?: 0.0 else initial.dailyBudgetUsd,
             // Adding a key ends the keyless preview.
             previewMode = initial.previewMode && apiKey.isBlank(),
             models = initial.models.copy(
@@ -376,3 +395,20 @@ private fun ModelField(label: String, value: String, onChange: (String) -> Unit)
 /** e.g. "GPS Radio 0.5.142 · build a1b2c3d · 2026-09-23". */
 fun versionLabel(): String =
     "GPS Radio ${com.gpsradio.app.BuildConfig.VERSION_NAME} · build ${com.gpsradio.app.BuildConfig.GIT_SHA} · ${com.gpsradio.app.BuildConfig.BUILD_DATE}"
+
+private fun formatUsd(v: Double): String = String.format(java.util.Locale.US, if (v < 10) "%.2f" else "%.0f", v)
+
+/** Estimated OpenAI spend today and this session (spec A §41). */
+@Composable
+private fun CostSection(cost: CostMeter.Totals, limit: Double) {
+    Text("Cost (estimate)", style = MaterialTheme.typography.titleSmall)
+    Text(
+        "Today \$${formatUsd(cost.today)} · this session \$${formatUsd(cost.session)}" +
+            (if (limit > 0) " · limit \$${formatUsd(limit)}" else ""),
+        style = MaterialTheme.typography.bodyMedium,
+        modifier = Modifier.semantics { contentDescription = "Cost today" },
+    )
+    val parts = CostMeter.Kind.entries.mapNotNull { k -> cost.todayByKind[k]?.takeIf { it >= 0.005 }?.let { "${k.label} \$${formatUsd(it)}" } }
+    if (parts.isNotEmpty()) Text(parts.joinToString(" · "), style = MaterialTheme.typography.bodySmall)
+    Text("At list prices; your OpenAI dashboard has the real bill.", style = MaterialTheme.typography.bodySmall)
+}

@@ -69,6 +69,11 @@ data class SessionConfig(
      * answer to: no "want the full story?" teasers, detour offers or trip/preference questions (spec A §36).
      */
     val canReply: Boolean = true,
+    /**
+     * Today's estimated OpenAI spend reached the listener's daily cap (spec A §41): until tomorrow the radio uses
+     * the free on-device notes and voice, no research and no live voice.
+     */
+    val budgetReached: Boolean = false,
     /** True when running on the app's built-in key rather than the listener's own (changes the out-of-credit advice). */
     val usingBuiltInKey: Boolean = false,
 )

@@ -340,6 +340,10 @@ class RadioSession(
         if (schedulerJob?.isActive == true) return@launch
         heard.restore(historyStore.load(), clock())
         programme.reset()
+        // Remembered from earlier days: area stories told and angles already researched (spec A §40).
+        programme.preloadToldFacets(heard.toldFacets(clock()))
+        triedAngles.clear()
+        triedAngles += heard.triedAngles(clock())
         radiusBoost = 1.0
         // Off for a while: the listener may be far away now, so don't narrate from the old spot.
         val last = _state.value.location ?: processor.current
@@ -521,7 +525,8 @@ class RadioSession(
      */
     private fun maybeStandby(now: Long) {
         val l = live
-        val canListen = handsFreeActive && isOnline() && !_state.value.quotaExhausted && _state.value.radioState != RadioState.IDLE
+        val canListen = handsFreeActive && isOnline() && !_state.value.quotaExhausted && !config().budgetReached &&
+            _state.value.radioState != RadioState.IDLE
         if (!canListen) {
             if (l != null && l.persistent && !l.inConversation) endLive()
             return
@@ -880,15 +885,24 @@ class RadioSession(
 
     /** Keyless preview, offline, or OpenAI resting after an outage: narrate on the device. */
     private fun onDeviceNow(): Boolean =
-        hasFallback && (config().previewMode || !isOnline() || fallbackGate.primaryResting())
+        hasFallback && (config().previewMode || config().budgetReached || !isOnline() || fallbackGate.primaryResting())
 
     /** On-device notes and voice; [spoken] is model text that was generated but could not be voiced. */
     private suspend fun prepareOnDevice(req: NarrationRequest, spoken: Segment? = null): Pair<Segment, ByteArray> {
-        if (!config().previewMode && !_state.value.quotaExhausted && !keyRejected) setStatus(if (isOnline()) DEGRADED_NOTE else OFFLINE_NOTE)
+        if (config().budgetReached) {
+            setStatus(BUDGET_NOTE)
+        } else if (!config().previewMode && !_state.value.quotaExhausted && !keyRejected) {
+            setStatus(if (isOnline()) DEGRADED_NOTE else OFFLINE_NOTE)
+        }
         var segment = spoken?.takeIf { req.format == SegmentFormat.STORY }
             ?: fallbackNarrator!!.narrate(req.copy(format = SegmentFormat.STORY))
         // Say once, out loud, why the stories got shorter: the listener may not be looking at the screen.
-        if (!_state.value.quotaExhausted && !config().previewMode && !degradedAnnounced &&
+        if (config().budgetReached) {
+            if (!budgetAnnounced && (segment.language ?: req.language).let { langBase(it) == langBase(req.language) }) {
+                budgetAnnounced = true
+                segment = segment.copy(text = Notices.text(Notice.BUDGET_REACHED, req.language) + " " + segment.text)
+            }
+        } else if (!_state.value.quotaExhausted && !config().previewMode && !degradedAnnounced &&
             (segment.language ?: req.language).let { langBase(it) == langBase(req.language) }
         ) {
             degradedAnnounced = true
@@ -1615,6 +1629,8 @@ class RadioSession(
     private val deviceSkipped = HashSet<String>()
     /** The "offline / OpenAI unreachable, short notes for now" notice was spoken this episode. */
     private var degradedAnnounced = false
+    /** The daily-cap notice was said (once per session). */
+    private var budgetAnnounced = false
 
     private fun isQuota(e: Throwable): Boolean =
         (e is OpenAiException && e.isQuotaExhausted) || QuotaErrors.matches(e.message)
@@ -1645,6 +1661,7 @@ class RadioSession(
         val msg = when {
             preview -> PREVIEW_QUESTIONS
             !isOnline() -> OFFLINE_QUESTIONS
+            config().budgetReached -> BUDGET_NOTE
             else -> return false
         }
         _state.update { it.copy(status = Status(msg, StatusLevel.INFO, needsKey = preview, actionLabel = if (preview) "Add key" else null)) }
@@ -2123,6 +2140,7 @@ class RadioSession(
                     airingFacetId = null
                 }
                 programme.onFillerAired(plan.format, c?.place?.id, clock(), dayKey(day), plan.areaFacet?.id)
+                plan.areaFacet?.let { heard.markFacetTold(it.id, clock()); persistHeard() }
                 // A bumper or quiz touched the place: it stays a candidate, but less novel.
                 c?.let { mentionedIds += it.place.id }
                 lastSpeechEndMs = clock()
@@ -2283,6 +2301,8 @@ class RadioSession(
         val avoid = memory.topicWeights().filterValues { it < 0.5 }.keys
         val target = com.gpsradio.core.discovery.AnglePlanner.next(area, cfg.interests, _state.value.theme, triedAngles, avoid) ?: return
         triedAngles += target.key
+        heard.markAngleTried(target.key, now)
+        persistHeard()
         angleLookupTimes.addLast(now)
         val point = _state.value.location?.point
         angleJob = scope.launch {
@@ -2435,6 +2455,7 @@ class RadioSession(
         const val KEY_REJECTED = "OpenAI didn't accept the API key. Check it in Settings. Until then I'll read short notes with the phone's voice."
 
         const val DEGRADED_NOTE = "OpenAI is unreachable, so I'm reading quick notes with the on-device voice."
+        const val BUDGET_NOTE = "Today's spending limit is reached: quick notes with the on-device voice until tomorrow (Settings → limit)."
         const val OFFLINE_NOTE = "You're offline, so I'm reading quick notes with the on-device voice."
         const val OFFLINE_NO_PLACES = "You're offline and no places around here are saved yet. Stories resume when you're back online."
 

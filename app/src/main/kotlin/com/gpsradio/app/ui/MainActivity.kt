@@ -28,6 +28,7 @@ class MainActivity : ComponentActivity() {
                 val settings by vm.settings.collectAsStateWithLifecycle()
                 val radio by vm.radio.collectAsStateWithLifecycle()
                 val update by vm.update.collectAsStateWithLifecycle()
+                val cost by vm.cost.collectAsStateWithLifecycle()
                 var showSettings by remember { mutableStateOf(false) }
                 var autoStart by remember { mutableStateOf(false) }
                 val openSettings by openSettingsRequest
@@ -63,6 +64,7 @@ class MainActivity : ComponentActivity() {
                         onCheckUpdate = { vm.checkForUpdate(manual = true) },
                         onInstallUpdate = vm::installUpdate,
                         onAllowInstalls = vm::allowInstalls,
+                        cost = cost,
                     )
                     else -> RadioScreen(
                         vm,

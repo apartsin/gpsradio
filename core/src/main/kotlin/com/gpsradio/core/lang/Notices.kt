@@ -14,6 +14,7 @@ enum class Notice {
     TOUR_ABANDONED,
     OFFLINE_NOTES,
     DEGRADED_NOTES,
+    BUDGET_REACHED,
 }
 
 object Notices {
@@ -27,6 +28,7 @@ object Notices {
             Notice.TOUR_ABANDONED to "Looks like you've moved on, so I've ended the walking tour. Back to the regular radio.",
             Notice.OFFLINE_NOTES to "Quick note: you're offline, so for now I'll read short notes with the phone's own voice.",
             Notice.DEGRADED_NOTES to "Quick note: I can't reach OpenAI right now, so I'll read short notes with the phone's own voice.",
+            Notice.BUDGET_REACHED to "Quick note: today's spending limit is reached, so until tomorrow I'll read short notes with the phone's own voice. You can raise the limit in Settings.",
         ),
         "ru" to mapOf(
             Notice.ANSWER_FAILED to "Извините, сейчас не получилось ответить. Попробуйте чуть позже.",
@@ -37,6 +39,7 @@ object Notices {
             Notice.TOUR_ABANDONED to "Похоже, вы ушли дальше, поэтому я завершил прогулку. Возвращаемся к обычному радио.",
             Notice.OFFLINE_NOTES to "Небольшое объявление: нет интернета, поэтому пока я читаю короткие заметки голосом телефона.",
             Notice.DEGRADED_NOTES to "Небольшое объявление: OpenAI сейчас недоступен, поэтому пока я читаю короткие заметки голосом телефона.",
+            Notice.BUDGET_REACHED to "Небольшое объявление: дневной лимит расходов исчерпан, поэтому до завтра я читаю короткие заметки голосом телефона. Лимит можно увеличить в настройках.",
         ),
         "he" to mapOf(
             Notice.ANSWER_FAILED to "סליחה, לא הצלחתי לענות כרגע. נסו שוב בעוד רגע.",
@@ -47,6 +50,7 @@ object Notices {
             Notice.TOUR_ABANDONED to "נראה שהמשכתם הלאה, אז סיימתי את הסיור. חוזרים לרדיו הרגיל.",
             Notice.OFFLINE_NOTES to "הודעה קצרה: אין אינטרנט, אז בינתיים אקרא הערות קצרות בקול של הטלפון.",
             Notice.DEGRADED_NOTES to "הודעה קצרה: אין כרגע גישה ל-OpenAI, אז בינתיים אקרא הערות קצרות בקול של הטלפון.",
+            Notice.BUDGET_REACHED to "הודעה קצרה: הגעתם למגבלת ההוצאה היומית, אז עד מחר אקרא הערות קצרות בקול של הטלפון. אפשר להגדיל את המגבלה בהגדרות.",
         ),
         "de" to mapOf(
             Notice.ANSWER_FAILED to "Entschuldigung, das konnte ich gerade nicht beantworten. Versuch es gleich noch einmal.",
@@ -57,6 +61,7 @@ object Notices {
             Notice.TOUR_ABANDONED to "Du bist wohl weitergezogen, also habe ich den Rundgang beendet. Zurück zum normalen Radio.",
             Notice.OFFLINE_NOTES to "Kurze Durchsage: Du bist offline, deshalb lese ich vorerst kurze Notizen mit der Stimme des Telefons.",
             Notice.DEGRADED_NOTES to "Kurze Durchsage: OpenAI ist gerade nicht erreichbar, deshalb lese ich vorerst kurze Notizen mit der Stimme des Telefons.",
+            Notice.BUDGET_REACHED to "Kurze Durchsage: Das Tageslimit für Kosten ist erreicht, deshalb lese ich bis morgen kurze Notizen mit der Stimme des Telefons. Du kannst das Limit in den Einstellungen erhöhen.",
         ),
         "es" to mapOf(
             Notice.ANSWER_FAILED to "Lo siento, ahora no pude responder. Inténtalo de nuevo en un momento.",
@@ -67,6 +72,7 @@ object Notices {
             Notice.TOUR_ABANDONED to "Parece que has seguido tu camino, así que terminé el paseo. Volvemos a la radio.",
             Notice.OFFLINE_NOTES to "Un aviso: no tienes conexión, así que por ahora leeré notas breves con la voz del teléfono.",
             Notice.DEGRADED_NOTES to "Un aviso: no puedo conectar con OpenAI, así que por ahora leeré notas breves con la voz del teléfono.",
+            Notice.BUDGET_REACHED to "Un aviso: se alcanzó el límite de gasto de hoy, así que hasta mañana leeré notas breves con la voz del teléfono. Puedes subir el límite en Ajustes.",
         ),
         "fr" to mapOf(
             Notice.ANSWER_FAILED to "Désolé, je n'ai pas pu répondre pour l'instant. Réessayez dans un moment.",
@@ -77,6 +83,7 @@ object Notices {
             Notice.TOUR_ABANDONED to "On dirait que vous êtes reparti, j'ai donc terminé la balade. Retour à la radio.",
             Notice.OFFLINE_NOTES to "Petite annonce : vous êtes hors ligne, je lis donc pour l'instant de courtes notes avec la voix du téléphone.",
             Notice.DEGRADED_NOTES to "Petite annonce : OpenAI est injoignable, je lis donc pour l'instant de courtes notes avec la voix du téléphone.",
+            Notice.BUDGET_REACHED to "Petite annonce : la limite de dépenses du jour est atteinte, je lis donc jusqu'à demain de courtes notes avec la voix du téléphone. Vous pouvez relever la limite dans les réglages.",
         ),
     )
 

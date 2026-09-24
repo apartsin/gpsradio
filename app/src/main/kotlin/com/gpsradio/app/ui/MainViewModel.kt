@@ -30,6 +30,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val settings: StateFlow<AppSettings> = graph.settings.settings
     val radio: StateFlow<RadioUiState> = session.state
     val update: StateFlow<UpdateState> = graph.updater.state
+    val cost: StateFlow<com.gpsradio.core.cost.CostMeter.Totals> = graph.meter.totals
 
     /** Automatic checks are rate-limited (every 6 h); manual ones run now. */
     fun checkForUpdate(manual: Boolean) = graph.updater.check(manual)

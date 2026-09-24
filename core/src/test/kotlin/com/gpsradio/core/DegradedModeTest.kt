@@ -115,9 +115,10 @@ class DegradedModeTest {
         preview: Boolean = false,
         online: () -> Boolean = { true },
         mode: TravelMode? = null,
+        budgetReached: () -> Boolean = { false },
     ) = RadioSession(
         places = world, narrator = primary, speech = primary, audio = world, historyStore = world,
-        config = { SessionConfig("en-US", setOf(Topic.HISTORY), previewMode = preview, liveVoice = true) },
+        config = { SessionConfig("en-US", setOf(Topic.HISTORY), previewMode = preview, liveVoice = true, budgetReached = budgetReached()) },
         clock = { testScheduler.currentTime + 1_000_000 },
         dispatcher = StandardTestDispatcher(testScheduler),
         fallbackNarrator = device?.let { NarrationFallback() },
@@ -135,6 +136,36 @@ class DegradedModeTest {
     }
 
     private fun fix(t: Long = 0) = LocationSample(here.lat, here.lon, 5f, 1_000_000 + t, 0f)
+
+    @Test
+    fun dailyBudgetReachedSwitchesToFreeOnDeviceNotesUntilLifted() = runTest {
+        val world = World(
+            listOf(
+                castle("a", Geo.destination(here, 0.0, 150.0)),
+                castle("b", Geo.destination(here, 90.0, 200.0)).copy(name = "Tower"),
+            ),
+        )
+        val primary = Primary()
+        val device = DeviceVoice()
+        var reached = true
+        val s = session(world, primary, device, budgetReached = { reached })
+        running(s) {
+            s.onLocation(fix()); runCurrent()
+            advanceTimeBy(5_000); runCurrent()
+            // No paid calls at all: notes and the phone's voice, and the reason is said out loud once.
+            assertTrue(primary.calls.isEmpty(), primary.calls.toString())
+            val notice = Notices.text(Notice.BUDGET_REACHED, "en-US")
+            assertTrue(s.state.value.nowPlaying!!.text.startsWith(notice))
+            assertEquals(RadioSession.BUDGET_NOTE, s.state.value.status?.text)
+            // Questions aren't paid for either.
+            s.ask("How old is it?"); runCurrent()
+            assertTrue("converse" !in primary.calls)
+            // Next day (or a higher cap): back to the full radio.
+            reached = false
+            advanceTimeBy(120_000); runCurrent()
+            assertTrue(primary.calls.any { it.startsWith("narrate") }, primary.calls.toString())
+        }
+    }
 
     @Test
     fun authErrorFallsBackToOnDeviceNotesWithoutErrorSpam() = runTest {

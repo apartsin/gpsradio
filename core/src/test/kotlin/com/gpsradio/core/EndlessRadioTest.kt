@@ -148,4 +148,47 @@ class EndlessRadioTest {
         assertEquals(r.researched.size, r.researched.map { it.key }.toSet().size, "each angle researched once")
         assertEquals(1, AnglePlanner.tierFor(r.researched.first().angle!!, setOf(Topic.HISTORY)), "top tier first")
     }
+
+    @Test
+    fun aSecondDayInTheSameTownDoesNotRepeatOrReResearch() = runTest {
+        val store = object : HistoryStore {
+            var data: String? = null
+            override fun load() = data
+            override fun save(serialized: String) { data = serialized }
+        }
+        val day = 24L * 3600 * 1000
+        var offset = 0L
+        fun session(r: Radio) = RadioSession(
+            places = r, narrator = r, speech = r, audio = r, historyStore = store,
+            config = { SessionConfig("ru-RU", setOf(Topic.HISTORY), pacing = Pacing.NONSTOP) },
+            clock = { testScheduler.currentTime + 1_000_000 + offset },
+            dispatcher = StandardTestDispatcher(testScheduler),
+            areaLabeler = AreaLabeler { _ -> area },
+            angleResearch = r,
+        )
+        suspend fun kotlinx.coroutines.test.TestScope.listen(r: Radio, minutes: Int) {
+            val s = session(r)
+            try {
+                s.start(); runCurrent()
+                s.onLocation(LocationSample(here.lat, here.lon, 5f, testScheduler.currentTime + 1_000_000 + offset, 0f)); runCurrent()
+                advanceTimeBy(minutes * 60_000L); runCurrent()
+            } finally {
+                s.stop(); runCurrent()
+            }
+        }
+        val day1 = Radio(listOf(place("castle", Geo.destination(here, 0.0, 150.0))))
+        listen(day1, 30)
+        // The next day, same town: a new session (app restarted), same stored history.
+        offset += day
+        val day2 = Radio(listOf(place("castle", Geo.destination(here, 0.0, 150.0))))
+        listen(day2, 30)
+        val keys1 = day1.researched.map { it.key }.toSet()
+        val keys2 = day2.researched.map { it.key }.toSet()
+        assertTrue(keys1.isNotEmpty() && keys2.isNotEmpty(), "day1=${keys1.size} day2=${keys2.size}")
+        assertTrue(keys1.intersect(keys2).isEmpty(), "re-researched on day 2: ${keys1.intersect(keys2)}")
+        val told1 = day1.aired.filter { it.startsWith("AREA") }.toSet()
+        val told2 = day2.aired.filter { it.startsWith("AREA") }.toSet()
+        assertTrue(told1.intersect(told2).isEmpty(), "repeated on day 2: ${told1.intersect(told2)}")
+        assertTrue("STORY castle" !in day2.aired, "the castle was heard yesterday")
+    }
 }
