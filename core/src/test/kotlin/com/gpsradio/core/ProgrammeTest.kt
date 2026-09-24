@@ -167,7 +167,7 @@ class ProgrammeTest {
         Pacing.entries.forEach { pacing ->
             val gap = p.storyGapMs(TravelMode.DRIVING, EditorialRanker().minGapMs(TravelMode.DRIVING, pacing), pacing)
             assertTrue(gap >= pacing.drivingMinGapMs)
-            assertTrue(gap >= if (pacing == Pacing.NONSTOP) 12_000 else 90_000)
+            assertTrue(gap >= if (pacing == Pacing.NONSTOP) 4_000 else 90_000)
             assertEquals(Plan.Wait, p.next(sit(mode = TravelMode.DRIVING, pacing = pacing, lastEnd = t0 - pacing.drivingMinGapMs + 1_000, storyReady = true)))
             assertEquals(Plan.None, p.next(sit(mode = TravelMode.DRIVING, pacing = pacing, lastEnd = t0 - gap - 1_000, storyReady = true)))
         }
@@ -306,13 +306,13 @@ class ProgrammeTest {
     fun nonstopKeepsGapsShortButStillWaitsForReadyStoriesAndDrivingSafety() {
         val p = Programme()
         val gap = EditorialRanker().minGapMs(TravelMode.WALKING, Pacing.NONSTOP)
-        assertTrue(gap <= 6_000, "non-stop walking gap is $gap ms")
-        assertTrue(EditorialRanker().minGapMs(TravelMode.STATIONARY, Pacing.NONSTOP) <= 7_000)
+        assertTrue(gap <= 2_500, "non-stop walking gap is $gap ms")
+        assertTrue(EditorialRanker().minGapMs(TravelMode.STATIONARY, Pacing.NONSTOP) <= 3_000)
         // A ready story goes to the ranker.
         assertEquals(Plan.None, p.next(sit(now = t0, lastEnd = t0 - 6_000, pacing = Pacing.NONSTOP, storyReady = true)))
-        // Driving keeps talking too, but with a 12 s safety gap (other pacings keep 90 s).
-        assertEquals(Plan.Wait, p.next(sit(now = t0, lastEnd = t0 - 8_000, pacing = Pacing.NONSTOP, mode = TravelMode.DRIVING)))
-        assertTrue(p.next(sit(now = t0, lastEnd = t0 - 13_000, pacing = Pacing.NONSTOP, mode = TravelMode.DRIVING)) !is Plan.Wait)
+        // Driving keeps talking too, with a short 4 s safety gap (other pacings keep 90 s).
+        assertEquals(Plan.Wait, p.next(sit(now = t0, lastEnd = t0 - 2_000, pacing = Pacing.NONSTOP, mode = TravelMode.DRIVING)))
+        assertTrue(p.next(sit(now = t0, lastEnd = t0 - 5_000, pacing = Pacing.NONSTOP, mode = TravelMode.DRIVING)) !is Plan.Wait)
         assertEquals(Plan.Wait, p.next(sit(now = t0, lastEnd = t0 - 30_000, pacing = Pacing.BALANCED, mode = TravelMode.DRIVING)))
     }
 
@@ -328,7 +328,7 @@ class ProgrammeTest {
         assertTrue(r.minGapMs(TravelMode.WALKING, Pacing.CHATTY) < 45_000)
         assertTrue(r.minGapMs(TravelMode.WALKING, Pacing.RARE) > 45_000)
         Pacing.entries.forEach { assertTrue(r.minGapMs(TravelMode.DRIVING, it) >= it.drivingMinGapMs) }
-        assertEquals(12_000, r.minGapMs(TravelMode.DRIVING, Pacing.NONSTOP))
+        assertEquals(4_000, r.minGapMs(TravelMode.DRIVING, Pacing.NONSTOP))
         assertEquals(90_000, r.minGapMs(TravelMode.DRIVING, Pacing.BALANCED))
         assertEquals(Pacing.RARE, Pacing.fromKey("rare"))
         assertEquals(Pacing.BALANCED, Pacing.fromKey(null))

@@ -756,7 +756,10 @@ class RadioSession(
                     return@launch
                 }
                 storiesSinceTeaser++
-                prefetchNext(excludeId = c.place.id)
+                // While this plays, prepare what comes next (a place story, or a researched area story) so the
+                // radio flows on without dead air.
+                prefetchNext(excludeId = c.place.id, leadMs = spokenMs(segment.text))
+                if (prefetchJob?.isActive != true && prefetched == null) prefetchArea()
                 storyPlayback = c.place.id to clock()
                 audio.play(bytes)
                 storyPlayback = null
@@ -796,11 +799,13 @@ class RadioSession(
         loc: LocationContext,
         lang: String,
         format: SegmentFormat = SegmentFormat.STORY,
+        /** Extra time before this airs (prepared while another segment plays). */
+        extraLeadMs: Long = 0,
     ): Pair<Segment, ByteArray> {
         val cfg = config()
         val started = clock()
         // Describe distance/direction from where the listener will be when the audio starts, not from now.
-        val (atPlayback, rel) = projectForPlayback(c, loc, prepLatencyMs.toLong())
+        val (atPlayback, rel) = projectForPlayback(c, loc, prepLatencyMs.toLong() + extraLeadMs)
         val base = NarrationRequest(
             rel, atPlayback, lang, cfg.interests, recentTitles.toList(), memory.promptLines(),
             style = cfg.style, format = format, tripContext = tripContext, canReply = cfg.canReply,
@@ -910,25 +915,72 @@ class RadioSession(
     }
 
     /** While a story plays, prepare the next likely one so it can start without "Preparing…" dead air. */
-    private fun prefetchNext(excludeId: String) {
+    /** Roughly how long a text takes to say (about 2.6 words a second). */
+    private fun spokenMs(text: String): Long = (text.split(Regex("\\s+")).size / 2.6 * 1000).toLong()
+
+    private fun prefetchNext(excludeId: String, leadMs: Long = 0) {
         if (prefetchJob?.isActive == true) return
         val loc = _state.value.location ?: return
-        // At speed the listener is far past this spot by the time the next story may air (gap + story),
-        // so a prefetched story would be discarded as stale: don't pay for it.
-        if (loc.travelMode == TravelMode.DRIVING || loc.travelMode == TravelMode.CYCLING) return
+        val moving = loc.travelMode == TravelMode.DRIVING || loc.travelMode == TravelMode.CYCLING
+        // Moving fast: only non-stop prepares ahead (otherwise the gap is long and the story would go stale), and only
+        // a place that will still be ahead when this one ends.
+        if (moving && config().pacing != Pacing.NONSTOP) return
+        val travelled = loc.speedMps * (leadMs + prepLatencyMs) / 1000.0
         val next = ranked.firstOrNull { r ->
             r.place.id != excludeId &&
                 // A rich story may be offered as a teaser first; don't pre-generate its full version.
                 !teaserEligible(r) &&
+                (!moving || (r.distanceM > travelled * 0.6 && Geo.angleDiff(r.bearingDeg, loc.headingDeg ?: r.bearingDeg) < 80)) &&
                 // Ignore the temporary conversation-cost penalty: it will have decayed by the time this airs.
                 r.score + ranker.weights.conversationCost * r.breakdown.conversationCost >= ranker.thresholdFor(config().pacing)
         } ?: return
         if (prefetched?.placeId == next.place.id) return
         val lang = sessionLanguage
         prefetchJob = scope.launch {
-            val result = runCatching { prepare(next, loc, lang) }.getOrNull() ?: return@launch
-            prefetched = Prepared(next.place.id, lang, result.first, result.second, loc.point, clock())
+            val result = runCatching { prepare(next, loc, lang, extraLeadMs = leadMs) }.getOrNull() ?: return@launch
+            // Where the listener should be when it airs (checked again when it's taken).
+            val expected = if (moving) projectForPlayback(next, loc, leadMs + prepLatencyMs.toLong()).first.point else loc.point
+            prefetched = Prepared(next.place.id, lang, result.first, result.second, expected, clock())
         }
+    }
+
+    // ---- researched/area stories prepared ahead --------------------------------------------
+
+    private var preparedArea: Triple<String, String, Pair<Segment, ByteArray>>? = null
+    private var areaPrefetchJob: Job? = null
+
+    /** The next untold area/angle story, narrated and voiced ahead, so it can follow the current segment at once. */
+    private fun prefetchArea(excludeId: String? = null) {
+        if (config().pacing != Pacing.NONSTOP || areaPrefetchJob?.isActive == true || onDeviceNow()) return
+        val told = programme.toldFacets.toSet()
+        val facet = (areaFacets + currentResearched()).firstOrNull { it.id !in told && it.id != excludeId } ?: return
+        if (preparedArea?.first == facet.id) return
+        val loc = _state.value.location ?: return
+        val lang = sessionLanguage
+        val cfg = config()
+        areaPrefetchJob = scope.launch {
+            val prepared = runCatching {
+                val seg = timed(timeouts.narrationMs, "Narration") {
+                    narrator.narrateFiller(
+                        FillerRequest(
+                            SegmentFormat.AREA, lang, loc, _state.value.area, cfg.style, areaFacet = facet,
+                            // Include the one on air now: this follows it.
+                            areaToldFacets = programme.toldFacets + listOfNotNull(excludeId),
+                            profile = memory.promptLines(), tripContext = tripContext,
+                        ),
+                    )
+                }
+                seg to timed(timeouts.speechMs, "Speech") { speech.synthesize(seg.text, lang, cfg.style) }
+            }.getOrNull() ?: return@launch
+            preparedArea = Triple(facet.id, lang, prepared)
+        }
+    }
+
+    private fun takePreparedArea(facetId: String?, lang: String): Pair<Segment, ByteArray>? {
+        val p = preparedArea ?: return null
+        if (p.first != facetId || p.second != lang) return null
+        preparedArea = null
+        return p.third
     }
 
     private fun takePrefetched(c: RankedCandidate, lang: String, loc: LocationContext): Pair<Segment, ByteArray>? {
@@ -937,8 +989,8 @@ class RadioSession(
         prefetched = null
         // Distance/direction in the text must still be roughly right.
         val maxMove = when (loc.travelMode) {
-            TravelMode.DRIVING -> 500.0
-            TravelMode.CYCLING -> 300.0
+            TravelMode.DRIVING -> 700.0
+            TravelMode.CYCLING -> 350.0
             TravelMode.WALKING, TravelMode.STATIONARY, TravelMode.UNKNOWN -> 200.0
         }
         val fresh = clock() - p.atMs < 10 * 60_000L && Geo.distanceM(p.preparedAt, loc.point) < maxMove && stillInSync(c.place)
@@ -1969,8 +2021,9 @@ class RadioSession(
             val cfg = config()
             val lang = sessionLanguage
             try {
-                setRadioState(RadioState.RESEARCHING)
-                val segment = timed(timeouts.narrationMs, "Narration") {
+                val ready = if (plan.format == SegmentFormat.AREA) takePreparedArea(plan.areaFacet?.id, lang) else null
+                if (ready == null) setRadioState(RadioState.RESEARCHING)
+                val segment = ready?.first ?: timed(timeouts.narrationMs, "Narration") {
                     when (plan.format) {
                         SegmentFormat.ON_THIS_DAY -> {
                             val events = onThisDay?.events(langBase(lang), day.monthValue, day.dayOfMonth).orEmpty()
@@ -2017,13 +2070,18 @@ class RadioSession(
                 }
                 // A quiz question whose answer couldn't be parsed would never be resolved: drop it.
                 if (plan.format == SegmentFormat.QUIZ && segment.quizAnswer.isNullOrBlank()) throw IllegalStateException("quiz without an answer")
-                val bytes = timed(timeouts.speechMs, "Speech") { speech.synthesize(segment.text, lang, cfg.style) }
+                val bytes = ready?.second ?: timed(timeouts.speechMs, "Speech") { speech.synthesize(segment.text, lang, cfg.style) }
                 lastAudio = bytes
                 addTranscript(TranscriptEntry(Speaker.RADIO, segment.text, clock(), segment.entityId, segment.sources))
                 _state.update { s ->
                     s.copy(radioState = RadioState.NARRATING, nowPlaying = segment, focus = c?.let { FocusPlace.of(it.place) } ?: s.focus)
                 }
                 c?.let { loadGallery(it.place) }
+                // Non-stop: prepare the next story while this one plays (a place if there is one, else the next area story).
+                if (cfg.pacing == Pacing.NONSTOP) {
+                    prefetchNext(excludeId = c?.place?.id ?: "", leadMs = spokenMs(segment.text))
+                    if (prefetchJob?.isActive != true && prefetched == null) prefetchArea(excludeId = plan.areaFacet?.id)
+                }
                 audio.play(bytes)
                 programme.onFillerAired(plan.format, c?.place?.id, clock(), dayKey(day), plan.areaFacet?.id)
                 // A bumper or quiz touched the place: it stays a candidate, but less novel.
@@ -2179,7 +2237,7 @@ class RadioSession(
         val unheard = ranked.count { it.breakdown.novelty > 0.0 && !(it.place.extract ?: it.place.description).isNullOrBlank() }
         val told = programme.toldFacets.toSet()
         val readyFacets = (areaFacets + currentResearched()).count { it.id !in told }
-        if (unheard >= 3 || readyFacets >= 1) return
+        if (unheard >= 3 || readyFacets >= 2) return
         while (angleLookupTimes.isNotEmpty() && now - angleLookupTimes.first() > 3_600_000L) angleLookupTimes.removeFirst()
         if (angleLookupTimes.size >= ANGLE_LOOKUPS_PER_HOUR) return
         val avoid = memory.topicWeights().filterValues { it < 0.5 }.keys
@@ -2308,7 +2366,7 @@ class RadioSession(
         /** Web checks of hours/fees: at most this many per hour, each at most this long; stories wait at most VISIT_WAIT_MS. */
         const val VISIT_LOOKUPS_PER_HOUR = 20
         /** Researched angles (web search) per hour; ~one every 2–3 minutes when the places have run out. */
-        const val ANGLE_LOOKUPS_PER_HOUR = 24
+        const val ANGLE_LOOKUPS_PER_HOUR = 40
         const val ANGLE_TIMEOUT_MS = 30_000L
         const val VISIT_TIMEOUT_MS = 20_000L
         const val VISIT_WAIT_MS = 8_000L

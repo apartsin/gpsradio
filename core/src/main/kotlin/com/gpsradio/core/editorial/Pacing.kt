@@ -25,11 +25,11 @@ enum class Pacing(
     RARE("rare", "Rare", thresholdScale = 1.25, gapScale = 2.0, fillerGapMs = 12 * 60_000L),
 
     /**
-     * Continuous radio: at most ~8–10 s of silence between segments (walking/stationary). When no story
+     * Continuous radio: about 2 s between segments (the next one is prepared while the current one plays). When no story
      * qualifies, the programme falls back to weaker nearby places, area stories, fillers and a wider search.
-     * Driving too: segments stay ≤ 30 s with ~12 s between them, and junctions still mean silence.
+     * Driving too: segments stay ≤ 30 s with ~4 s between them, and junctions still mean silence.
      */
-    NONSTOP("nonstop", "Non-stop", thresholdScale = 0.7, gapScale = 0.1, fillerGapMs = 0L, drivingMinGapMs = 12_000L);
+    NONSTOP("nonstop", "Non-stop", thresholdScale = 0.7, gapScale = 0.04, fillerGapMs = 0L, drivingMinGapMs = 4_000L);
 
     /** Scales a mode's base gap; driving never goes below [drivingMinGapMs]. */
     fun scaleGap(baseMs: Long, mode: TravelMode): Long {

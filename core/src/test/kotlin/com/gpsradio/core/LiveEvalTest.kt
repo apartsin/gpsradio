@@ -172,6 +172,20 @@ class LiveEvalTest {
                 Result("story: Russian retold casually, not translated word for word", g.pass, g.reason + "; text=" + s.text)
             },
             suspend {
+                // Engaging, dense, clear, fun (spec A §38): no filler phrases, short sentences, a concrete hook.
+                val s = agent.narrate(narr(castle))
+                val filler = listOf("rich history", "nestled", "charming", "picturesque", "boasts", "steeped in", "testament to", "a must-see", "iconic")
+                    .filter { it in s.text.lowercase() }
+                val sentences = s.text.split(Regex("(?<=[.!?])\\s+")).filter { it.isNotBlank() }
+                val avgWords = sentences.sumOf { it.split(Regex("\\s+")).size } / sentences.size.coerceAtLeast(1)
+                val g = judge.check(
+                    "TEXT opens with a specific, surprising detail (not a generic introduction), nearly every sentence carries a " +
+                        "concrete fact (name, number, date or image), and it has at least one light, playful or witty touch.",
+                    s.text,
+                )
+                Result("story: engaging, dense, clear, fun", filler.isEmpty() && avgWords <= 20 && g.pass, "filler=$filler avgWords=$avgWords; ${g.reason}; text=${s.text}")
+            },
+            suspend {
                 val s = agent.narrate(narr(lake))
                 val g = judge.check(
                     "TEXT clearly presents the hidden Nazi gold as a legend/rumour (not established fact), e.g. 'legend has it', 'rumour', 'never been found'.",

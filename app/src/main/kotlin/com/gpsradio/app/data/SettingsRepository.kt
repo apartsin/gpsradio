@@ -85,6 +85,7 @@ class SettingsRepository(context: Context) {
             putBoolean(KEY_LANG_AUTO, next.languageAuto)
             putString(KEY_LANG, next.preferredLanguage)
             putStringSet(KEY_INTERESTS, next.interests.map { it.key }.toSet())
+            putInt(KEY_MODELS_VERSION, MODELS_VERSION)
             putString(KEY_NARRATION_MODEL, next.models.narrationModel)
             putString(KEY_CONVERSATION_MODEL, next.models.conversationModel)
             putString(KEY_TTS_MODEL, next.models.ttsModel)
@@ -105,14 +106,16 @@ class SettingsRepository(context: Context) {
     private fun load(): AppSettings {
         val d = AppSettings()
         val m = d.models
+        val modelsCurrent = plain.getInt(KEY_MODELS_VERSION, 1) >= MODELS_VERSION
         return AppSettings(
             apiKey = secure.getString(KEY_API, "").orEmpty(),
             languageAuto = plain.getBoolean(KEY_LANG_AUTO, d.languageAuto),
             preferredLanguage = plain.getString(KEY_LANG, null) ?: d.preferredLanguage,
             interests = plain.getStringSet(KEY_INTERESTS, null)?.mapNotNull { Topic.fromKey(it) }?.toSet() ?: d.interests,
             models = ModelConfig(
-                narrationModel = plain.getString(KEY_NARRATION_MODEL, null) ?: m.narrationModel,
-                conversationModel = plain.getString(KEY_CONVERSATION_MODEL, null) ?: m.conversationModel,
+                // Models saved before v2 were the old mini defaults: move to the new defaults once (spec A §38).
+                narrationModel = plain.getString(KEY_NARRATION_MODEL, null)?.takeIf { modelsCurrent } ?: m.narrationModel,
+                conversationModel = plain.getString(KEY_CONVERSATION_MODEL, null)?.takeIf { modelsCurrent } ?: m.conversationModel,
                 ttsModel = plain.getString(KEY_TTS_MODEL, null) ?: m.ttsModel,
                 ttsVoice = plain.getString(KEY_TTS_VOICE, null) ?: m.ttsVoice,
                 transcriptionModel = plain.getString(KEY_STT_MODEL, null) ?: m.transcriptionModel,
@@ -161,6 +164,8 @@ class SettingsRepository(context: Context) {
         const val KEY_LANG = "preferred_language"
         const val KEY_INTERESTS = "interests"
         const val KEY_NARRATION_MODEL = "narration_model"
+        const val KEY_MODELS_VERSION = "models_version"
+        const val MODELS_VERSION = 2
         const val KEY_CONVERSATION_MODEL = "conversation_model"
         const val KEY_TTS_MODEL = "tts_model"
         const val KEY_TTS_VOICE = "tts_voice"

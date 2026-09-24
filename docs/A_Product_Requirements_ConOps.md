@@ -627,3 +627,37 @@ These are now by voice ("skip", "pause", «следующий», "save this plac
   - It opens with a short, varied reaction ("Oh, good one —") and says a brief preamble before any tool.
   - There are no local canned clips: they would talk over the model.
 - **Travel mode is always automatic** (speed and activity recognition). It is shown in the top bar and can't be chosen in the menu.
+
+## 38. Tiers, Better Voice and a Continuous Stream
+
+- **Tiers.**
+  - Tier 1, headliners: legends, mysteries, firsts, records, quirks, film, natives, visitors, royals, food origins, dishes, turning points, natural phenomena, hidden gems, literature, origins, Jewish heritage.
+  - Tier 2, strong: architecture, defence, disasters, music, painting, customs, drinks, historic cafés, water, mountains, wildlife, geology, characters, war memory, then and now, work heritage.
+  - Tier 3: the rest.
+- **How tiers are used.**
+  - An angle matching the listener's interests moves up one tier.
+  - The loop starts at the top tier and takes angles in random order within a tier, so each trip starts differently.
+  - Order of scopes and tiers: town tier 1 → town tier 2 → region tier 1 → town tier 3 → region tier 2 → country tier 1 → …
+- **Only if interesting.** The researcher rates each find 1–5 for a curious visitor, and only 4–5 is told. "Nothing specific here" and dull finds are skipped.
+- **In the story prompt.** The same catalogue, headliners first, tells the narrator which angle to pick from a place's facts.
+- **Models.**
+  - Stories and conversation: `gpt-4.1` (better prose than mini).
+  - Web research (angles, events, visit checks, live web answers): `gpt-4.1-mini`, which is fast; its notes are retold by the story model.
+  - Live voice: `gpt-realtime`.
+  - Existing installs move to the new defaults once.
+- **Style (story prompt, "Craft").**
+  - Engaging: a hook in under 15 words, one "wow, really?" moment, and an ending on a payoff, not a summary.
+  - Dense: every sentence carries a name, number, date, image or cause. No generic praise ("rich history", "nestled", "charming", "boasts", "testament to"…).
+  - Clear: spoken sentences of about 15 words or fewer, one idea each, and terms explained.
+  - Fun: one witty aside or vivid comparison, never about tragedies.
+  - Checked by a live test.
+- **A continuous stream.**
+  - Non-stop leaves about 2 s between segments (4 s while driving; junctions still mean silence).
+  - While a segment plays, the next is prepared: text and voice, a place story or else the next researched story. Researched stories are kept two ahead.
+  - While driving, the next story is prepared for where the car will be when it airs, and only for a place still ahead.
+- **Fast reaction to movement.**
+  - GPS updates every 5 s or 8 m on foot, 3 s by bike, 2 s by car.
+  - Prepared stories are re-checked against where the listener actually is before they air.
+- **Fast reaction to steering.**
+  - The live host answers straight away with a short reaction.
+  - Research for a steer runs on the fast model, and the story follows in a few seconds.

@@ -17,6 +17,7 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 import java.util.Locale
+import kotlin.random.Random
 
 /**
  * The 50 location-aware angles a visitor may enjoy (spec A §37). When the nearby places run out, the non-stop
@@ -81,8 +82,20 @@ enum class StoryAngle(val key: String, val label: String, val hint: String, val 
     HIDDEN_GEMS("hidden_gems", "hidden gems", "a little-known spot worth seeing nearby", setOf(Topic.ATTRACTIONS, Topic.UNUSUAL)),
     THEN_AND_NOW("then_and_now", "then and now", "how the place changed: what stood here before", setOf(Topic.HISTORY));
 
+    /** 1 = headliners most visitors love, 2 = strong, 3 = for the curious. The listener's interests lift an angle one tier. */
+    val tier: Int get() = when (this) {
+        LEGENDS, MYSTERIES, FIRSTS, RECORDS, QUIRKS, FILM, NATIVES, VISITORS, ROYALS, FOOD_ORIGINS, DISHES,
+        TURNING_POINTS, PHENOMENA, HIDDEN_GEMS, LITERATURE, ORIGINS, JEWISH -> 1
+        ARCHITECTURE, DEFENCE, DISASTERS, MUSIC, ART, CUSTOMS, DRINKS, FOOD_PLACES, WATER, MOUNTAINS, WILDLIFE,
+        GEOLOGY, CHARACTERS, WAR_MEMORY, THEN_AND_NOW, WORK_HERITAGE -> 2
+        else -> 3
+    }
+
     companion object {
         fun fromKey(key: String?): StoryAngle? = entries.firstOrNull { it.key == key }
+
+        /** The catalogue as prompt lines, headliners first ("- legends and folklore: a local legend…"). */
+        fun promptList(): String = entries.sortedBy { it.tier }.joinToString("\n") { "- ${it.label}: ${it.hint}" }
     }
 }
 
@@ -109,24 +122,39 @@ object AnglePlanner {
         )
     }
 
-    fun ordered(interests: Set<Topic>, theme: Topic?, avoid: Set<Topic> = emptySet()): List<StoryAngle> {
+    /** The angle's tier for this listener: one tier higher when it matches their interests. */
+    fun tierFor(angle: StoryAngle, interests: Set<Topic>): Int =
+        if (angle.topics.any { it in interests }) maxOf(1, angle.tier - 1) else angle.tier
+
+    /**
+     * Angles in the order to try: top tier first, random order within a tier (a fresh mix each trip); a theme
+     * narrows to it; avoided topics are left out.
+     */
+    fun ordered(interests: Set<Topic>, theme: Topic?, avoid: Set<Topic> = emptySet(), random: Random = Random.Default): List<StoryAngle> {
         val pool = StoryAngle.entries.filter { a -> a.topics.none { it in avoid } || a.topics.any { it == theme } }
-        if (theme != null) return pool.filter { theme in it.topics }
-        // Interest matches first, the rest after, each group in catalogue order (varied: history, people, arts, food, nature, quirks).
-        val (liked, other) = pool.partition { a -> a.topics.any { it in interests } }
-        return interleave(liked) + interleave(other)
+            .filter { theme == null || theme in it.topics }
+        return pool.groupBy { tierFor(it, interests) }.toSortedMap().values.flatMap { it.shuffled(random) }
     }
 
-    /** Spreads the catalogue's groups so consecutive angles differ (not five history angles in a row). */
-    private fun interleave(list: List<StoryAngle>): List<StoryAngle> {
-        val step = 7
-        return (0 until step).flatMap { offset -> list.filterIndexed { i, _ -> i % step == offset } }
-    }
+    /** Town and region before the country; the top tier of a wider scope before the bottom tier of a narrower one. */
+    private val scopeTierOrder = listOf(
+        AngleScope.TOWN to 1, AngleScope.TOWN to 2, AngleScope.REGION to 1, AngleScope.TOWN to 3,
+        AngleScope.REGION to 2, AngleScope.COUNTRY to 1, AngleScope.REGION to 3, AngleScope.COUNTRY to 2, AngleScope.COUNTRY to 3,
+    )
 
-    fun next(area: AreaLabel?, interests: Set<Topic>, theme: Topic?, tried: Set<String>, avoid: Set<Topic> = emptySet()): AngleTarget? {
-        val angles = ordered(interests, theme, avoid)
-        for ((scope, name) in scopes(area)) {
-            for (a in angles) {
+    fun next(
+        area: AreaLabel?,
+        interests: Set<Topic>,
+        theme: Topic?,
+        tried: Set<String>,
+        avoid: Set<Topic> = emptySet(),
+        order: List<StoryAngle> = ordered(interests, theme, avoid),
+    ): AngleTarget? {
+        val scopes = scopes(area).toMap()
+        for ((scope, tier) in scopeTierOrder) {
+            val name = scopes[scope] ?: continue
+            for (a in order) {
+                if (tierFor(a, interests) != tier) continue
                 if (scope == AngleScope.COUNTRY && !a.countryOk) continue
                 val t = AngleTarget(scope, name, a)
                 if (t.key !in tried) return t
@@ -166,7 +194,7 @@ class AngleScout(
         }
         val res = openAi.respond(
             OpenAiClient.ResponseRequest(
-                model = models().conversationModel,
+                model = models().researchModel,
                 instructions = INSTRUCTIONS,
                 input = listOf(OpenAiClient.Message("user", input.toString())),
                 webSearch = true,
@@ -191,10 +219,15 @@ class AngleScout(
     companion object {
         private val json = Json { ignoreUnknownKeys = true }
 
-        /** (title, facts) when found; null for "nothing specific here" or unusable output. */
+        /** Only items the researcher rates at least this interesting (1–5) are told: "only if interesting". */
+        const val MIN_INTEREST = 4
+
+        /** (title, facts) when found and interesting enough; null for "nothing specific here", dull, or unusable output. */
         fun parse(raw: String): Pair<String, String>? {
             val obj = runCatching { json.parseToJsonElement(raw.trim()).jsonObject }.getOrNull() ?: return null
             if (obj["found"]?.jsonPrimitive?.boolean != true) return null
+            val interest = obj["interest"]?.jsonPrimitive?.contentOrNull?.toIntOrNull() ?: 0
+            if (interest < MIN_INTEREST) return null
             val title = obj["title"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
             val facts = obj["facts"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
             if (title.isBlank() || facts.length < 80) return null
@@ -213,7 +246,10 @@ Rules:
   matters, and one concrete detail a visitor could see or notice if there is one. No storytelling, no opinions.
   Mark legends and disputed claims as such. Never invent or guess.
 - "title": a short name for the item (e.g. "The salt road to Hallstatt").
-- If nothing specific and verifiable exists for this angle here, return found=false with empty title and facts.
+- "interest" 1–5: how much would a curious visitor enjoy hearing this? 5 = a surprising "wow, really?" story people
+  retell; 4 = clearly interesting and specific; 3 = fine but ordinary; 1–2 = dry, generic or trivial. Be strict.
+- If nothing specific and verifiable exists for this angle here, return found=false with empty title and facts and
+  interest 0. Prefer found=false to a dull or generic item.
 """
 
         val schema: JsonObject = buildJsonObject {
@@ -223,8 +259,11 @@ Rules:
                 putJsonObject("found") { put("type", "boolean") }
                 putJsonObject("title") { put("type", "string") }
                 putJsonObject("facts") { put("type", "string") }
+                putJsonObject("interest") { put("type", "integer") }
             }
-            putJsonArray("required") { add(JsonPrimitive("found")); add(JsonPrimitive("title")); add(JsonPrimitive("facts")) }
+            putJsonArray("required") {
+                add(JsonPrimitive("found")); add(JsonPrimitive("title")); add(JsonPrimitive("facts")); add(JsonPrimitive("interest"))
+            }
         }
     }
 }

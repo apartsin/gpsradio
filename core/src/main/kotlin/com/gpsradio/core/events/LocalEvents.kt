@@ -64,7 +64,7 @@ class EventScout(
         }
         val res = openAi.respond(
             OpenAiClient.ResponseRequest(
-                model = models().conversationModel,
+                model = models().researchModel,
                 instructions = INSTRUCTIONS,
                 input = listOf(OpenAiClient.Message("user", input.toString())),
                 webSearch = true,

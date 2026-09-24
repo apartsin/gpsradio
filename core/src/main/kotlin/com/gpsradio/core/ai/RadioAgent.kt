@@ -222,8 +222,11 @@ data class ConversationReply(
 )
 
 data class ModelConfig(
-    val narrationModel: String = "gpt-4.1-mini",
-    val conversationModel: String = "gpt-4.1-mini",
+    /** Stories: the full model writes livelier, denser, more natural prose than mini (spec A §38). */
+    val narrationModel: String = "gpt-4.1",
+    val conversationModel: String = "gpt-4.1",
+    /** Web research for angles, events and visit checks: fast and cheap; its notes are retold by [narrationModel]. */
+    val researchModel: String = "gpt-4.1-mini",
     val ttsModel: String = "gpt-4o-mini-tts",
     /** Used by both speech and the live voice (supported by gpt-4o-mini-tts and gpt-realtime). */
     val ttsVoice: String = "coral",
@@ -447,7 +450,8 @@ class RadioAgent(
     override suspend fun webAnswer(question: String, language: String, area: AreaLabel?): String {
         val res = openAi.respond(
             OpenAiClient.ResponseRequest(
-                model = models().conversationModel,
+                // Fast: the live host is waiting (and rephrases it in its own voice).
+                model = models().researchModel,
                 instructions = "Research the question with web search and answer in 2–4 short sentences in ${Languages.displayName(language)}, " +
                     "as a radio host would say it out loud: casual, spoken, in your own words (never copy or read out a " +
                     "source, even when it is in another language). Facts only; say when something is uncertain or disputed. " +
@@ -606,14 +610,33 @@ class RadioAgent(
               purveyor to the court" when the facts list both separately): keep them as separate facts.
             - Label legends, folklore and disputed claims as such ("the story goes…", "locals insist…").
             - Humour and comparisons are welcome but must not add new facts, and never joke about tragedies, victims, war or disasters.
-            Craft:
-            - Open with a hook: the most surprising, specific or human detail. Avoid stock openers ("Right here, where you're standing",
-              "Imagine…") and stock closers ("making you wonder…", "a timeless legacy"). Never start with "Welcome", "Did you know" every time, or the place's name followed by "is a".
-            - Blend story, one memorable fun fact, and the context that makes it matter (who, why, what changed).
+            Craft: ENGAGING, DENSE, CLEAR, FUN.
+            - Engaging: the first sentence is the hook, the single most surprising, specific or human detail, in under
+              15 words. Build to one "wow, really?" moment. End on a payoff (a twist, something to look for, a wry
+              line), never on a summary or a moral. Avoid stock openers ("Right here, where you're standing",
+              "Imagine…", "Welcome", "Did you know" every time, the place's name followed by "is a") and stock closers
+              ("making you wonder…", "a timeless legacy", "a reminder of…").
+            - Dense: every sentence carries something concrete: a name, a number, a date, an image, a cause. No padding
+              and no generic praise: never "rich history", "nestled", "charming", "picturesque", "boasts", "steeped in",
+              "testament to", "a must-see", "hidden gem", "fascinating", "iconic". Show why it's interesting instead.
+            - Clear: short spoken sentences (about 15 words or fewer), one idea each, everyday words; explain any
+              technical term or title in a few words. Numbers the ear can hold ("about 190 metres deep").
+            - Fun: one light touch per story, a witty aside, a vivid comparison, a playful question to the listener,
+              grounded in the facts (never about tragedies, victims, war or disasters).
+            - Pick the angle: from "facts", tell the most interesting angle a visitor would enjoy, for example
+              (headliners first):
+              legends; documented mysteries; inventions and firsts; records; quirky facts; film and TV; famous natives and
+              visitors; royal links; food origin stories and signature dishes; turning-point events; natural phenomena;
+              hidden gems; the place in literature; the name's origin; Jewish heritage. Then architecture, defence,
+              disasters, music, painting, customs, drinks, historic cafés, water, mountains, wildlife, geology, local
+              characters, war memory, then-and-now, work heritage, and the rest (daily life in the past, faith, prehistory,
+              rulers, communities, women, dialect, crafts, gardens, climate, transport, today's economy, sports, science,
+              street names, links abroad).
+            - Blend the story, one memorable fact and the context that makes it matter (who, why, what changed).
             - Say where it is once, naturally, using the given distance and direction ("just ahead on your left, about 200 metres").
               When travel_mode is driving, don't quote exact distances (they go stale at speed): say "coming up on your left",
               "just ahead", or use time_to_reach_s ("in about a minute").
-            - Sound like speech, not an encyclopedia: short sentences, contractions, vivid verbs, the occasional rhetorical question.
+            - Sound like speech, not an encyclopedia: contractions, vivid verbs, the occasional rhetorical question.
             - Your persona's own style rules (sentence length, vocabulary, audience) override the craft rules here;
               for a children's persona keep every sentence short and every word simple.
             - Stay close to target_length_words; with thin facts, be shorter rather than padding.

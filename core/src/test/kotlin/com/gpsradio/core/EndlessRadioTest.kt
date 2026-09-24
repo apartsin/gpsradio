@@ -59,7 +59,15 @@ class EndlessRadioTest {
         assertEquals(50 + 50 + StoryAngle.entries.count { it.countryOk }, order.size)
         assertEquals(AngleScope.TOWN, order.first().scope)
         assertEquals("Gmunden", order.first().scopeName)
-        assertTrue(order.first().angle!!.topics.contains(Topic.FOOD), "interests first: ${order.first().angle}")
+        // Top tier first (the listener's interests lift an angle one tier), random order within a tier.
+        val town = order.filter { it.scope == AngleScope.TOWN }.map { AnglePlanner.tierFor(it.angle!!, setOf(Topic.FOOD)) }
+        assertEquals(town.sorted(), town.filter { it == 1 } + town.filter { it == 2 } + town.filter { it == 3 })
+        assertEquals(1, town.first())
+        assertTrue(StoryAngle.DISHES.let { AnglePlanner.tierFor(it, setOf(Topic.FOOD)) } == 1)
+        assertEquals(1, AnglePlanner.tierFor(StoryAngle.DRINKS, setOf(Topic.FOOD)), "an interest lifts tier 2 to 1")
+        // Random order within a tier: two trips don't start the same way every time.
+        val starts = (1..20).map { AnglePlanner.ordered(emptySet(), null, random = kotlin.random.Random(it)).take(3) }.toSet()
+        assertTrue(starts.size > 5, "shuffled: ${starts.size}")
         val firstRegion = order.indexOfFirst { it.scope == AngleScope.REGION }
         assertTrue(order.take(firstRegion).all { it.scope == AngleScope.TOWN })
         assertTrue(order.filter { it.scope == AngleScope.COUNTRY }.all { it.angle!!.countryOk && it.scopeName == "Austria" })
@@ -72,15 +80,16 @@ class EndlessRadioTest {
         assertTrue(food.isNotEmpty() && food.all { Topic.FOOD in it.topics })
         val noWar = AnglePlanner.ordered(emptySet(), null, avoid = setOf(Topic.WAR))
         assertTrue(StoryAngle.WAR_MEMORY !in noWar)
-        // Consecutive angles vary instead of five history angles in a row.
-        val all = AnglePlanner.ordered(emptySet(), null)
-        assertTrue(all.zipWithNext().count { (a, b) -> a.topics == b.topics } < 10)
+        // Tiers: 17 headliners, 16 strong, 17 for the curious.
+        assertEquals(listOf(17, 16, 17), (1..3).map { t -> StoryAngle.entries.count { it.tier == t } })
     }
 
     @Test
     fun scoutParsesFoundAndNotFound() {
         val facts = "The Traunsee is Austria's deepest lake at 191 metres. " + "It was carved by glaciers. ".repeat(4)
-        assertEquals("Deepest lake" to facts.trim(), AngleScout.parse("""{"found":true,"title":"Deepest lake","facts":"$facts"}"""))
+        assertEquals("Deepest lake" to facts.trim(), AngleScout.parse("""{"found":true,"title":"Deepest lake","facts":"$facts","interest":5}"""))
+        // "Only if interesting": a dull find (3/5) is not told.
+        assertNull(AngleScout.parse("""{"found":true,"title":"Town hall","facts":"$facts","interest":3}"""))
         assertNull(AngleScout.parse("""{"found":false,"title":"","facts":""}"""))
         assertNull(AngleScout.parse("""{"found":true,"title":"x","facts":"too short"}"""))
         assertNull(AngleScout.parse("not json"))
@@ -137,6 +146,6 @@ class EndlessRadioTest {
         assertTrue(researchedStories >= 15, "researched stories: $researchedStories; ${r.aired}")
         assertTrue(r.researched.size <= RadioSession.ANGLE_LOOKUPS_PER_HOUR, "rate limit: ${r.researched.size}")
         assertEquals(r.researched.size, r.researched.map { it.key }.toSet().size, "each angle researched once")
-        assertTrue(r.researched.first().angle!!.topics.contains(Topic.HISTORY), "interests first")
+        assertEquals(1, AnglePlanner.tierFor(r.researched.first().angle!!, setOf(Topic.HISTORY)), "top tier first")
     }
 }

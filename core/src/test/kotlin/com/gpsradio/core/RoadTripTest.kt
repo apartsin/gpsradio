@@ -206,9 +206,9 @@ class RoadTripTest {
         // A stale fix (tunnel) does not hold stories forever; walking is never held.
         assertFalse(ranker.holdForPacing(junction, lastSpeechEndMs = null, nowMs = now + 60_000))
         assertFalse(ranker.holdForPacing(junction.copy(travelMode = TravelMode.WALKING), now - 1_000, now))
-        // Non-stop keeps talking while driving: ~12 s between segments, but junctions still mean silence.
-        assertFalse(ranker.holdForPacing(driving, lastSpeechEndMs = now - 13_000, nowMs = now, pacing = Pacing.NONSTOP))
-        assertTrue(ranker.holdForPacing(driving, lastSpeechEndMs = now - 5_000, nowMs = now, pacing = Pacing.NONSTOP))
+        // Non-stop keeps talking while driving: ~4 s between segments, but junctions still mean silence.
+        assertFalse(ranker.holdForPacing(driving, lastSpeechEndMs = now - 5_000, nowMs = now, pacing = Pacing.NONSTOP))
+        assertTrue(ranker.holdForPacing(driving, lastSpeechEndMs = now - 2_000, nowMs = now, pacing = Pacing.NONSTOP))
         assertTrue(ranker.holdForPacing(junction, lastSpeechEndMs = null, nowMs = now, pacing = Pacing.NONSTOP))
     }
 
