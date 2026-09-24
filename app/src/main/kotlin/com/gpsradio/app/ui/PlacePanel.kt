@@ -41,6 +41,8 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil.compose.AsyncImage
 import com.gpsradio.core.session.RadioUiState
+import androidx.compose.ui.res.stringResource
+import com.gpsradio.app.R
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.GeoPoint as OsmPoint
 import org.osmdroid.views.MapView
@@ -64,7 +66,7 @@ fun PlacePanel(state: RadioUiState, modifier: Modifier = Modifier) {
                 if (photos.isNotEmpty()) {
                     AsyncImage(
                         model = photos.first(),
-                        contentDescription = "Show photos",
+                        contentDescription = stringResource(R.string.show_photos),
                         contentScale = ContentScale.Crop,
                         modifier = Modifier
                             .align(Alignment.BottomEnd)
@@ -79,7 +81,7 @@ fun PlacePanel(state: RadioUiState, modifier: Modifier = Modifier) {
                 HorizontalPager(state = pager, modifier = Modifier.fillMaxSize()) { page ->
                     AsyncImage(
                         model = photos[page],
-                        contentDescription = "Photo ${page + 1} of ${photos.size}: ${focus?.name}",
+                        contentDescription = stringResource(R.string.photo_of, page + 1, photos.size, focus?.name.orEmpty()),
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize(),
                     )
@@ -109,11 +111,11 @@ fun PlacePanel(state: RadioUiState, modifier: Modifier = Modifier) {
                 ) {
                     OsmMap(state, Modifier.fillMaxSize(), interactive = false)
                     // Transparent layer on top so a tap expands the map instead of panning it.
-                    Box(Modifier.matchParentSize().clickable(onClickLabel = "Show map") { mapExpanded = true })
+                    Box(Modifier.matchParentSize().clickable(onClickLabel = stringResource(R.string.show_map)) { mapExpanded = true })
                 }
                 focus?.url?.let { url ->
                     Text(
-                        "Wikipedia ↗",
+                        stringResource(R.string.wikipedia_link),
                         color = Color.White,
                         style = MaterialTheme.typography.labelSmall,
                         modifier = Modifier
@@ -128,7 +130,7 @@ fun PlacePanel(state: RadioUiState, modifier: Modifier = Modifier) {
             }
             if (photos.isEmpty() || mapExpanded) {
                 Text(
-                    "© OpenStreetMap contributors",
+                    stringResource(R.string.osm_attribution),
                     style = MaterialTheme.typography.labelSmall,
                     modifier = Modifier.align(Alignment.BottomStart).padding(4.dp),
                 )
@@ -141,6 +143,7 @@ fun PlacePanel(state: RadioUiState, modifier: Modifier = Modifier) {
 private fun OsmMap(state: RadioUiState, modifier: Modifier, interactive: Boolean = true) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val youLabel = stringResource(R.string.map_you)
     val map = remember {
         MapView(context).apply {
             setTileSource(TileSourceFactory.MAPNIK)
@@ -167,11 +170,11 @@ private fun OsmMap(state: RadioUiState, modifier: Modifier, interactive: Boolean
     AndroidView(
         factory = { map },
         modifier = modifier,
-        update = { view -> render(view, state) },
+        update = { view -> render(view, state, youLabel) },
     )
 }
 
-private fun render(map: MapView, state: RadioUiState) {
+private fun render(map: MapView, state: RadioUiState, youLabel: String) {
     map.overlays.clear()
     val user = state.location?.point
     val focus = state.focus
@@ -198,7 +201,7 @@ private fun render(map: MapView, state: RadioUiState) {
             fillPaint.color = 0xCC2962FF.toInt()
             outlinePaint.color = 0xFFFFFFFF.toInt()
             outlinePaint.strokeWidth = 4f
-            title = "You"
+            title = youLabel
         }
     }
     // Recenter only when the subject changes, so the user can pan freely in between.

@@ -23,6 +23,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.gpsradio.app.platform.UpdateState
 import com.gpsradio.core.update.UpdateInfo
+import androidx.compose.ui.res.stringResource
+import com.gpsradio.app.R
 
 private fun UpdateInfo.label() = "GPS Radio $version" + (notes.takeIf { it.isNotBlank() }?.let { ": $it" } ?: "")
 
@@ -35,7 +37,7 @@ fun UpdatesSection(
     onAllowInstalls: () -> Unit,
 ) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text("Updates", style = MaterialTheme.typography.titleMedium)
+        Text(stringResource(R.string.updates), style = MaterialTheme.typography.titleMedium)
         Text(
             versionLabel(),
             style = MaterialTheme.typography.bodySmall,
@@ -44,12 +46,12 @@ fun UpdatesSection(
         )
         val line = when (state) {
             UpdateState.Idle -> null
-            UpdateState.Checking -> "Checking for updates…"
-            UpdateState.UpToDate -> "You have the latest tested version."
-            is UpdateState.Available -> "Update available: ${state.info.label()}"
-            is UpdateState.Downloading -> "Downloading ${state.info.version}… ${(state.progress * 100).toInt()}%"
-            is UpdateState.NeedsPermission -> "To install updates, allow GPS Radio to install apps (one time), then tap Install again."
-            is UpdateState.Installing -> "Installing ${state.info.version}… Android may ask you to confirm."
+            UpdateState.Checking -> stringResource(R.string.update_checking)
+            UpdateState.UpToDate -> stringResource(R.string.update_up_to_date)
+            is UpdateState.Available -> stringResource(R.string.update_available_line, state.info.label())
+            is UpdateState.Downloading -> stringResource(R.string.update_downloading, state.info.version, (state.progress * 100).toInt())
+            is UpdateState.NeedsPermission -> stringResource(R.string.update_needs_permission)
+            is UpdateState.Installing -> stringResource(R.string.update_installing_line, state.info.version)
             is UpdateState.Failed -> state.message
         }
         line?.let { Text(it, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("updateStatus")) }
@@ -61,10 +63,10 @@ fun UpdatesSection(
             else -> null
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (state is UpdateState.NeedsPermission) OutlinedButton(onClick = onAllowInstalls) { Text("Allow installs") }
-            if (info != null) Button(onClick = { onInstall(info) }) { Text("Install ${info.version}") }
+            if (state is UpdateState.NeedsPermission) OutlinedButton(onClick = onAllowInstalls) { Text(stringResource(R.string.allow_installs)) }
+            if (info != null) Button(onClick = { onInstall(info) }) { Text(stringResource(R.string.install_version, info.version)) }
             val busy = state is UpdateState.Checking || state is UpdateState.Downloading || state is UpdateState.Installing
-            if (info == null) OutlinedButton(onClick = onCheck, enabled = !busy) { Text("Check for updates") }
+            if (info == null) OutlinedButton(onClick = onCheck, enabled = !busy) { Text(stringResource(R.string.check_for_updates)) }
         }
     }
 }
@@ -86,17 +88,17 @@ fun UpdateBanner(state: UpdateState, onInstall: (UpdateInfo) -> Unit, onAllowIns
         Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Default.SystemUpdate, contentDescription = null)
             Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
-                Text("Update ${info.version} available", style = MaterialTheme.typography.titleSmall)
+                Text(stringResource(R.string.update_banner_title, info.version), style = MaterialTheme.typography.titleSmall)
                 when (state) {
                     is UpdateState.Downloading -> LinearProgressIndicator(progress = { state.progress }, modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
-                    is UpdateState.Installing -> Text("Installing…", style = MaterialTheme.typography.bodySmall)
-                    is UpdateState.NeedsPermission -> Text("Allow GPS Radio to install apps (one time)", style = MaterialTheme.typography.bodySmall)
+                    is UpdateState.Installing -> Text(stringResource(R.string.installing), style = MaterialTheme.typography.bodySmall)
+                    is UpdateState.NeedsPermission -> Text(stringResource(R.string.allow_installs_hint), style = MaterialTheme.typography.bodySmall)
                     else -> info.notes.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodySmall, maxLines = 2) }
                 }
             }
             when (state) {
-                is UpdateState.Available -> TextButton(onClick = { onInstall(info) }) { Text("Install") }
-                is UpdateState.NeedsPermission -> TextButton(onClick = onAllowInstalls) { Text("Allow") }
+                is UpdateState.Available -> TextButton(onClick = { onInstall(info) }) { Text(stringResource(R.string.install)) }
+                is UpdateState.NeedsPermission -> TextButton(onClick = onAllowInstalls) { Text(stringResource(R.string.allow)) }
                 else -> Unit
             }
         }

@@ -1,5 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">GPS Radio</string>
+
+    <!-- Notifications (RadioService) -->
     <string name="notification_channel">Radio playback</string>
     <string name="alerts_channel">Alerts</string>
     <string name="events_channel">Events today nearby</string>
@@ -10,5 +13,234 @@
     <string name="quota_text_own">Your OpenAI key is out of credit. Top up at platform.openai.com or tap to add another key; until then you hear short on-device notes.</string>
     <string name="add_key">Add key</string>
     <string name="notification_text">Listening to your surroundings</string>
+    <string name="notification_talking">Talking with you</string>
+    <string name="notification_city_tap">%1$s · tap to open</string>
     <string name="stop">Stop</string>
+    <string name="start">Start</string>
+    <string name="pause">Pause</string>
+    <string name="resume">Resume</string>
+    <string name="skip">Skip</string>
+
+    <!-- Radio states -->
+    <string name="state_off_air">Off air</string>
+    <string name="state_looking_around">Looking around…</string>
+    <string name="state_scanning">Scanning for stories</string>
+    <string name="state_tuning_in">Tuning in…</string>
+    <string name="state_on_air">On air</string>
+    <string name="state_your_call">Your call</string>
+    <string name="state_conversation">Conversation</string>
+    <string name="state_paused">Paused</string>
+    <string name="on_air_badge">ON AIR</string>
+    <string name="waiting_for_gps">Waiting for GPS…</string>
+    <string name="open_settings">Open Settings</string>
+
+    <!-- Travel modes -->
+    <string name="mode_auto">Auto</string>
+    <string name="mode_auto_detected">Auto · %1$s</string>
+    <string name="mode_walk">Walk</string>
+    <string name="mode_cycle">Cycle</string>
+    <string name="mode_drive">Drive</string>
+    <string name="mode_still">Still</string>
+    <string name="travel_walking">walking</string>
+    <string name="travel_cycling">cycling</string>
+    <string name="travel_driving">driving</string>
+    <string name="travel_stationary">stationary</string>
+    <string name="travel_unknown">unknown</string>
+    <string name="mode_driving_title">Driving mode</string>
+    <string name="mode_driving_detail">Looking ahead along the road · fewer, shorter stories · hands-free</string>
+    <string name="mode_cycling_title">Cycling mode</string>
+    <string name="mode_cycling_detail">Stories a little further ahead · short and hands-free</string>
+    <string name="mode_walking_title">Walking mode</string>
+    <string name="mode_walking_detail">Very local stories · things you can see around you</string>
+    <string name="mode_stationary_title">Standing still</string>
+    <string name="mode_stationary_detail">Deeper stories about what\'s around you</string>
+    <string name="mode_unknown_title">Detecting your pace…</string>
+    <string name="mode_unknown_detail">Walk or drive and the radio adapts</string>
+    <string name="mode_set_by_you">set by you</string>
+    <string name="mode_auto_short">auto</string>
+    <string name="speed_kmh">%1$d km/h</string>
+    <string name="theme_stories">Theme: %1$s stories</string>
+
+    <!-- Main screen -->
+    <string name="menu">Menu</string>
+    <string name="back">Back</string>
+    <string name="settings">Settings</string>
+    <string name="page_nearby">Nearby</string>
+    <string name="page_saved">Saved &amp; journal</string>
+    <string name="page_transcript">Transcript</string>
+    <string name="idle_tagline">Stories about the places around you, told as you go.</string>
+    <string name="start_radio">Start radio</string>
+    <string name="stop_radio">Stop radio</string>
+    <string name="mic_turn_on">Turn microphone on</string>
+    <string name="mic_turn_off">Turn microphone off</string>
+    <string name="mic_state_open">Microphone open</string>
+    <string name="mic_state_closed">Microphone closed</string>
+    <string name="mic_on">Mic on</string>
+    <string name="mic_off">Mic off</string>
+    <string name="hint_connecting">Connecting…</string>
+    <string name="hint_listening">I\'m listening…</string>
+    <string name="hint_interrupt">Talk anytime to interrupt</string>
+    <string name="hint_just_talk">Just talk</string>
+    <string name="hint_tap_to_talk">Tap to talk</string>
+    <string name="hint_release_to_send">Listening… release to send</string>
+    <string name="hint_hold_to_talk">Hold to talk</string>
+    <string name="location_needed">GPS Radio needs your location to find stories around you.</string>
+    <string name="allow_location">Allow location</string>
+    <string name="approximate_location">You shared only your approximate location, so stories can drift out of sync with what you pass. Allow precise location for stories that match the road.</string>
+    <string name="use_precise_location">Use precise location</string>
+
+    <!-- Transcript, Nearby, Saved -->
+    <string name="transcript_empty">Your stories and questions will show up here as captions.</string>
+    <string name="speaker_you">You</string>
+    <string name="speaker_note">Note</string>
+    <string name="speaker_radio">Radio</string>
+    <string name="nearby_scanning">Scanning around you…</string>
+    <string name="today_nearby">Today nearby</string>
+    <string name="places">Places</string>
+    <string name="tell_me_about">Tell me about %1$s</string>
+    <string name="photo_spot">Photo spot</string>
+    <string name="navigate_to">Navigate to %1$s</string>
+    <string name="save_place">Save %1$s</string>
+    <string name="unsave_place">Remove %1$s from saved</string>
+    <string name="saved_empty">Tap ☆ on a story or a nearby place to save it here.</string>
+    <string name="share_item">Share %1$s</string>
+    <string name="remove_item">Remove %1$s</string>
+    <string name="open_item">Open %1$s</string>
+    <string name="feature_film">🎬 filmed here</string>
+    <string name="feature_historic">📜 happened here</string>
+    <string name="feature_eat_drink">🍽 eat &amp; drink</string>
+    <string name="feature_shop">🛍 shop</string>
+    <string name="feature_jewish">✡ Jewish heritage</string>
+    <string name="distance_km">%1$.1f km</string>
+    <string name="distance_m">%1$d m</string>
+
+    <!-- Photos and map -->
+    <string name="show_photos">Show photos</string>
+    <string name="photo_of">Photo %1$d of %2$d: %3$s</string>
+    <string name="show_map">Show map</string>
+    <string name="wikipedia_link">Wikipedia ↗</string>
+    <string name="osm_attribution">© OpenStreetMap contributors</string>
+    <string name="map_you">You</string>
+
+    <!-- Walking tour -->
+    <string name="walking_tour">Walking tour:</string>
+    <string name="minutes_short">%1$d min</string>
+    <string name="end_tour">End tour</string>
+    <string name="tour_complete">Tour complete</string>
+    <string name="tour_stop_of">Stop %1$d of %2$d</string>
+
+    <!-- Journal -->
+    <string name="journal">Journal</string>
+    <string name="export_gpx">Export GPX</string>
+    <string name="export_day_gpx">Export %1$s as GPX</string>
+    <string name="journal_empty">Stories you hear will be collected here, day by day.</string>
+    <string name="tell_me_again">Tell me again</string>
+    <string name="today">Today</string>
+    <string name="yesterday">Yesterday</string>
+
+    <!-- Setup and Settings -->
+    <string name="setup_title">Welcome to GPS Radio</string>
+    <string name="setup_intro">Stories about the places around you, told as you go — with fun facts, history, the odd joke, and answers to anything you ask.\n\nGPS Radio talks to OpenAI directly from this phone using your own API key. The key stays encrypted on this device only. Tip: create a dedicated key with a monthly spending limit at platform.openai.com.</string>
+    <string name="setup_save">Save and start listening</string>
+    <string name="setup_try_without_key">Try without a key (on-device voice)</string>
+    <string name="setup_try_without_key_hint">Short notes from Wikipedia, read by your phone\'s voice. Questions need a key.</string>
+    <string name="save">Save</string>
+    <string name="forget_heard_stories">Forget stories I\'ve already heard</string>
+    <string name="api_key_label">OpenAI API key</string>
+    <string name="api_key_builtin_placeholder">Using the built-in key (optional: enter your own)</string>
+    <string name="hide_key">Hide key</string>
+    <string name="show_key">Show key</string>
+    <string name="api_key_format_hint">OpenAI keys usually start with \"sk-\"</string>
+    <string name="your_host">Your host</string>
+    <string name="pacing">Pacing</string>
+    <string name="natural_voice">Natural voice conversation</string>
+    <string name="natural_voice_hint">Talk hands-free like a phone call; you can interrupt anytime. Uses the OpenAI Realtime API.</string>
+    <string name="always_listening">Always listening</string>
+    <string name="always_listening_hint">Just talk anytime, even during a story, like ChatGPT voice. Only speech is sent. Switch the mic off anytime from the radio screen.</string>
+    <string name="sound_effects">Sound effects</string>
+    <string name="sound_effects_hint">A short station sting before stories, a chime before answers.</string>
+    <string name="local_events">Events today nearby</string>
+    <string name="local_events_hint">Concerts, festivals, markets and more happening today, found with web search. No classes or meetings.</string>
+    <string name="interests_title">What are you into?</string>
+    <string name="budget_label">Daily spending limit, USD (empty = none)</string>
+    <string name="budget_hint">Over the limit the radio reads free on-device notes until tomorrow.</string>
+    <string name="budget_description">Daily spending limit</string>
+    <string name="models">Models</string>
+    <string name="model_narration">Narration model</string>
+    <string name="model_conversation">Conversation model (uses web search)</string>
+    <string name="model_speech">Speech model</string>
+    <string name="model_voice">Voice</string>
+    <string name="model_transcription">Transcription model</string>
+    <string name="model_realtime">Realtime voice model</string>
+    <string name="memory_title">What I remember about you</string>
+    <string name="memory_empty">Nothing yet. Tell the radio what you like, e.g. \"I love castles\" or \"keep stories short\", and it will remember.</string>
+    <string name="memory_item">%1$s: %2$s</string>
+    <string name="forget_item">Forget %1$s</string>
+    <string name="forget_all_memory">Forget everything about me</string>
+    <string name="memory_like">like</string>
+    <string name="memory_avoid">avoid</string>
+    <string name="memory_style">style</string>
+    <string name="memory_about_me">about me</string>
+    <string name="language_auto">Auto (phone language)</string>
+    <string name="narration_language">Narration language</string>
+    <string name="version_label">GPS Radio %1$s · build %2$s · %3$s</string>
+
+    <!-- Cost -->
+    <string name="cost_title">Cost (estimate)</string>
+    <string name="cost_today_description">Cost today</string>
+    <string name="cost_totals">Today $%1$s · this session $%2$s</string>
+    <string name="cost_limit">limit $%1$s</string>
+    <string name="cost_part">%1$s $%2$s</string>
+    <string name="cost_disclaimer">At list prices; your OpenAI dashboard has the real bill.</string>
+    <string name="cost_kind_stories">stories &amp; answers</string>
+    <string name="cost_kind_research">web research</string>
+    <string name="cost_kind_voice">story voice</string>
+    <string name="cost_kind_live">live conversation</string>
+
+    <!-- Interests (core Topic) -->
+    <string name="topic_history">History</string>
+    <string name="topic_legends">Legends</string>
+    <string name="topic_architecture">Architecture</string>
+    <string name="topic_nature">Nature</string>
+    <string name="topic_culture">Culture</string>
+    <string name="topic_industry">Industry</string>
+    <string name="topic_war">War</string>
+    <string name="topic_food">Food</string>
+    <string name="topic_unusual">Unusual</string>
+    <string name="topic_attractions">Attractions</string>
+    <string name="topic_film">Film</string>
+    <string name="topic_jewish">Jewish &amp; Israel</string>
+
+    <!-- Host style and pacing (core HostStyle, Pacing) -->
+    <string name="host_entertaining">Witty guide</string>
+    <string name="host_documentary">Documentary</string>
+    <string name="host_kids">Family &amp; kids</string>
+    <string name="host_chill">Late-night chill</string>
+    <string name="pacing_chatty">Chatty</string>
+    <string name="pacing_balanced">Balanced</string>
+    <string name="pacing_rare">Rare</string>
+    <string name="pacing_nonstop">Non-stop</string>
+
+    <!-- Updates -->
+    <string name="updates">Updates</string>
+    <string name="update_checking">Checking for updates…</string>
+    <string name="update_up_to_date">You have the latest tested version.</string>
+    <string name="update_available_line">Update available: %1$s</string>
+    <string name="update_downloading">Downloading %1$s… %2$d%%</string>
+    <string name="update_needs_permission">To install updates, allow GPS Radio to install apps (one time), then tap Install again.</string>
+    <string name="update_installing_line">Installing %1$s… Android may ask you to confirm.</string>
+    <string name="allow_installs">Allow installs</string>
+    <string name="install_version">Install %1$s</string>
+    <string name="check_for_updates">Check for updates</string>
+    <string name="update_banner_title">Update %1$s available</string>
+    <string name="installing">Installing…</string>
+    <string name="allow_installs_hint">Allow GPS Radio to install apps (one time)</string>
+    <string name="install">Install</string>
+    <string name="allow">Allow</string>
+    <string name="update_check_failed">Couldn\'t check for updates: %1$s</string>
+    <string name="update_failed">Update failed</string>
+    <string name="update_conflict">This update can\'t replace the installed app (different signature). Install it from the download link instead.</string>
+    <string name="update_no_storage">Not enough storage for the update.</string>
+    <string name="update_not_installed">Update not installed.</string>
+    <string name="update_not_installed_reason">Update not installed: %1$s</string>
 </resources>

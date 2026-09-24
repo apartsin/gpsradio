@@ -229,9 +229,9 @@ class RadioService : Service() {
 
     private fun title(s: RadioUiState): String = s.nowPlaying?.title?.takeIf { s.radioState == RadioState.NARRATING }
         ?: when (s.radioState) {
-            RadioState.PAUSED -> "Paused"
-            RadioState.CONVERSING -> "Talking with you"
-            RadioState.RESEARCHING -> "Tuning in…"
+            RadioState.PAUSED -> getString(R.string.state_paused)
+            RadioState.CONVERSING -> getString(R.string.notification_talking)
+            RadioState.RESEARCHING -> getString(R.string.state_tuning_in)
             else -> getString(R.string.notification_text)
         }
 
@@ -334,24 +334,24 @@ class RadioService : Service() {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_radio)
             .setContentTitle(title(s))
-            .setContentText(s.area?.city?.let { "$it · tap to open" } ?: getString(R.string.app_name))
+            .setContentText(s.area?.city?.let { getString(R.string.notification_city_tap, it) } ?: getString(R.string.app_name))
             .setContentIntent(open)
             .setOngoing(true)
             .setSilent(true)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .addAction(
                 if (paused) android.R.drawable.ic_media_play else android.R.drawable.ic_media_pause,
-                if (paused) "Resume" else "Pause",
+                getString(if (paused) R.string.resume else R.string.pause),
                 action(if (paused) ACTION_RESUME else ACTION_PAUSE, 2),
             )
-            .addAction(android.R.drawable.ic_media_next, "Skip", action(ACTION_SKIP, 3))
+            .addAction(android.R.drawable.ic_media_next, getString(R.string.skip), action(ACTION_SKIP, 3))
             .apply {
                 val app = application as GpsRadioApp
                 run {
                     val on = app.settings.current.alwaysListening && app.settings.current.liveVoice
                     addAction(
                         if (on) android.R.drawable.ic_btn_speak_now else android.R.drawable.ic_lock_silent_mode,
-                        if (on) "Mic off" else "Mic on",
+                        getString(if (on) R.string.mic_off else R.string.mic_on),
                         action(ACTION_MIC, 6),
                     )
                 }

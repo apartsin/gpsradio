@@ -45,19 +45,25 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.annotation.StringRes
+import androidx.compose.ui.res.stringResource
+import com.gpsradio.app.R
 import com.gpsradio.core.model.RadioState
 import com.gpsradio.core.model.TravelMode
 import com.gpsradio.core.session.RadioUiState
 import com.gpsradio.core.session.StatusLevel
 
-fun stateLabel(s: RadioUiState): String = when (s.radioState) {
-    RadioState.IDLE -> "Off air"
-    RadioState.RADIO -> if (s.discovering) "Looking around…" else "Scanning for stories"
-    RadioState.RESEARCHING -> "Tuning in…"
-    RadioState.NARRATING -> "On air"
-    RadioState.CONVERSING -> if (s.pendingOffer != null) "Your call" else "Conversation"
-    RadioState.PAUSED -> "Paused"
-}
+@Composable
+fun stateLabel(s: RadioUiState): String = stringResource(
+    when (s.radioState) {
+        RadioState.IDLE -> R.string.state_off_air
+        RadioState.RADIO -> if (s.discovering) R.string.state_looking_around else R.string.state_scanning
+        RadioState.RESEARCHING -> R.string.state_tuning_in
+        RadioState.NARRATING -> R.string.state_on_air
+        RadioState.CONVERSING -> if (s.pendingOffer != null) R.string.state_your_call else R.string.state_conversation
+        RadioState.PAUSED -> R.string.state_paused
+    },
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -81,17 +87,17 @@ fun StatusCard(state: RadioUiState, onMode: (TravelMode?) -> Unit, onFixKey: () 
             if (loc != null) {
                 ModeBadge(state)
             } else if (state.radioState != RadioState.IDLE) {
-                Text("Waiting for GPS…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(stringResource(R.string.waiting_for_gps), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (state.radioState != RadioState.IDLE) {
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
-                    val detected = loc?.travelMode?.takeIf { it != TravelMode.UNKNOWN }?.name?.lowercase()
+                    val detected = loc?.travelMode?.takeIf { it != TravelMode.UNKNOWN }?.let { travelModeWord(it) }
                     val modes = listOf(
-                        null to (detected?.let { "Auto · $it" } ?: "Auto"),
-                        TravelMode.WALKING to "Walk",
-                        TravelMode.CYCLING to "Cycle",
-                        TravelMode.DRIVING to "Drive",
-                        TravelMode.STATIONARY to "Still",
+                        null to (detected?.let { stringResource(R.string.mode_auto_detected, it) } ?: stringResource(R.string.mode_auto)),
+                        TravelMode.WALKING to stringResource(R.string.mode_walk),
+                        TravelMode.CYCLING to stringResource(R.string.mode_cycle),
+                        TravelMode.DRIVING to stringResource(R.string.mode_drive),
+                        TravelMode.STATIONARY to stringResource(R.string.mode_still),
                     )
                     modes.forEach { (mode, label) ->
                         FilterChip(selected = state.modeOverride == mode, onClick = { onMode(mode) }, label = { Text(label) })
@@ -106,7 +112,7 @@ fun StatusCard(state: RadioUiState, onMode: (TravelMode?) -> Unit, onFixKey: () 
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(st.text, color = color, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
-                    if (st.needsKey) TextButton(onClick = onFixKey) { Text(st.actionLabel ?: "Open Settings") }
+                    if (st.needsKey) TextButton(onClick = onFixKey) { Text(st.actionLabel ?: stringResource(R.string.open_settings)) }
                 }
             }
         }
@@ -114,14 +120,14 @@ fun StatusCard(state: RadioUiState, onMode: (TravelMode?) -> Unit, onFixKey: () 
 }
 
 /** What the travel mode means for the listener, in plain words. */
-data class ModeInfo(val icon: ImageVector, val title: String, val detail: String)
+data class ModeInfo(val icon: ImageVector, @StringRes val title: Int, @StringRes val detail: Int)
 
 fun modeInfo(mode: TravelMode): ModeInfo = when (mode) {
-    TravelMode.DRIVING -> ModeInfo(Icons.Default.DirectionsCar, "Driving mode", "Looking ahead along the road · fewer, shorter stories · hands-free")
-    TravelMode.CYCLING -> ModeInfo(Icons.AutoMirrored.Filled.DirectionsBike, "Cycling mode", "Stories a little further ahead · short and hands-free")
-    TravelMode.WALKING -> ModeInfo(Icons.AutoMirrored.Filled.DirectionsWalk, "Walking mode", "Very local stories · things you can see around you")
-    TravelMode.STATIONARY -> ModeInfo(Icons.Default.Chair, "Standing still", "Deeper stories about what's around you")
-    TravelMode.UNKNOWN -> ModeInfo(Icons.Default.Explore, "Detecting your pace…", "Walk or drive and the radio adapts")
+    TravelMode.DRIVING -> ModeInfo(Icons.Default.DirectionsCar, R.string.mode_driving_title, R.string.mode_driving_detail)
+    TravelMode.CYCLING -> ModeInfo(Icons.AutoMirrored.Filled.DirectionsBike, R.string.mode_cycling_title, R.string.mode_cycling_detail)
+    TravelMode.WALKING -> ModeInfo(Icons.AutoMirrored.Filled.DirectionsWalk, R.string.mode_walking_title, R.string.mode_walking_detail)
+    TravelMode.STATIONARY -> ModeInfo(Icons.Default.Chair, R.string.mode_stationary_title, R.string.mode_stationary_detail)
+    TravelMode.UNKNOWN -> ModeInfo(Icons.Default.Explore, R.string.mode_unknown_title, R.string.mode_unknown_detail)
 }
 
 /**
@@ -147,11 +153,11 @@ fun ModeBadge(state: RadioUiState) {
     ) {
         Icon(info.icon, null, tint = onContainer, modifier = Modifier.size(28.dp))
         Column(Modifier.padding(start = 10.dp).weight(1f)) {
-            val how = if (state.modeOverride != null) "set by you" else "auto"
-            val speed = if (loc.speedMps > 0.5) " · ${(loc.speedMps * 3.6).toInt()} km/h" else ""
-            Text("${info.title}$speed", color = onContainer, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-            Text("${info.detail} · $how", color = onContainer, style = MaterialTheme.typography.labelSmall)
-            state.theme?.let { Text("Theme: ${it.key} stories", color = onContainer, style = MaterialTheme.typography.labelSmall) }
+            val how = stringResource(if (state.modeOverride != null) R.string.mode_set_by_you else R.string.mode_auto_short)
+            val speed = if (loc.speedMps > 0.5) " · " + stringResource(R.string.speed_kmh, (loc.speedMps * 3.6).toInt()) else ""
+            Text(stringResource(info.title) + speed, color = onContainer, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+            Text(stringResource(info.detail) + " · " + how, color = onContainer, style = MaterialTheme.typography.labelSmall)
+            state.theme?.let { Text(stringResource(R.string.theme_stories, it.key), color = onContainer, style = MaterialTheme.typography.labelSmall) }
         }
     }
 }
@@ -173,7 +179,7 @@ fun OnAirBadge() {
             .padding(horizontal = 8.dp, vertical = 2.dp),
     ) {
         Box(Modifier.size(8.dp).alpha(pulse).clip(CircleShape).background(Color.White))
-        Text(" ON AIR", color = Color.White, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+        Text(" " + stringResource(R.string.on_air_badge), color = Color.White, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
     }
 }
 
