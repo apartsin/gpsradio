@@ -919,3 +919,5 @@ Stories stay on gpt-4o-mini-tts in the `marin` voice (the owner chose not to pay
 - **Emotion:** follows the content.
 - **Pronunciation:** a native speaker of the story's language, with natural intonation and word stress. Foreign names are said the local way without switching accent. Numbers and dates are read the way a native speaker says them.
 - **Russian notes:** standard literary pronunciation with correct stress, a conversational melody (not a newsreader or an audiobook), ё as ё, and numbers in the right grammatical case. Hebrew and German have short notes too.
+
+- (§54 follow-up) **"Avoid" means left out entirely.** A lake with a war past, for a listener who avoids war, is told through another aspect (depth, fish, legends), not even mentioning the war in passing.

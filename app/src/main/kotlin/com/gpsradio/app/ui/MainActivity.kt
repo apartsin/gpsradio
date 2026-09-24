@@ -62,7 +62,8 @@ class MainActivity : ComponentActivity() {
                         info = info,
                         onUpdate = {
                             dismissedUpdate = info.version
-                            if (vm.canInstallUpdates()) vm.installUpdate(info) else vm.allowInstalls()
+                            // Without the install permission this opens the "allow" page and continues on return.
+                            vm.installUpdate(info)
                         },
                         onLater = { dismissedUpdate = info.version },
                     )
@@ -126,6 +127,8 @@ class MainActivity : ComponentActivity() {
         vm.checkForUpdate(manual = false)
         // An update confirmation that arrived while the app was in the background.
         (application as com.gpsradio.app.GpsRadioApp).updater.showPendingConfirm(this)
+        // Back from "allow installs": a waiting update continues by itself.
+        (application as com.gpsradio.app.GpsRadioApp).updater.resumeAfterPermission()
     }
 
     override fun onNewIntent(intent: Intent) {

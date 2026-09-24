@@ -255,4 +255,6 @@
     <string name="later">Позже</string>
     <string name="next">Дальше</string>
     <string name="next_story">Следующая история</string>
+    <string name="retry">Повторить</string>
+    <string name="install_manually">Установить вручную</string>
 </resources>

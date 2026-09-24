@@ -279,6 +279,9 @@ fun RadioScreen(vm: MainViewModel, onOpenSettings: () -> Unit, autoStart: Boolea
         update = update,
         onInstallUpdate = vm::installUpdate,
         onAllowInstalls = vm::allowInstalls,
+        onInstallManually = { info ->
+            (context as? android.app.Activity)?.let { a -> (a.application as com.gpsradio.app.GpsRadioApp).updater.installManually(a, info) }
+        },
         locationDenied = locationDenied,
         approximateOnly = approximateOnly,
         onRequestPrecise = {
@@ -316,6 +319,7 @@ fun RadioContent(
     update: UpdateState = UpdateState.Idle,
     onInstallUpdate: (UpdateInfo) -> Unit = {},
     onAllowInstalls: () -> Unit = {},
+    onInstallManually: (UpdateInfo) -> Unit = onInstallUpdate,
     /** Always listening is switched on: with [liveMode], the mic is open. */
     alwaysListening: Boolean = false,
     /** Opens this secondary page right away (tests). */
@@ -394,6 +398,12 @@ fun RadioContent(
                                 )
                             }
                         }
+                    }
+                    // An update on its way (or stuck): shown right here, not only in the menu (spec B §36).
+                    if (update is UpdateState.Downloading || update is UpdateState.Installing || update is UpdateState.NeedsPermission ||
+                        (update is UpdateState.Failed && update.info != null)
+                    ) {
+                        Box(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) { UpdateBanner(update, onInstallUpdate, onAllowInstalls, onInstallManually) }
                     }
                     NowLine(state, micOpen, onFixKey = actions.onOpenSettings)
                     Row(
@@ -585,7 +595,7 @@ private fun RadioMenu(
                 onClick = { onPage(RadioPage.TRANSCRIPT) }, modifier = Modifier.padding(horizontal = 12.dp),
             )
             HorizontalDivider(Modifier.padding(vertical = 8.dp))
-            Box(Modifier.padding(horizontal = 16.dp)) { UpdateBanner(update, onInstallUpdate, onAllowInstalls) }
+            Box(Modifier.padding(horizontal = 16.dp)) { UpdateBanner(update, onInstallUpdate, onAllowInstalls, onInstallUpdate) }
             NavigationDrawerItem(
                 label = { Text(stringResource(R.string.settings)) }, icon = { Icon(Icons.Default.Settings, null) }, selected = false,
                 onClick = onSettings, modifier = Modifier.padding(horizontal = 12.dp),

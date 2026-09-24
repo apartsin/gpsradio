@@ -73,12 +73,18 @@ fun UpdatesSection(
 
 /** A small card on the radio screen when a tested update is ready (never shown while driving). */
 @Composable
-fun UpdateBanner(state: UpdateState, onInstall: (UpdateInfo) -> Unit, onAllowInstalls: () -> Unit) {
+fun UpdateBanner(
+    state: UpdateState,
+    onInstall: (UpdateInfo) -> Unit,
+    onAllowInstalls: () -> Unit,
+    onInstallManually: (UpdateInfo) -> Unit = onInstall,
+) {
     val info = when (state) {
         is UpdateState.Available -> state.info
         is UpdateState.NeedsPermission -> state.info
         is UpdateState.Downloading -> state.info
         is UpdateState.Installing -> state.info
+        is UpdateState.Failed -> state.info ?: return
         else -> return
     }
     Card(
@@ -93,12 +99,17 @@ fun UpdateBanner(state: UpdateState, onInstall: (UpdateInfo) -> Unit, onAllowIns
                     is UpdateState.Downloading -> LinearProgressIndicator(progress = { state.progress }, modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
                     is UpdateState.Installing -> Text(stringResource(R.string.installing), style = MaterialTheme.typography.bodySmall)
                     is UpdateState.NeedsPermission -> Text(stringResource(R.string.allow_installs_hint), style = MaterialTheme.typography.bodySmall)
+                    is UpdateState.Failed -> Text(state.message, style = MaterialTheme.typography.bodySmall, maxLines = 3)
                     else -> info.notes.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodySmall, maxLines = 2) }
                 }
             }
             when (state) {
                 is UpdateState.Available -> TextButton(onClick = { onInstall(info) }) { Text(stringResource(R.string.install)) }
                 is UpdateState.NeedsPermission -> TextButton(onClick = onAllowInstalls) { Text(stringResource(R.string.allow)) }
+                is UpdateState.Failed -> Column {
+                    TextButton(onClick = { onInstall(info) }) { Text(stringResource(R.string.retry)) }
+                    TextButton(onClick = { onInstallManually(info) }) { Text(stringResource(R.string.install_manually)) }
+                }
                 else -> Unit
             }
         }

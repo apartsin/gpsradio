@@ -198,7 +198,8 @@ class WikipediaClient(
         /** The Commons file name in an upload.wikimedia.org URL (original or thumbnail), with spaces; null otherwise. */
         fun fileTitle(url: String): String? {
             val u = url.toHttpUrlOrNull() ?: return null
-            if (u.host != "upload.wikimedia.org") return null
+            // Wikipedia serves thumbnails from thumb.wikimedia.org too (same path layout).
+            if (u.host != "upload.wikimedia.org" && u.host != "thumb.wikimedia.org") return null
             val seg = u.pathSegments
             val i = seg.indexOf("thumb")
             val name = if (i >= 0) seg.getOrNull(i + 3) else seg.lastOrNull()

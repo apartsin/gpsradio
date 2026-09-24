@@ -88,13 +88,19 @@ class AppUpdater(
         Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}"))
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 
-    /** Downloads and installs [info]; asks for the install permission first when needed. */
+    /** An install waiting for the "install unknown apps" permission; it continues by itself once allowed. */
+    @Volatile private var installWhenAllowed: UpdateInfo? = null
+
+    /** Downloads and installs [info]; asks for the install permission first when needed (and then carries on). */
     fun install(info: UpdateInfo) {
         val c = client ?: return
         if (!canInstall()) {
+            installWhenAllowed = info
             _state.value = UpdateState.NeedsPermission(info)
+            runCatching { context.startActivity(permissionIntent()) }
             return
         }
+        installWhenAllowed = null
         if (job?.isActive == true) return
         job = scope.launch {
             val apk = File(context.cacheDir, "updates/gpsradio-${info.version}.apk")
@@ -143,6 +149,33 @@ class AppUpdater(
             )
             session.commit(callback.intentSender)
         }
+    }
+
+    /** Back from the permission page: if installs are now allowed, the waiting update continues at once. */
+    fun resumeAfterPermission() {
+        val info = installWhenAllowed ?: return
+        if (canInstall()) install(info)
+    }
+
+    /** The downloaded APK for [info], if it's still there (for the manual fallback). */
+    fun downloadedApk(info: UpdateInfo): File? = File(context.cacheDir, "updates/gpsradio-${info.version}.apk").takeIf { it.isFile && it.length() > 0 }
+
+    /**
+     * The fallback: hand the downloaded APK to Android's own installer screen (the same one a browser download
+     * opens). Works where the in-app session install doesn't.
+     */
+    fun installManually(activity: android.app.Activity, info: UpdateInfo) {
+        val apk = downloadedApk(info)
+        if (apk == null) {
+            install(info)
+            return
+        }
+        val uri = androidx.core.content.FileProvider.getUriForFile(context, context.packageName + ".updates", apk)
+        val view = Intent(Intent.ACTION_VIEW)
+            .setDataAndType(uri, "application/vnd.android.package-archive")
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        runCatching { activity.startActivity(view) }
+            .onFailure { _state.value = UpdateState.Failed(context.getString(R.string.update_not_installed), info) }
     }
 
     /**
@@ -208,7 +241,8 @@ class AppUpdater(
                 info,
             )
         }
-        File(context.cacheDir, "updates").listFiles()?.forEach { it.delete() }
+        // Kept after a failure so "Install manually" can use it; cleared once installed.
+        if (status == PackageInstaller.STATUS_SUCCESS) File(context.cacheDir, "updates").listFiles()?.forEach { it.delete() }
     }
 
     private companion object {

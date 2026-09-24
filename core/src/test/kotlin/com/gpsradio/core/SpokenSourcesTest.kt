@@ -117,6 +117,8 @@ class PhotoCreditsTest {
         assertEquals("Traunsee.jpg", com.gpsradio.core.discovery.WikipediaClient.fileTitle(
             "https://upload.wikimedia.org/wikipedia/commons/c/cd/Traunsee.jpg"))
         assertEquals(null, com.gpsradio.core.discovery.WikipediaClient.fileTitle("https://example.com/a.jpg"))
+        assertEquals("Aerial image of the Traunsee.jpg", com.gpsradio.core.discovery.WikipediaClient.fileTitle(
+            "https://thumb.wikimedia.org/wikipedia/commons/thumb/c/c9/Aerial_image_of_the_Traunsee.jpg/960px-Aerial_image_of_the_Traunsee.jpg?utm_source=en.wikipedia.org"))
         assertEquals("Jane Doe · CC BY-SA 4.0 · Wikimedia Commons",
             com.gpsradio.core.discovery.WikipediaClient.credit("<a href=\"//commons.wikimedia.org/wiki/User:Jane\">Jane  Doe</a>", "CC BY-SA 4.0"))
         assertEquals(null, com.gpsradio.core.discovery.WikipediaClient.credit(" ", null))

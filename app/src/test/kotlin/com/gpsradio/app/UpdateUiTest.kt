@@ -90,4 +90,20 @@ class UpdateUiTest {
         compose.onNodeWithText("Later").performClick()
         org.junit.Assert.assertTrue(later)
     }
+
+    @Test
+    fun aFailedInstallOffersRetryAndTheManualInstaller() {
+        var retried = false
+        var manual = false
+        compose.setContent {
+            com.gpsradio.app.ui.UpdateBanner(
+                com.gpsradio.app.platform.UpdateState.Failed("Android didn't install it", info),
+                onInstall = { retried = true }, onAllowInstalls = {}, onInstallManually = { manual = true },
+            )
+        }
+        compose.onNodeWithText("Android didn't install it").assertExists()
+        compose.onNodeWithText("Retry").performClick()
+        compose.onNodeWithText("Install manually").performClick()
+        org.junit.Assert.assertTrue(retried && manual)
+    }
 }

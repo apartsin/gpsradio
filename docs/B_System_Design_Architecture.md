@@ -795,3 +795,11 @@ Photos load with Coil, which used its own HTTP client and the generic `okhttp/â€
 
 - **The fix.** `GpsRadioApp` is Coil's `ImageLoaderFactory`: the image loader sends the same identifying User-Agent as every other request the app makes (`GpsRadio/<version> (Android; <repo URL>)`).
 - **Test.** The live CI test `LivePhotoTest` downloads a real Wikipedia lead photo and gallery images this way. It also prints what a generic client gets.
+
+### Self-update: visible, resumable, with a manual fallback
+
+These fixes follow the report that the update flow still didn't work:
+
+- **Visible.** Download progress, "Installingâ€¦", "Allow installs" and failures now show on the main screen, above the place name. Before, they only showed inside the menu, so tapping Update looked like nothing happened.
+- **Resumable.** Without the "install unknown apps" permission, Update opens that page, and the update continues by itself when the listener returns (`resumeAfterPermission` on resume). Before, it stopped there.
+- **Failures are shown**, with **Retry** and **Install manually**. The manual option hands the downloaded APK (kept after a failure) to Android's own installer screen through a FileProvider, the same screen a browser download opens.

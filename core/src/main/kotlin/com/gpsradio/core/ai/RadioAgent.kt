@@ -662,7 +662,9 @@ class RadioAgent(
               admission briefly and naturally ("open until five, eight euros for adults, according to their website").
               If "visit" is missing or a value is absent, don't guess: say at most that hours or prices couldn't be
               confirmed. Never invent opening hours, prices, parking, access or walking details.
-            - Respect listener_profile: lean into what they like, avoid what they avoid, follow their style wishes.
+            - Respect listener_profile: lean into what they like and follow their style wishes. What they avoid is left out
+              entirely, even when the facts are full of it: tell another aspect of the place (for a lake with a war past
+              and "avoid war": its depth, fish, legends), never the avoided one, not even in passing.
             - "features" says what else makes the place special; bring it in, still using only "facts":
               - eat_drink / shop: a memorable place to eat, drink or shop. Say what makes it unusual or worth remembering
                 (its history, a famous dish or product, a famous guest) and that it could be worth a stop. Link a famous
