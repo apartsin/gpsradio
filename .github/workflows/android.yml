@@ -23,22 +23,25 @@ jobs:
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
-      - name: Dump ML Kit GenAI Prompt API
+      - name: Dump on-device AI APIs (ML Kit GenAI Prompt, LiteRT-LM)
         run: |
           set +e
-          for art in genai-prompt genai-common; do
-            meta=$(curl -sfL "https://dl.google.com/dl/android/maven2/com/google/mlkit/$art/maven-metadata.xml")
-            echo "== $art versions: $(echo "$meta" | grep -o '<version>[^<]*' | sed 's/<version>//' | tr '\n' ' ')"
-            ver=$(echo "$meta" | grep -o '<latest>[^<]*' | sed 's/<latest>//')
-            [ -z "$ver" ] && ver=$(echo "$meta" | grep -o '<version>[^<]*' | tail -1 | sed 's/<version>//')
-            curl -sfL -o $art.aar "https://dl.google.com/dl/android/maven2/com/google/mlkit/$art/$ver/$art-$ver.aar" || continue
-            curl -sfL "https://dl.google.com/dl/android/maven2/com/google/mlkit/$art/$ver/$art-$ver.pom" | grep -A3 '<dependency>' | grep -o '<artifactId>[^<]*\|<groupId>[^<]*\|<version>[^<]*' | paste - - - | head -20
-            mkdir -p $art && (cd $art && unzip -oq ../$art.aar classes.jar && unzip -oq classes.jar)
-            echo "== $art $ver public API"
-            find $art -name '*.class' ! -name '*$*' | sed "s#^$art/##; s#\.class##; s#/#.#g" | sort | while read c; do
-              javap -public -cp $art "$c" 2>/dev/null | grep -v '^Compiled' 
-            done | head -400
-          done
+          dump() { # group artifact package-path
+            g=$1; art=$2; pkg=$3; gp=$(echo $g | tr . /)
+            meta=$(curl -sfL "https://dl.google.com/dl/android/maven2/$gp/$art/maven-metadata.xml")
+            [ -z "$meta" ] && meta=$(curl -sfL "https://repo1.maven.org/maven2/$gp/$art/maven-metadata.xml")
+            echo "== $g:$art versions: $(echo "$meta" | grep -o '<version>[^<]*' | sed 's/<version>//' | tr '\n' ' ')"
+            ver=$(echo "$meta" | grep -o '<version>[^<]*' | tail -1 | sed 's/<version>//')
+            for base in https://dl.google.com/dl/android/maven2 https://repo1.maven.org/maven2; do
+              curl -sfL -o $art.aar "$base/$gp/$art/$ver/$art-$ver.aar" && break
+            done
+            mkdir -p x-$art && (cd x-$art && unzip -oq ../$art.aar classes.jar && unzip -oq classes.jar)
+            echo "== $art $ver public API ($pkg)"
+            (cd x-$art && find $pkg -name '*.class' ! -name '*$*' | sed 's#\.class##; s#/#.#g' | sort) > classes.txt
+            javap -public -cp x-$art $(cat classes.txt) 2>&1 | grep -v '^Compiled' | cat
+          }
+          dump com.google.mlkit genai-prompt com/google/mlkit/genai/prompt
+          dump com.google.ai.edge.litertlm litertlm-android com/google/ai/edge/litertlm
 
   build:
     runs-on: ubuntu-latest
