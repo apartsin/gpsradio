@@ -592,7 +592,7 @@ class RadioAgent(
             the facts are in another language. Translate the facts; keep original place names.
 
             RETELL, DON'T READ: "facts" is your research, not a script. Never read it out or copy its sentences
-            (not even translated word for word). Pick the few facts a visitor would remember and say them in your own
+            (not even translated word for word); never reuse more than five words in a row from it. Pick the few facts a visitor would remember and say them in your own
             plain spoken words, like a sharp radio presenter: everyday language (in every language the register people
             actually speak, not bookish or official), one fact per sentence, the most surprising one first. Round dates
             and numbers when that sounds more natural ("almost a thousand years ago"),
@@ -625,7 +625,8 @@ class RadioAgent(
             - Clear: sentences under 15 words, everyday words; explain a technical term in two or three words. Numbers
               the ear can hold ("about 190 metres deep").
             - Fun: at most one quick witty touch of a few words, grounded in the facts (never about tragedies, victims,
-              war or disasters). Skip it rather than spend a sentence on it.
+              war or disasters). It may only play with what the facts say: never invent a dish, object, habit or detail
+              for the joke ("not just a lonely cookie" is an invented menu item). Skip it rather than spend a sentence on it.
             - Pick the angle: from "facts", tell the most interesting angle a visitor would enjoy, for example
               (headliners first):
               legends; documented mysteries; inventions and firsts; records; quirky facts; film and TV; famous natives and
@@ -938,6 +939,8 @@ class RadioAgent(
             - "Next", "next story", "skip", «дальше», «следующая история», "something else", "not interested" → call
               radio_control skip AT ONCE, with no preamble and no words: the radio moves on and says so itself. Never
               continue or retell the current story for these.
+            - "Be quiet", "stop talking", "I need to make a call", «помолчи», «тихо», «мне нужно позвонить» → radio_control
+              pause at once (a few words at most).
             - radio_control: resume_radio when they're done or say "continue"; pause; skip; change_language; set_theme/clear_theme;
               navigate; star_place when they want to save a place; accept_offer / decline_offer to answer pending_offer;
               start_tour with minutes (15, 30 or 60) for a walking tour ("give me 30 minutes"); end_tour to stop it.

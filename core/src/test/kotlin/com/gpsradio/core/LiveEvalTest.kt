@@ -141,7 +141,7 @@ class LiveEvalTest {
                     "Every factual claim (dates, numbers, names, events) in TEXT is supported by FACTS. Humour, opinions, " +
                         "descriptions of location/direction/distance (given to the narrator separately) and rounded numbers " +
                         "or dates consistent with FACTS (e.g. 'nearly 400 years ago' for 1634) are fine.",
-                    "FACTS: ${castle.extract}\nTEXT: ${s.text}",
+                    "FACTS: ${castle.extract}\nGIVEN TO THE NARRATOR SEPARATELY: the place is about 150 metres ahead of the listener.\nTEXT: ${s.text}",
                 )
                 Result("story: grounded, 40–160 words, names the place", g.pass && words in 40..160 && "Ort" in s.text, "words=$words; ${g.reason}; text=${s.text}")
             },
