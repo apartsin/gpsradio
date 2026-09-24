@@ -811,5 +811,5 @@ These fixes follow the report that the update flow still didn't work:
   - `writer { settings.localModel }` resolves per call: "auto" means Nano if `checkStatus()==AVAILABLE`, else the first installed catalogue model; also "nano", a model id, or "off".
   - `NanoWriter` wraps ML Kit `Generation.getClient()`: `checkStatus`, `download()` and `generateContent(prompt)`.
   - `LiteRtWriter` loads `Engine(EngineConfig(modelPath, Backend.CPU(), cacheDir))` on first use, under a mutex, and keeps it. Each story is a fresh `Conversation` taking `sendMessage(Contents.of(prompt))`.
-  - Downloads write to `filesDir/models/<file>.part` with HTTP Range resume (5 attempts), are renamed when complete, and report `StateFlow` progress to Settings (`LocalAiUi`).
+  - Models live in `noBackupFilesDir/models` (kept across app updates, excluded from backup; unfinished `.part` downloads resume on start). Downloads write to `<file>.part` with HTTP Range resume (5 attempts), are renamed when complete, and report `StateFlow` progress to Settings (`LocalAiUi`).
 - Dependencies: `com.google.mlkit:genai-prompt:1.0.0-beta4` and `com.google.ai.edge.litertlm:litertlm-android:0.17.1` (arm64 and x86_64 native code, about 22 MB). They are built with Kotlin 2.3, so the app compiles with `-Xskip-metadata-version-check`. The emulator test app turns the local writer off.

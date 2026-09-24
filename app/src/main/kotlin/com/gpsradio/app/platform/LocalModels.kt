@@ -55,7 +55,14 @@ data class ModelDownload(val fraction: Float? = null, val error: String? = null)
  * downloaded model), "off", "nano" or a model id.
  */
 class LocalModels(private val context: Context, http: OkHttpClient, private val scope: CoroutineScope) {
-    private val dir = File(context.filesDir, "models").apply { mkdirs() }
+    /**
+     * Downloaded once and kept: app-private storage survives app updates (the self-update installs over the
+     * same app), and "no backup" keeps gigabytes out of the phone's cloud backup. Only uninstalling, "clear
+     * data" or Delete in Settings removes a model.
+     */
+    private val dir = File(context.noBackupFilesDir, "models").apply { mkdirs() }
+    /** LiteRT-LM's prepared-model cache, kept next to the models so it isn't rebuilt after an update. */
+    private val engineCache = File(dir, "cache").apply { mkdirs() }
     private val http = http.newBuilder().readTimeout(60, TimeUnit.SECONDS).callTimeout(0, TimeUnit.SECONDS).build()
 
     private val _installed = MutableStateFlow(scanInstalled())
@@ -68,6 +75,11 @@ class LocalModels(private val context: Context, http: OkHttpClient, private val 
 
     private val nanoWriter = NanoWriter()
     private val liteRt = HashMap<String, LiteRtWriter>()
+
+    init {
+        // A download cut short (the app was updated or closed) continues where it stopped.
+        LocalModelCatalog.all.filter { File(dir, it.fileName + ".part").isFile && it.id !in _installed.value }.forEach { download(it.id) }
+    }
 
     private fun scanInstalled() = LocalModelCatalog.all.filter { File(dir, it.fileName).isFile }.map { it.id }.toSet()
 
@@ -103,7 +115,7 @@ class LocalModels(private val context: Context, http: OkHttpClient, private val 
     }
 
     private fun liteRtFor(spec: LocalModelSpec) = synchronized(liteRt) {
-        liteRt.getOrPut(spec.id) { LiteRtWriter(spec.label, fileOf(spec), context.cacheDir) }
+        liteRt.getOrPut(spec.id) { LiteRtWriter(spec.label, fileOf(spec), engineCache) }
     }
 
     /** Starts the download of [id] ("nano" asks AICore to fetch Gemini Nano). */
