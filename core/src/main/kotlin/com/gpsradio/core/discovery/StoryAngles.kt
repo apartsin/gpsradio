@@ -219,6 +219,7 @@ class AngleScout(
             angle = target.angle?.key ?: "request",
             title = found.first,
             subject = subject(res.text),
+            related = related(res.text),
         )
     }
 
@@ -245,6 +246,13 @@ class AngleScout(
             runCatching { json.parseToJsonElement(raw.trim()).jsonObject["subject"]?.jsonPrimitive?.contentOrNull }.getOrNull()
                 ?.trim()?.takeIf { it.isNotEmpty() && it.length <= 120 }
 
+        /** The "related" field: Wikipedia titles of people, buildings and views in the item, for the slideshow. */
+        fun related(raw: String): List<String> = runCatching {
+            (json.parseToJsonElement(raw.trim()).jsonObject["related"] as? kotlinx.serialization.json.JsonArray).orEmpty()
+                .mapNotNull { it.jsonPrimitive.contentOrNull?.trim()?.takeIf { t -> t.isNotEmpty() && t.length <= 120 } }
+                .distinct().take(4)
+        }.getOrDefault(emptyList())
+
         const val INSTRUCTIONS = """
 You research material for a location-aware radio show for visitors. Find ONE specific, verifiable and genuinely
 interesting item about "place" for the given "angle" (or for "listener_request" when given). Use web search; prefer
@@ -259,6 +267,8 @@ Rules:
 - "title": a short name for the item (e.g. "The salt road to Hallstatt").
 - "subject": the exact English Wikipedia article title of the main place, building, lake, mountain, person or thing
   the item is about, so the listener can see a photo of it (e.g. "Traunsee", "Schloss Ort"); "" if there is none.
+- "related": up to 4 exact English Wikipedia article titles of other people, buildings, views or things the facts name
+  (e.g. the architect, the emperor, the mountain across the lake), for a photo slideshow; [] if none.
 - "interest" 1–5: how much would a curious visitor enjoy hearing this? 5 = a surprising "wow, really?" story people
   retell; 4 = clearly interesting and specific; 3 = fine but ordinary; 1–2 = dry, generic or trivial. Be strict.
 - If nothing specific and verifiable exists for this angle here, return found=false with empty title and facts and
@@ -274,10 +284,14 @@ Rules:
                 putJsonObject("facts") { put("type", "string") }
                 putJsonObject("interest") { put("type", "integer") }
                 putJsonObject("subject") { put("type", "string") }
+                putJsonObject("related") {
+                    put("type", "array")
+                    putJsonObject("items") { put("type", "string") }
+                }
             }
             putJsonArray("required") {
                 add(JsonPrimitive("found")); add(JsonPrimitive("title")); add(JsonPrimitive("facts")); add(JsonPrimitive("interest"))
-                add(JsonPrimitive("subject"))
+                add(JsonPrimitive("subject")); add(JsonPrimitive("related"))
             }
         }
     }

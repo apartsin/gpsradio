@@ -125,6 +125,9 @@ class Programme(val config: Config = Config()) {
         }
         // "Tonight at eight…" loses its value if it waits for a quiet moment.
         if (s.eventsDue) return Plan.Filler(SegmentFormat.EVENTS)
+        // A photo stop belongs to a moment (a viewpoint just ahead, this light): when one is due on the road or in
+        // non-stop, it goes before the next story, or a stream of stories would drive right past it (spec A §47).
+        if (nonstop || s.mode == TravelMode.DRIVING) photoTip(s)?.let { if (sinceSpeech >= s.minGapMs || nonstop) return it }
         if (s.storyReady) return Plan.None
         if (nonstop) {
             // A photo stop is time-bound (light, being there): when one is due it goes before researched area stories,

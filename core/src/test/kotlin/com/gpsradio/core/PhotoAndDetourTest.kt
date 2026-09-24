@@ -235,3 +235,55 @@ class PhotoAndDetourTest {
         }
     }
 }
+
+/** Spec A §47: on a non-stop drive, detour stories and photo stops still happen between the regular stories. */
+class DrivingExtrasTest {
+    private val here = GeoPoint(47.80, 13.70)
+
+    private class Radio(val places: List<PlaceCandidate>) : com.gpsradio.core.discovery.PlacesProvider, com.gpsradio.core.ai.Narrator,
+        com.gpsradio.core.session.SpeechService, com.gpsradio.core.session.AudioOutput, com.gpsradio.core.session.HistoryStore {
+        val told = mutableListOf<Pair<String, String>>() // place id to "format/roadTrip"
+        override suspend fun discover(center: GeoPoint, radiusM: Int, languageBase: String) = places
+        override suspend fun narrate(req: NarrationRequest): com.gpsradio.core.ai.Segment {
+            told += req.candidate.place.id to "${req.format}/${req.roadTrip}"
+            return com.gpsradio.core.ai.Segment("Story ${req.candidate.place.name}", req.candidate.place.id, req.candidate.place.name, emptyList())
+        }
+        override suspend fun converse(req: com.gpsradio.core.ai.ConversationRequest, onSearching: suspend () -> Unit) =
+            com.gpsradio.core.ai.ConversationReply("ok")
+        override suspend fun synthesize(text: String, language: String, style: com.gpsradio.core.ai.HostStyle) = text.toByteArray()
+        override suspend fun transcribe(audio: ByteArray, fileName: String, mimeType: String, prompt: String?) = ""
+        override suspend fun play(audio: ByteArray) { kotlinx.coroutines.delay(20_000) }
+        override fun load(): String? = null
+        override fun save(serialized: String) {}
+    }
+
+    @Test
+    fun aNonStopDriveMakesADetourStoryAndAPhotoStop() = kotlinx.coroutines.test.runTest {
+        val road = (1..12).map { i -> place("r$i", Geo.destination(here, 3.0, i * 700.0), relevance = 0.6, name = "Roadside $i") }
+        val castle = place("castle", Geo.destination(Geo.destination(here, 0.0, 3_000.0), 90.0, 1_200.0), relevance = 0.95, name = "Burg Wildenstein")
+        val view = place("view", Geo.destination(Geo.destination(here, 0.0, 5_000.0), 90.0, 400.0), name = "Grünberg lookout")
+            .copy(category = "tourism: viewpoint")
+        val r = Radio(road + castle + view)
+        val s = com.gpsradio.core.session.RadioSession(
+            places = r, narrator = r, speech = r, audio = r, historyStore = r,
+            config = { com.gpsradio.core.session.SessionConfig("ru-RU", setOf(Topic.HISTORY), pacing = Pacing.NONSTOP) },
+            clock = { testScheduler.currentTime + 1_000_000 },
+            dispatcher = kotlinx.coroutines.test.StandardTestDispatcher(testScheduler),
+            teaserGapMs = Long.MAX_VALUE,
+        )
+        try {
+            s.start(); runCurrent()
+            var t = 0L
+            while (t < 6 * 60_000L) {
+                val p = Geo.destination(here, 0.0, 15.0 * t / 1000)
+                s.onLocation(com.gpsradio.core.model.LocationSample(p.lat, p.lon, 5f, 1_000_000 + t, 15f, bearingDeg = 0f)); runCurrent()
+                advanceTimeBy(2_000); runCurrent()
+                t += 2_000
+            }
+        } finally {
+            s.stop(); runCurrent()
+        }
+        assertTrue(r.told.any { it.second.endsWith("/WORTH_A_STOP") }, "a detour story: ${r.told}")
+        assertTrue(r.told.any { it.first == "view" && it.second.startsWith("PHOTO_TIP") }, "a photo stop at the lookout: ${r.told}")
+    }
+}

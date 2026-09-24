@@ -114,6 +114,8 @@ data class FocusPlace(
     val gallery: List<String> = listOfNotNull(imageUrl),
     /** Author and licence per photo URL (Wikimedia Commons), shown under the photo. */
     val credits: Map<String, String> = emptyMap(),
+    /** What a slideshow photo shows (a person, building or view the story names), per photo URL (spec A §55). */
+    val captions: Map<String, String> = emptyMap(),
 ) {
     companion object {
         fun of(p: PlaceCandidate) = FocusPlace(p.id, p.name, p.point, p.imageUrl, p.url)
@@ -761,6 +763,7 @@ class RadioSession(
                 // Always listening: the host knows which story is on, so "tell me more about that" works.
                 live?.takeIf { it.persistent && !it.inConversation }?.updateInstructions()
                 loadGallery(c.place)
+                addSlides(c.place.id, segment.pictures)
                 sting(Sting.STATION)
                 // A teaser that failed over to on-device notes is told as a plain story instead.
                 if (format == SegmentFormat.TEASER && !fallbackGate.degraded) {
@@ -1620,16 +1623,16 @@ class RadioSession(
     }
 
     private fun loadGallery(place: PlaceCandidate) {
-        galleries[place.id]?.let { g -> updateFocusGallery(place.id, g); return }
+        galleries[place.id]?.let { updateFocusGallery(place.id); return }
         scope.launch {
             val g = runCatching { places.gallery(place) }.getOrDefault(emptyList())
             if (g.isEmpty()) return@launch
             galleries[place.id] = g
-            updateFocusGallery(place.id, g)
+            updateFocusGallery(place.id)
             val c = runCatching { places.photoCredits(g) }.getOrDefault(emptyMap())
             if (c.isEmpty()) return@launch
-            photoCredits[place.id] = c
-            updateFocusGallery(place.id, g)
+            photoCredits[place.id] = photoCredits[place.id].orEmpty() + c
+            updateFocusGallery(place.id)
         }
     }
 
@@ -1652,6 +1655,7 @@ class RadioSession(
         if (mentioned != null) {
             _state.update { it.copy(focus = FocusPlace.of(mentioned)) }
             loadGallery(mentioned)
+            addSlides(mentioned.id, facet.related)
             return
         }
         // Until a photo is found: the map of where the listener is, titled with the story.
@@ -1667,16 +1671,21 @@ class RadioSession(
                 facet.area.let { lang to it },
                 facet.area.let { "en" to it },
             ).distinct()
+            addSlides(id, facet.related)
             for ((l, title) in tries) {
                 val photo = runCatching { places.articlePhoto(l, title) }.getOrNull() ?: continue
                 _state.update { s ->
-                    if (s.focus?.id != id) s
-                    else s.copy(focus = s.focus.copy(imageUrl = photo.second, url = s.focus.url ?: photo.third, gallery = listOf(photo.second)))
+                    if (s.focus?.id != id) s else s.copy(focus = s.focus.copy(imageUrl = photo.second, url = s.focus.url ?: photo.third))
                 }
-                val credit = runCatching { places.photoCredits(listOf(photo.second)) }.getOrDefault(emptyMap())
+                // A slideshow of the subject: its lead photo, then more views from its article.
+                val more = runCatching { places.articleGallery(l, photo.first) }.getOrDefault(emptyList())
+                val g = (listOf(photo.second) + more).distinctBy { it.substringAfterLast('/').substringAfter("px-") }.take(6)
+                galleries[id] = g
+                updateFocusGallery(id)
+                val credit = runCatching { places.photoCredits(g) }.getOrDefault(emptyMap())
                 if (credit.isNotEmpty()) {
-                    photoCredits[id] = credit
-                    _state.update { s -> if (s.focus?.id != id) s else s.copy(focus = s.focus.copy(credits = credit)) }
+                    photoCredits[id] = photoCredits[id].orEmpty() + credit
+                    updateFocusGallery(id)
                 }
                 return@launch
             }
@@ -1686,8 +1695,33 @@ class RadioSession(
     /** Photo credits per place id (spec A §45). */
     private val photoCredits = HashMap<String, Map<String, String>>()
 
-    private fun updateFocusGallery(id: String, gallery: List<String>) = _state.update { s ->
-        if (s.focus?.id == id) s.copy(focus = s.focus.copy(gallery = gallery, credits = photoCredits[id].orEmpty())) else s
+    /** Slideshow photos per focus id: people, buildings and views the story names (URL to caption), spec A §55. */
+    private val slides = HashMap<String, LinkedHashMap<String, String>>()
+
+    /** Adds the Wikipedia lead photos of [titles] to the slideshow of the focus [id], as they arrive. */
+    private fun addSlides(id: String, titles: List<String>) {
+        if (titles.isEmpty()) return
+        scope.launch {
+            for (title in titles) {
+                val photo = runCatching { places.articlePhoto("en", title) }.getOrNull() ?: continue
+                slides.getOrPut(id) { LinkedHashMap() }[photo.second] = photo.first
+                updateFocusGallery(id)
+                val credit = runCatching { places.photoCredits(listOf(photo.second)) }.getOrDefault(emptyMap())
+                if (credit.isNotEmpty()) {
+                    photoCredits[id] = photoCredits[id].orEmpty() + credit
+                    updateFocusGallery(id)
+                }
+            }
+        }
+    }
+
+    /** Publishes the focus's photos: its own gallery, then the story's slides, with credits and captions. */
+    private fun updateFocusGallery(id: String) = _state.update { s ->
+        if (s.focus?.id != id) return@update s
+        val own = galleries[id] ?: listOfNotNull(s.focus.imageUrl)
+        val extra = slides[id].orEmpty()
+        val gallery = (own + extra.keys).distinct()
+        s.copy(focus = s.focus.copy(gallery = gallery, credits = photoCredits[id].orEmpty(), captions = extra.toMap()))
     }
 
     private fun persistFavorites() {
@@ -2108,6 +2142,7 @@ class RadioSession(
                     lastStory = segment
                     _state.update { it.copy(radioState = RadioState.NARRATING, nowPlaying = segment, focus = FocusPlace.of(c.place)) }
                     loadGallery(c.place)
+                    addSlides(c.place.id, segment.pictures)
                     sting(Sting.STATION)
                     audio.play(bytes)
                     tourStopInFlight = null
@@ -2301,7 +2336,7 @@ class RadioSession(
                 _state.update { s ->
                     s.copy(radioState = RadioState.NARRATING, nowPlaying = segment, focus = c?.let { FocusPlace.of(it.place) } ?: s.focus)
                 }
-                c?.let { loadGallery(it.place) }
+                c?.let { loadGallery(it.place); addSlides(it.place.id, segment.pictures) }
                 // An area story shows what it is about, never the previous place's photo (spec A §51).
                 if (c == null) plan.areaFacet?.let { facet -> focusOnSubject(segment, facet, loc) }
                 // Non-stop: prepare the next story while this one plays (a place if there is one, else the next area story).

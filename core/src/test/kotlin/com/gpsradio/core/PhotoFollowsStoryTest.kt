@@ -52,6 +52,16 @@ class PhotoFollowsStoryTest {
     }
 
     @Test
+    fun storiesNameThePeopleAndBuildingsToShow() {
+        assertEquals(listOf("Franz Joseph I of Austria", "Kaiservilla"),
+            com.gpsradio.core.ai.RadioAgent.parsePictures("""{"text":"t","basis":"documented","pictures":[" Franz Joseph I of Austria ","Kaiservilla",""]}"""))
+        assertTrue(com.gpsradio.core.ai.RadioAgent.parsePictures("plain text").isEmpty())
+        assertTrue("\"pictures\"" in com.gpsradio.core.ai.RadioAgent.storySchema.toString())
+        assertEquals(listOf("Traunstein"), AngleScout.related("""{"related":["Traunstein"]}"""))
+        assertTrue("\"related\"" in AngleScout.schema.toString())
+    }
+
+    @Test
     fun theResearcherNamesTheSubjectForItsPhoto() {
         assertTrue("\"subject\"" in AngleScout.schema.toString() && "Wikipedia article title" in AngleScout.INSTRUCTIONS)
         assertEquals("Traunsee", AngleScout.subject("""{"found":true,"title":"t","facts":"f","interest":5,"subject":" Traunsee "}"""))
@@ -63,8 +73,14 @@ class PhotoFollowsStoryTest {
         override suspend fun discover(center: GeoPoint, radiusM: Int, languageBase: String) = places
         override suspend fun articlePhoto(lang: String, title: String): Triple<String, String, String>? {
             photoAsked += "$lang:$title"
-            return if (title == "Traunsee") Triple("Traunsee", "https://upload.wikimedia.org/x/Traunsee.jpg", "https://en.wikipedia.org/wiki/Traunsee") else null
+            return when (title) {
+                "Traunsee" -> Triple("Traunsee", "https://upload.wikimedia.org/x/Traunsee.jpg", "https://en.wikipedia.org/wiki/Traunsee")
+                "Franz Joseph I of Austria" -> Triple(title, "https://upload.wikimedia.org/x/FJ.jpg", "https://en.wikipedia.org/wiki/Franz_Joseph_I_of_Austria")
+                else -> null
+            }
         }
+        override suspend fun articleGallery(lang: String, title: String) =
+            if (title == "Traunsee") listOf("https://upload.wikimedia.org/x/Traunsee_view.jpg", "https://upload.wikimedia.org/x/Traunstein.jpg") else emptyList()
         override suspend fun narrate(req: NarrationRequest) =
             Segment("Story ${req.candidate.place.name}", req.candidate.place.id, req.candidate.place.name, emptyList(), imageUrl = req.candidate.place.imageUrl)
         override suspend fun narrateFiller(req: FillerRequest) = Segment("Area story about the deep lake", null, "Area", emptyList())
@@ -75,7 +91,10 @@ class PhotoFollowsStoryTest {
         override fun load(): String? = null
         override fun save(serialized: String) {}
         override suspend fun research(target: AngleTarget, area: AreaLabel?, point: GeoPoint?, alreadyTold: List<String>) =
-            AreaFacet(target.scopeName, AreaFacetKind.OVERVIEW, "Facts about the deep lake. ".repeat(10), angle = target.angle?.key, title = "The deep lake", subject = "Traunsee")
+            AreaFacet(
+                target.scopeName, AreaFacetKind.OVERVIEW, "Facts about the deep lake. ".repeat(10), angle = target.angle?.key, title = "The deep lake",
+                subject = "Traunsee", related = listOf("Franz Joseph I of Austria"),
+            )
     }
 
     @Test
@@ -101,6 +120,9 @@ class PhotoFollowsStoryTest {
             val focus = s.state.value.focus!!
             assertEquals("https://upload.wikimedia.org/x/Traunsee.jpg", focus.imageUrl, "the area story shows its subject: ${r.photoAsked}")
             assertEquals("The deep lake", focus.name)
+            // A slideshow: more views of the lake, and the emperor the story names, captioned.
+            assertTrue(focus.gallery.containsAll(listOf("https://upload.wikimedia.org/x/Traunsee_view.jpg", "https://upload.wikimedia.org/x/FJ.jpg")), focus.gallery.toString())
+            assertEquals("Franz Joseph I of Austria", focus.captions["https://upload.wikimedia.org/x/FJ.jpg"])
         } finally {
             s.stop(); runCurrent()
         }

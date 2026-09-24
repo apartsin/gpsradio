@@ -27,6 +27,9 @@ interface PlacesProvider {
 
     /** The photo of a Wikipedia article (spec A §51): (article title, image URL, article URL); null if none. */
     suspend fun articlePhoto(lang: String, title: String): Triple<String, String, String>? = null
+
+    /** More photos from a Wikipedia article (views, buildings, details), best first (spec A §55). */
+    suspend fun articleGallery(lang: String, title: String): List<String> = emptyList()
 }
 
 /**
@@ -151,6 +154,9 @@ class DiscoveryService(
         wikipedia.pagesByTitle(lang, listOf(title)).firstOrNull { it.thumbnailUrl != null }
             ?.let { Triple(it.title, it.thumbnailUrl!!, wikipedia.articleUrl(lang, it.title)) }
     }.getOrNull()
+
+    override suspend fun articleGallery(lang: String, title: String): List<String> =
+        runCatching { wikipedia.articleImages(lang, title, limit = 6) }.getOrDefault(emptyList())
 
     override suspend fun photoCredits(urls: List<String>): Map<String, String> =
         runCatching { wikipedia.photoCredits(urls) }.getOrDefault(emptyMap())

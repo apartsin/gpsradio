@@ -864,3 +864,14 @@ Now:
 - **Default.** All topics are on by default, including Jewish & Israel. The listener switches off what they don't want. This supersedes the opt-in default of §44. The living-person rule of §44 stays: faith and ethnicity only for people who have died.
 - **Migration.** Installs still on an earlier untouched default (either the 5-topic or the 4-topic set) move to all topics once; a set chosen by the listener is kept.
 - **Tiers.** With every topic on, interests express no preference, so they no longer lift angles a tier (§38) and the headliners still come first. A real selection still lifts matching angles.
+
+## 55. A Photo Slideshow for Every Story
+
+The photo panel is a slideshow that follows the story being told.
+
+- **What it shows.**
+  - Place stories show the place's own photos (its Wikipedia article's images).
+  - Area stories show the subject's lead photo and more views from its article (§51).
+  - Then come the people, buildings and views the story names: the story model returns `pictures` (up to 3 English Wikipedia titles), and research returns `related` (up to 4). Their Wikipedia lead photos are added as they arrive, each captioned with what it shows ("Franz Joseph I of Austria") and credited (§45).
+- **How it plays.** While a story is on air, the photo advances every 6 s. Swiping by hand is respected. When the radio is quiet, the slideshow holds.
+- **Photo stops on the road.** A photo tip that is due (a viewpoint just ahead, at most one every 15 min) now goes before the next story while driving or in non-stop. Before, a steady stream of stories drove right past the lookout. Detour stories (worth a stop, §47) are unchanged. `DrivingExtrasTest` drives past both.

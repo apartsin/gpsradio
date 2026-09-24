@@ -46,6 +46,8 @@ data class AreaFacet(
     val title: String? = null,
     /** English Wikipedia title of the main place or thing it is about, for its photo (spec A §51); null if none. */
     val subject: String? = null,
+    /** English Wikipedia titles of people, buildings and views it names, for the photo slideshow (spec A §55). */
+    val related: List<String> = emptyList(),
 ) {
     val id: String get() = if (angle != null) "$area#$angle#${title.orEmpty()}" else "$area#${kind.key}"
 

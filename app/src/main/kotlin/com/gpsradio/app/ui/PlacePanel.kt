@@ -78,12 +78,38 @@ fun PlacePanel(state: RadioUiState, modifier: Modifier = Modifier) {
                 }
             } else {
                 val pager = rememberPagerState(pageCount = { photos.size })
+                // A slideshow while a story plays (spec A §55): the next photo every few seconds, unless the
+                // listener is swiping through them.
+                val onAir = state.radioState == com.gpsradio.core.model.RadioState.NARRATING
+                androidx.compose.runtime.LaunchedEffect(photos.size, onAir) {
+                    while (onAir && photos.size > 1) {
+                        kotlinx.coroutines.delay(SLIDE_MS)
+                        if (!pager.isScrollInProgress) pager.animateScrollToPage((pager.currentPage + 1) % photos.size)
+                    }
+                }
                 HorizontalPager(state = pager, modifier = Modifier.fillMaxSize()) { page ->
                     AsyncImage(
                         model = photos[page],
                         contentDescription = stringResource(R.string.photo_of, page + 1, photos.size, focus?.name.orEmpty()),
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize(),
+                    )
+                }
+                // What this slide shows (a person, building or view named in the story).
+                photos.getOrNull(pager.currentPage)?.let { focus?.captions?.get(it) }?.let { caption ->
+                    Text(
+                        caption,
+                        color = Color.White,
+                        style = MaterialTheme.typography.labelLarge,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(start = 8.dp, bottom = 24.dp)
+                            .fillMaxWidth(0.6f)
+                            .clip(RoundedCornerShape(50))
+                            .background(Color.Black.copy(alpha = 0.5f))
+                            .padding(horizontal = 10.dp, vertical = 4.dp),
                     )
                 }
                 // Author and licence of the photo on screen (spec A §45).
@@ -230,3 +256,6 @@ private fun render(map: MapView, state: RadioUiState, youLabel: String) {
     }
     map.invalidate()
 }
+
+/** How long each photo stays up in the story slideshow. */
+private const val SLIDE_MS = 6_000L

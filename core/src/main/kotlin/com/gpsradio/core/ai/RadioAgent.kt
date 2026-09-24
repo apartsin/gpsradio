@@ -143,6 +143,8 @@ data class Segment(
     val basis: StoryBasis? = null,
     /** Language of [text] when it differs from the session language (on-device notes read a source extract). */
     val language: String? = null,
+    /** English Wikipedia titles of people, buildings and views named in [text], for the photo slideshow (spec A §55). */
+    val pictures: List<String> = emptyList(),
 )
 
 data class NarrationRequest(
@@ -317,7 +319,10 @@ class RadioAgent(
         val (text, basis) = parseNarration(res.text)
         val sources = listOfNotNull(c.place.url?.let { SourceRef(c.place.name, it) })
         val (spoken, answer) = if (req.format == SegmentFormat.QUIZ) splitQuiz(text) else text to null
-        return Segment(cleanForSpeech(spoken), c.place.id, c.place.name, sources, c.place.imageUrl, c.place.point, answer?.let(::cleanForSpeech), basis = basis)
+        return Segment(
+            cleanForSpeech(spoken), c.place.id, c.place.name, sources, c.place.imageUrl, c.place.point, answer?.let(::cleanForSpeech),
+            basis = basis, pictures = parsePictures(res.text),
+        )
     }
 
     override suspend fun narrateFiller(req: FillerRequest): Segment {
@@ -705,7 +710,9 @@ class RadioAgent(
             - The spoken text is plain speech only: no lists, markdown, URLs, emojis or stage directions.
             - When a JSON format is requested, put the spoken segment in "text" and set "basis" to how well-founded
               its claims are: documented (all from the facts), disputed (includes contested claims), legend (mostly
-              folklore or legend), mixed (documented facts plus some legend or disputed claims).
+              folklore or legend), mixed (documented facts plus some legend or disputed claims). Put in "pictures" up
+              to 3 exact English Wikipedia article titles of the people, buildings or views your text names (not the
+              place itself), so the listener sees them in a photo slideshow; [] if none.
         """.trimIndent()
 
         /** Structured narration: the spoken text plus the basis of its claims. */
@@ -718,9 +725,20 @@ class RadioAgent(
                     put("type", "string")
                     putJsonArray("enum") { StoryBasis.entries.forEach { add(JsonPrimitive(it.key)) } }
                 }
+                putJsonObject("pictures") {
+                    put("type", "array")
+                    putJsonObject("items") { put("type", "string") }
+                }
             }
-            putJsonArray("required") { add(JsonPrimitive("text")); add(JsonPrimitive("basis")) }
+            putJsonArray("required") { add(JsonPrimitive("text")); add(JsonPrimitive("basis")); add(JsonPrimitive("pictures")) }
         }
+
+        /** The "pictures" titles of a structured story (at most 3, trimmed); empty for plain text. */
+        fun parsePictures(raw: String): List<String> = runCatching {
+            (json.parseToJsonElement(raw.trim()).jsonObject["pictures"] as? kotlinx.serialization.json.JsonArray).orEmpty()
+                .mapNotNull { (it as? JsonPrimitive)?.contentOrNull?.trim()?.takeIf { t -> t.isNotEmpty() && t.length <= 120 } }
+                .distinct().take(3)
+        }.getOrDefault(emptyList())
 
         /** Parses {text, basis} JSON, or treats the whole reply as plain spoken text (basis unknown). */
         fun parseNarration(raw: String): Pair<String, StoryBasis?> {
