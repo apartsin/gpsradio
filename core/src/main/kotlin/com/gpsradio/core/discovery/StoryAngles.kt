@@ -215,6 +215,7 @@ class AngleScout(
             url = url,
             angle = target.angle?.key ?: "request",
             title = found.first,
+            subject = subject(res.text),
         )
     }
 
@@ -236,6 +237,11 @@ class AngleScout(
             return title to facts.take(AreaFacts.MAX_FACTS_CHARS)
         }
 
+        /** The "subject" field: the Wikipedia title of what the item is about (for its photo), or null. */
+        fun subject(raw: String): String? =
+            runCatching { json.parseToJsonElement(raw.trim()).jsonObject["subject"]?.jsonPrimitive?.contentOrNull }.getOrNull()
+                ?.trim()?.takeIf { it.isNotEmpty() && it.length <= 120 }
+
         const val INSTRUCTIONS = """
 You research material for a location-aware radio show for visitors. Find ONE specific, verifiable and genuinely
 interesting item about "place" for the given "angle" (or for "listener_request" when given). Use web search; prefer
@@ -248,6 +254,8 @@ Rules:
   matters, and one concrete detail a visitor could see or notice if there is one. No storytelling, no opinions.
   Mark legends and disputed claims as such. Never invent or guess.
 - "title": a short name for the item (e.g. "The salt road to Hallstatt").
+- "subject": the exact English Wikipedia article title of the main place, building, lake, mountain, person or thing
+  the item is about, so the listener can see a photo of it (e.g. "Traunsee", "Schloss Ort"); "" if there is none.
 - "interest" 1–5: how much would a curious visitor enjoy hearing this? 5 = a surprising "wow, really?" story people
   retell; 4 = clearly interesting and specific; 3 = fine but ordinary; 1–2 = dry, generic or trivial. Be strict.
 - If nothing specific and verifiable exists for this angle here, return found=false with empty title and facts and
@@ -262,9 +270,11 @@ Rules:
                 putJsonObject("title") { put("type", "string") }
                 putJsonObject("facts") { put("type", "string") }
                 putJsonObject("interest") { put("type", "integer") }
+                putJsonObject("subject") { put("type", "string") }
             }
             putJsonArray("required") {
                 add(JsonPrimitive("found")); add(JsonPrimitive("title")); add(JsonPrimitive("facts")); add(JsonPrimitive("interest"))
+                add(JsonPrimitive("subject"))
             }
         }
     }

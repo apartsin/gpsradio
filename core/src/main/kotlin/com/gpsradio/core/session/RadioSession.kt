@@ -84,6 +84,7 @@ import com.gpsradio.core.discovery.OnThisDayClient
 import com.gpsradio.core.discovery.OnThisDaySource
 import com.gpsradio.core.editorial.Pacing
 import com.gpsradio.core.lang.Notices
+import com.gpsradio.core.editorial.PlaceMentions
 import com.gpsradio.core.lang.SourceLines
 import com.gpsradio.core.lang.Notice
 import kotlinx.coroutines.CompletableDeferred
@@ -1126,7 +1127,8 @@ class RadioSession(
             activeId = place.id
             mentionedIds += place.id
             _state.update { it.copy(focus = FocusPlace.of(place)) }
-        }
+            loadGallery(place)
+        } ?: focusOnMention(reply.reply)
         reply.tripContext?.let { trip ->
             tripContext = trip
             _state.update { it.copy(tripContext = trip) }
@@ -1314,6 +1316,8 @@ class RadioSession(
         }
 
         override fun onAssistantSaid(text: String) {
+            // The photo follows the place the host is talking about (spec A §51).
+            focusOnMention(text)
             addTranscript(TranscriptEntry(Speaker.RADIO, text, clock(), activeId))
             history += ConversationTurn(false, text)
             lastSpeechEndMs = clock()
@@ -1558,6 +1562,56 @@ class RadioSession(
             if (c.isEmpty()) return@launch
             photoCredits[place.id] = c
             updateFocusGallery(place.id, g)
+        }
+    }
+
+    /** Shows the known place [text] talks about, if it names one (spec A §51). */
+    private fun focusOnMention(text: String) {
+        val place = PlaceMentions.find(text, ranked.map { it.place } + candidates.values.filter { c -> ranked.none { it.place.id == c.id } })
+            ?: return
+        if (_state.value.focus?.id == place.id) return
+        mentionedIds += place.id
+        _state.update { it.copy(focus = FocusPlace.of(place)) }
+        loadGallery(place)
+    }
+
+    /**
+     * The photo for an area story (spec A §51): a nearby place it names, else the Wikipedia photo of its subject,
+     * else of the town; else the map (never the previous story's photo). Resolved while the story plays.
+     */
+    private fun focusOnSubject(segment: Segment, facet: com.gpsradio.core.discovery.AreaFacet, loc: LocationContext) {
+        val mentioned = PlaceMentions.find(listOfNotNull(facet.subject, facet.title, segment.text).joinToString(" "), candidates.values.toList())
+        if (mentioned != null) {
+            _state.update { it.copy(focus = FocusPlace.of(mentioned)) }
+            loadGallery(mentioned)
+            return
+        }
+        // Until a photo is found: the map of where the listener is, titled with the story.
+        val id = "area:${facet.id}"
+        _state.update { it.copy(focus = FocusPlace(id, facet.title ?: facet.area, loc.point, null, facet.url)) }
+        scope.launch {
+            val lang = langBase(sessionLanguage)
+            val wikiTitle = facet.url?.takeIf { "wikipedia.org/wiki/" in it }?.substringAfter("/wiki/")?.replace('_', ' ')
+                ?.let { runCatching { java.net.URLDecoder.decode(it, "UTF-8") }.getOrDefault(it) }
+            val tries = listOfNotNull(
+                facet.subject?.let { "en" to it },
+                wikiTitle?.let { (facet.url!!.substringAfter("//").substringBefore('.')) to it },
+                facet.area.let { lang to it },
+                facet.area.let { "en" to it },
+            ).distinct()
+            for ((l, title) in tries) {
+                val photo = runCatching { places.articlePhoto(l, title) }.getOrNull() ?: continue
+                _state.update { s ->
+                    if (s.focus?.id != id) s
+                    else s.copy(focus = s.focus.copy(imageUrl = photo.second, url = s.focus.url ?: photo.third, gallery = listOf(photo.second)))
+                }
+                val credit = runCatching { places.photoCredits(listOf(photo.second)) }.getOrDefault(emptyMap())
+                if (credit.isNotEmpty()) {
+                    photoCredits[id] = credit
+                    _state.update { s -> if (s.focus?.id != id) s else s.copy(focus = s.focus.copy(credits = credit)) }
+                }
+                return@launch
+            }
         }
     }
 
@@ -2168,6 +2222,8 @@ class RadioSession(
                     s.copy(radioState = RadioState.NARRATING, nowPlaying = segment, focus = c?.let { FocusPlace.of(it.place) } ?: s.focus)
                 }
                 c?.let { loadGallery(it.place) }
+                // An area story shows what it is about, never the previous place's photo (spec A §51).
+                if (c == null) plan.areaFacet?.let { facet -> focusOnSubject(segment, facet, loc) }
                 // Non-stop: prepare the next story while this one plays (a place if there is one, else the next area story).
                 if (cfg.pacing == Pacing.NONSTOP) {
                     prefetchNext(excludeId = c?.place?.id ?: "", leadMs = spokenMs(segment.text))

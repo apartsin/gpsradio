@@ -808,3 +808,19 @@ Now:
 - **One voice at a time.** The steered story waits, up to 8 s, until the assistant's own words have finished playing.
 - **Cancelled on stop.** Pause, stop, skip and "back to the radio" cancel a pending steer, so it can't barge in later.
 - **Test.** `LiveVoiceTest.aSlowSteerHoldsTheRadioAndNeverTalksOverTheHost` reproduces the old race.
+
+## 51. The Photo Shows What the Host Talks About
+
+- **Place stories** show the place, as before.
+- **Area and researched stories** (most of non-stop) used to keep the previous place's photo. Now:
+  - `AngleScout` returns a `subject`: the English Wikipedia title of the main place or thing the item is about.
+  - The photo panel shows, in order of preference:
+    1. a nearby known place the story names;
+    2. otherwise the Wikipedia photo of the subject;
+    3. otherwise the photo of the story's own Wikipedia article or of the town;
+    4. otherwise the map.
+  - It is never the previous story's photo, and the panel is titled with the story.
+- **Answers** (live voice and typed or spoken questions) switch the photo to the known place they talk about.
+  - Names are matched allowing for case endings, so «в Гмундене» matches «Гмунден».
+  - Names shorter than 5 letters in total are not matched.
+- **Credits.** The photo credit (§45) is fetched for these photos too.

@@ -24,6 +24,9 @@ interface PlacesProvider {
 
     /** Author and licence per photo URL, shown under the photo (spec A §45); none by default. */
     suspend fun photoCredits(urls: List<String>): Map<String, String> = emptyMap()
+
+    /** The photo of a Wikipedia article (spec A §51): (article title, image URL, article URL); null if none. */
+    suspend fun articlePhoto(lang: String, title: String): Triple<String, String, String>? = null
 }
 
 /**
@@ -143,6 +146,11 @@ class DiscoveryService(
         val more = runCatching { wikipedia.articleImages(lang, place.name) }.getOrDefault(emptyList())
         return (listOfNotNull(place.imageUrl) + more).distinctBy { it.substringAfterLast('/').substringAfter("px-") }.take(8)
     }
+
+    override suspend fun articlePhoto(lang: String, title: String): Triple<String, String, String>? = runCatching {
+        wikipedia.pagesByTitle(lang, listOf(title)).firstOrNull { it.thumbnailUrl != null }
+            ?.let { Triple(it.title, it.thumbnailUrl!!, wikipedia.articleUrl(lang, it.title)) }
+    }.getOrNull()
 
     override suspend fun photoCredits(urls: List<String>): Map<String, String> =
         runCatching { wikipedia.photoCredits(urls) }.getOrDefault(emptyMap())
