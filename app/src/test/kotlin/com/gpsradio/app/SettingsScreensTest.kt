@@ -72,6 +72,26 @@ class SettingsScreensTest {
     }
 
     @Test
+    fun voiceIsPickedFromADropdown() {
+        var saved: AppSettings? = null
+        compose.setContent {
+            GpsRadioTheme {
+                SettingsScreen(
+                    AppSettings(apiKey = "sk-x"), onSave = { saved = it }, onClearHistory = {}, onBack = {},
+                    memory = emptyList(), onForgetMemory = {}, onForgetAllMemory = {},
+                )
+            }
+        }
+        compose.onNodeWithTag("modelVoice").performScrollTo().performClick()
+        compose.onNodeWithText("cedar").performClick()
+        compose.onNodeWithText("Save").performScrollTo().performClick()
+        assertEquals("cedar", saved!!.models.ttsVoice)
+        // The other models keep their defaults.
+        assertEquals(com.gpsradio.core.ai.ModelConfig().narrationModel, saved!!.models.narrationModel)
+        assertEquals(com.gpsradio.core.ai.ModelConfig().researchModel, saved!!.models.researchModel)
+    }
+
+    @Test
     fun settingsShowsTheAppVersion() {
         compose.setContent {
             GpsRadioTheme {
