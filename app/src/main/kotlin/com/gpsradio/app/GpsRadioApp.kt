@@ -71,6 +71,8 @@ open class GpsRadioApp : Application(), coil.ImageLoaderFactory {
         private set
     /** Estimated OpenAI spend (spec A §41), kept across launches for the daily limit. */
     lateinit var meter: com.gpsradio.core.cost.CostMeter
+    /** On-device story writers: Gemini Nano or a downloaded open model (spec A §69). */
+    lateinit var localModels: com.gpsradio.app.platform.LocalModels
         private set
 
     /** Network state now (the mic falls back to the phone's own speech recognition when offline). */
@@ -137,6 +139,9 @@ open class GpsRadioApp : Application(), coil.ImageLoaderFactory {
     protected open fun areaLabeler(): AreaLabeler? = GeocoderAreaLabeler(this)
 
     /** On-device voice for the keyless preview and when OpenAI is unreachable. */
+    /** The on-device model that retells stories when OpenAI can't; null = plain notes only. */
+    protected open fun localWriter(): com.gpsradio.core.ai.LocalWriter? = localModels.writer { settings.current.localModel }
+
     protected open fun fallbackSpeech(): SpeechService? = AndroidTtsSpeech(this) { settings.current.offlineTtsEngine }
 
     /** Network state for offline-aware scheduling; tests may force online/offline. */
@@ -192,6 +197,9 @@ open class GpsRadioApp : Application(), coil.ImageLoaderFactory {
             .readTimeout(90, TimeUnit.SECONDS)
             .callTimeout(120, TimeUnit.SECONDS)
             .build()
+        localModels = com.gpsradio.app.platform.LocalModels(
+            this, http, CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default),
+        )
         val openAi = OpenAiClient(http, apiKey = { settings.current.effectiveApiKey }, baseUrl = ep.openAiBaseUrl, meter = meter)
         val models = { settings.current.models }
         val online = isOnline().also { onlineNow = it }
@@ -249,7 +257,7 @@ open class GpsRadioApp : Application(), coil.ImageLoaderFactory {
             liveFactory = liveFactory(http, ep.openAiBaseUrl),
             onPersistLanguage = { tag -> settings.update { it.copy(languageAuto = false, preferredLanguage = tag) } },
             onNavigate = ::openInMaps,
-            fallbackNarrator = NarrationFallback(),
+            fallbackNarrator = localWriter()?.let { com.gpsradio.core.ai.LocalNarrator(it) } ?: NarrationFallback(),
             fallbackSpeech = fallbackSpeech(),
             isOnline = online,
             stings = stingPlayer()?.let { inner ->

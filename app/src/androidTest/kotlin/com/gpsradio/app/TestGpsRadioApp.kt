@@ -31,6 +31,9 @@ class TestGpsRadioApp : GpsRadioApp() {
     /** The tests match English text: keep the emulator's locale. */
     override fun uiLanguage(): String? = null
 
+    // No on-device model on the test emulator: offline stories are the plain notes.
+    override fun localWriter(): com.gpsradio.core.ai.LocalWriter? = null
+
     /** No event search against the fake OpenAI server. */
     override fun eventScout(openAi: com.gpsradio.core.ai.OpenAiClient, models: () -> com.gpsradio.core.ai.ModelConfig): com.gpsradio.core.events.EventScout? = null
 

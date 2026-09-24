@@ -17,46 +17,6 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # Temporary: prints the public API of Google's on-device AI libraries (Gemini Nano via ML Kit GenAI), which the
-  # dev sandbox can't download, so the app code is written against the real signatures (spec A §69).
-  inspect-ondevice-ai:
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    steps:
-      - name: Dump on-device AI APIs (ML Kit GenAI Prompt, LiteRT-LM)
-        run: |
-          set +e
-          dump() { # group artifact package-path
-            g=$1; art=$2; pkg=$3; gp=$(echo $g | tr . /)
-            meta=$(curl -sfL "https://dl.google.com/dl/android/maven2/$gp/$art/maven-metadata.xml")
-            [ -z "$meta" ] && meta=$(curl -sfL "https://repo1.maven.org/maven2/$gp/$art/maven-metadata.xml")
-            echo "== $g:$art versions: $(echo "$meta" | grep -o '<version>[^<]*' | sed 's/<version>//' | tr '\n' ' ')"
-            ver=$(echo "$meta" | grep -o '<version>[^<]*' | tail -1 | sed 's/<version>//')
-            for base in https://dl.google.com/dl/android/maven2 https://repo1.maven.org/maven2; do
-              curl -sfL -o $art.aar "$base/$gp/$art/$ver/$art-$ver.aar" && break
-            done
-            mkdir -p x-$art && (cd x-$art && unzip -oq ../$art.aar classes.jar && unzip -oq classes.jar)
-            echo "== $art $ver public API ($pkg)"
-            (cd x-$art && find $pkg -name '*.class' ! -name '*$*' | sed 's#\.class##; s#/#.#g' | sort) > classes.txt
-            javap -public -cp x-$art $(cat classes.txt) 2>&1 | grep -v '^Compiled' | cat
-          }
-          dump com.google.ai.edge.litertlm litertlm-android com/google/ai/edge/litertlm >/dev/null
-          echo "== LiteRT-LM inner classes"
-          (cd x-litertlm-android && find com/google/ai/edge/litertlm -name 'Backend$*.class' -o -name 'Content$*.class' -o -name 'Contents$*.class' | sed 's#\.class##; s#/#.#g') > inner.txt
-          javap -public -cp x-litertlm-android $(cat inner.txt) 2>&1 | grep -v 'equals\|hashCode\|toString\|component\|copy'
-          unzip -l litertlm-android.aar | grep -i '\.so\|AndroidManifest'
-          unzip -p litertlm-android.aar AndroidManifest.xml
-          echo "== Hugging Face LiteRT-LM models"
-          curl -sS "https://huggingface.co/api/models?author=litert-community&limit=200" | python3 -c "import json,sys;[print(m['id']) for m in json.load(sys.stdin)]" | grep -i 'gemma\|qwen\|phi\|llama\|smol\|deepseek'
-          for r in $(curl -sS "https://huggingface.co/api/models?author=litert-community&limit=200" | python3 -c "import json,sys;[print(m['id']) for m in json.load(sys.stdin)]" | grep -i 'gemma-4\|gemma-3n\|qwen3\|qwen2.5-1.5b\|qwen2.5-3b\|gemma3-1b'); do
-            curl -sS "https://huggingface.co/api/models/$r?blobs=true" | python3 -c "
-          import json,sys
-          d=json.load(sys.stdin)
-          print(d['id'],'gated=',d.get('gated'),'license=',(d.get('cardData') or {}).get('license'))
-          for f in d.get('siblings',[]):
-              if f['rfilename'].endswith('.litertlm'): print('   ',f['rfilename'],round((f.get('size') or 0)/1e6),'MB')"
-          done
-
   build:
     runs-on: ubuntu-latest
     steps:

@@ -803,3 +803,13 @@ These fixes follow the report that the update flow still didn't work:
 - **Visible.** Download progress, "Installing…", "Allow installs" and failures now show on the main screen, above the place name. Before, they only showed inside the menu, so tapping Update looked like nothing happened.
 - **Resumable.** Without the "install unknown apps" permission, Update opens that page, and the update continues by itself when the listener returns (`resumeAfterPermission` on resume). Before, it stopped there.
 - **Failures are shown**, with **Retry** and **Install manually**. The manual option hands the downloaded APK (kept after a failure) to Android's own installer screen through a FileProvider, the same screen a browser download opens.
+
+## On-Device Story Writer (LocalWriter; spec A §69)
+
+- `core.ai.LocalWriter` (`available()`, `write(prompt)`) is the port for a text model on the phone. `core.ai.LocalNarrator(writer, notes = NarrationFallback(), timeoutMs = 45 s)` is the session's `fallbackNarrator`. It prompts with the place name and its source text (stripped of asides, up to 1,500 characters), the English name of the session language, and a "facts only, 3 to 4 spoken sentences" instruction with `/no_think`. The reply is cleaned (`<think>` blocks, markdown, bullets and quotes removed; under 40 characters rejected; cut to 900 at a sentence end). Any failure or timeout falls back to `NarrationFallback`. The segment is in the listener's language.
+- `app.platform.LocalModels`:
+  - `writer { settings.localModel }` resolves per call: "auto" means Nano if `checkStatus()==AVAILABLE`, else the first installed catalogue model; also "nano", a model id, or "off".
+  - `NanoWriter` wraps ML Kit `Generation.getClient()`: `checkStatus`, `download()` and `generateContent(prompt)`.
+  - `LiteRtWriter` loads `Engine(EngineConfig(modelPath, Backend.CPU(), cacheDir))` on first use, under a mutex, and keeps it. Each story is a fresh `Conversation` taking `sendMessage(Contents.of(prompt))`.
+  - Downloads write to `filesDir/models/<file>.part` with HTTP Range resume (5 attempts), are renamed when complete, and report `StateFlow` progress to Settings (`LocalAiUi`).
+- Dependencies: `com.google.mlkit:genai-prompt:1.0.0-beta4` and `com.google.ai.edge.litertlm:litertlm-android:0.17.1` (arm64 and x86_64 native code, about 22 MB). They are built with Kotlin 2.3, so the app compiles with `-Xskip-metadata-version-check`. The emulator test app turns the local writer off.

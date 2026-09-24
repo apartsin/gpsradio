@@ -106,6 +106,8 @@ fun SettingsScreen(
     offlineVoice: OfflineVoiceInfo = OfflineVoiceInfo(),
     /** Opens the engine's "install voice data" screen. */
     onInstallVoiceData: () -> Unit = {},
+    /** On-device story writers: Gemini Nano and the downloadable open models. */
+    localAi: LocalAiUi = LocalAiUi(),
 ) {
     Scaffold(
         topBar = {
@@ -127,6 +129,7 @@ fun SettingsScreen(
             budget = true,
             offlineVoice = offlineVoice,
             onInstallVoiceData = onInstallVoiceData,
+            localAi = localAi,
             extra = {
                 CostSection(cost, settings.dailyBudgetUsd)
                 MemorySection(memory, onForgetMemory, onForgetAllMemory)
@@ -156,10 +159,12 @@ private fun SettingsForm(
     onSecondary: (AppSettings) -> Unit = {},
     offlineVoice: OfflineVoiceInfo = OfflineVoiceInfo(),
     onInstallVoiceData: () -> Unit = {},
+    localAi: LocalAiUi = LocalAiUi(),
 ) {
     var apiKey by remember { mutableStateOf(initial.apiKey) }
     var asrOnDevice by remember { mutableStateOf(initial.asrOnDevice) }
     var offlineTtsEngine by remember { mutableStateOf(initial.offlineTtsEngine) }
+    var localModel by remember { mutableStateOf(initial.localModel) }
     var language by remember { mutableStateOf(if (initial.languageAuto) AUTO else initial.preferredLanguage) }
     var interests by remember { mutableStateOf(initial.interests) }
     var narrationModel by remember { mutableStateOf(initial.models.narrationModel) }
@@ -335,6 +340,7 @@ private fun SettingsForm(
                 languageTag = initial.resolvedLanguage(),
                 onInstallVoiceData = onInstallVoiceData,
             )
+            LocalModelPicker(localModel, { localModel = it }, localAi)
             extra()
         }
 
@@ -351,6 +357,7 @@ private fun SettingsForm(
             pacing = pacing,
             asrOnDevice = asrOnDevice,
             offlineTtsEngine = offlineTtsEngine,
+            localModel = localModel,
             dailyBudgetUsd = if (budget) budgetText.replace(',', '.').toDoubleOrNull()?.coerceAtLeast(0.0) ?: 0.0 else initial.dailyBudgetUsd,
             // Adding a key ends the keyless preview.
             previewMode = initial.previewMode && apiKey.isBlank(),

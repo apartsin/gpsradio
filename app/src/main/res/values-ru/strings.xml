@@ -295,4 +295,21 @@
     <string name="offline_voice_missing">Голос без интернета для языка «%1$s» пока не установлен.</string>
     <string name="install_voice_data">Установить голосовые данные</string>
     <string name="phone_asr_unavailable">Распознавание речи на этом телефоне недоступно.</string>
+    <string name="local_model_label">Истории без OpenAI</string>
+    <string name="local_model_hint">Модель на телефоне пересказывает факты, когда нет интернета, ключа или исчерпан лимит.</string>
+    <string name="local_model_auto">Автоматически (лучшая доступная)</string>
+    <string name="local_model_off">Выключено (читать факты как есть)</string>
+    <string name="nano_checking">Проверяю Gemini Nano…</string>
+    <string name="nano_ready">Gemini Nano готова на этом телефоне.</string>
+    <string name="nano_downloadable">Телефон поддерживает Gemini Nano; сначала Android должен её загрузить.</string>
+    <string name="nano_downloading">Android загружает Gemini Nano…</string>
+    <string name="nano_unavailable">Gemini Nano недоступна на этом телефоне. Скачайте открытую модель.</string>
+    <string name="nano_download">Загрузить Gemini Nano</string>
+    <string name="local_model_ready">%1$s загружена и готова.</string>
+    <string name="local_model_delete">Удалить модель (освободит %1$s)</string>
+    <string name="local_model_downloading">Загрузка %1$s: %2$s</string>
+    <string name="local_model_failed">Ошибка загрузки: %1$s</string>
+    <string name="local_model_download_hint">Бесплатно, работает без интернета. Используйте Wi-Fi и не закрывайте приложение до конца загрузки.</string>
+    <string name="local_model_download">Скачать %1$s (%2$s)</string>
+    <string name="local_model_cancel">Отмена</string>
 </resources>

@@ -68,6 +68,8 @@ android {
 
     kotlinOptions {
         jvmTarget = "17"
+        // The on-device AI libraries are built with a newer Kotlin; their API is plain and reads fine.
+        freeCompilerArgs += "-Xskip-metadata-version-check"
     }
 
     buildFeatures {
@@ -100,6 +102,9 @@ dependencies {
     implementation("io.coil-kt:coil-compose:2.7.0")
     implementation("androidx.media:media:1.7.0")
     implementation("org.osmdroid:osmdroid-android:6.1.20")
+    // On-device story writers (spec A §69): Gemini Nano via ML Kit GenAI, open models via LiteRT-LM.
+    implementation("com.google.mlkit:genai-prompt:1.0.0-beta4")
+    implementation("com.google.ai.edge.litertlm:litertlm-android:0.17.1")
 
     // JVM tests with a simulated Android (Robolectric) + Compose UI tests.
     testImplementation(platform("androidx.compose:compose-bom:2024.12.01"))

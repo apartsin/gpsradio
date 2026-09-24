@@ -75,6 +75,10 @@ class LocalNarratorTest {
             "Ort Castle sits on the lake. It is nearly a thousand years old.",
             LocalNarrator.clean("**Ort Castle** sits on the lake.\n- It is nearly a thousand years old."),
         )
+        assertEquals(
+            "Ort Castle sits on the lake. It is nearly a thousand years old.",
+            LocalNarrator.clean("<think>\nThe user wants a story.\n</think>\nOrt Castle sits on the lake. It is nearly a thousand years old."),
+        )
         val long = LocalNarrator.clean("A fine castle stands here. ".repeat(60))!!
         assertTrue(long.length <= 900 && long.endsWith("."))
     }

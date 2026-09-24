@@ -295,4 +295,21 @@
     <string name="offline_voice_missing">No offline voice for %1$s is installed yet.</string>
     <string name="install_voice_data">Install voice data</string>
     <string name="phone_asr_unavailable">Speech recognition isn\'t available on this phone.</string>
+    <string name="local_model_label">Stories without OpenAI</string>
+    <string name="local_model_hint">A model on the phone retells the facts when there\'s no internet, no key or the limit is reached.</string>
+    <string name="local_model_auto">Automatic (best available)</string>
+    <string name="local_model_off">Off (read the facts as they are)</string>
+    <string name="nano_checking">Checking for Gemini Nano…</string>
+    <string name="nano_ready">Gemini Nano is ready on this phone.</string>
+    <string name="nano_downloadable">This phone supports Gemini Nano; Android needs to download it first.</string>
+    <string name="nano_downloading">Android is downloading Gemini Nano…</string>
+    <string name="nano_unavailable">Gemini Nano isn\'t available on this phone. Download an open model instead.</string>
+    <string name="nano_download">Download Gemini Nano</string>
+    <string name="local_model_ready">%1$s is downloaded and ready.</string>
+    <string name="local_model_delete">Delete model (frees %1$s)</string>
+    <string name="local_model_downloading">Downloading %1$s: %2$s</string>
+    <string name="local_model_failed">Download failed: %1$s</string>
+    <string name="local_model_download_hint">Free, runs offline. Use Wi-Fi and keep the app open until it finishes.</string>
+    <string name="local_model_download">Download %1$s (%2$s)</string>
+    <string name="local_model_cancel">Cancel</string>
 </resources>

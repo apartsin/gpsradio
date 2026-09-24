@@ -30,7 +30,7 @@ interface LocalWriter {
 class LocalNarrator(
     private val writer: LocalWriter,
     private val notes: NarrationFallback = NarrationFallback(),
-    private val timeoutMs: Long = 20_000,
+    private val timeoutMs: Long = 45_000,
     private val factChars: Int = 1_500,
 ) : Narrator {
 
@@ -70,7 +70,7 @@ class LocalNarrator(
             You are the host of a local radio show. Tell listeners about "$place" in ${languageName(language)}.
             Use ONLY the facts below; do not add names, dates or numbers that are not in them.
             Write 3 to 4 short spoken sentences: start with the most surprising fact, no lists, no headings,
-            no greeting, no question at the end. Reply with the story text only.
+            no greeting, no question at the end. Reply with the story text only. /no_think
 
             Facts:
             $facts
@@ -79,6 +79,8 @@ class LocalNarrator(
         /** Plain spoken text, or null when the model's reply is unusable. */
         fun clean(raw: String): String? {
             val text = raw
+                // Reasoning models (Qwen3) may think out loud first.
+                .replace(Regex("(?s)<think>.*?</think>"), "")
                 .replace("**", "")
                 .replace(Regex("(?m)^\\s*(#+|[-*•]|\\d+[.)])\\s+"), "")
                 .replace(Regex("\\s+"), " ")
