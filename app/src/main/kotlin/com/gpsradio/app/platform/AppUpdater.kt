@@ -102,6 +102,14 @@ class AppUpdater(
                 }
                 _state.value = UpdateState.Installing(info)
                 withContext(Dispatchers.IO) { commit(apk) }
+                // Android normally answers within seconds (a confirmation or the result). If it never does, don't
+                // leave the listener on "Installing…" forever: offer to try again.
+                scope.launch {
+                    kotlinx.coroutines.delay(INSTALL_TIMEOUT_MS)
+                    if (_state.value == UpdateState.Installing(info) && _confirm.value == null) {
+                        _state.value = UpdateState.Failed(context.getString(R.string.update_not_installed), info)
+                    }
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -134,20 +142,55 @@ class AppUpdater(
         }
     }
 
-    /** Android's "install this update?" screen, when it couldn't be shown yet (the app was in the background). */
-    @Volatile internal var pendingConfirm: Intent? = null
+    /**
+     * Android's "install this update?" screen, waiting to be shown. A broadcast receiver may not open it (Android
+     * blocks activity starts from the background), so the visible activity collects this and opens it at once;
+     * a notification is the fallback when the app isn't on screen.
+     */
+    private val _confirm = MutableStateFlow<Intent?>(null)
+    val confirm: StateFlow<Intent?> = _confirm.asStateFlow()
 
-    /** Shows a waiting install confirmation from the foreground activity. */
+    internal fun requestConfirm(intent: Intent) {
+        _confirm.value = intent
+        notifyConfirm(intent)
+    }
+
+    /** Opens a waiting install confirmation from the foreground activity. */
     fun showPendingConfirm(activity: android.app.Activity) {
-        val confirm = pendingConfirm ?: return
-        pendingConfirm = null
+        val confirm = _confirm.value ?: return
+        _confirm.value = null
         if (state.value !is UpdateState.Installing) return
         runCatching { activity.startActivity(confirm) }
+            .onSuccess { cancelConfirmNotification() }
+            .onFailure { _state.value = UpdateState.Failed(context.getString(R.string.update_not_installed), (state.value as? UpdateState.Installing)?.info) }
+    }
+
+    @android.annotation.SuppressLint("MissingPermission")
+    private fun notifyConfirm(intent: Intent) {
+        val nm = context.getSystemService(android.app.NotificationManager::class.java)
+        nm.createNotificationChannel(
+            android.app.NotificationChannel(UPDATE_CHANNEL, context.getString(R.string.update_channel), android.app.NotificationManager.IMPORTANCE_HIGH),
+        )
+        val tap = PendingIntent.getActivity(context, 7, intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val info = (state.value as? UpdateState.Installing)?.info
+        val n = androidx.core.app.NotificationCompat.Builder(context, UPDATE_CHANNEL)
+            .setSmallIcon(R.drawable.ic_radio)
+            .setContentTitle(context.getString(R.string.update_ready_title, info?.version.orEmpty()))
+            .setContentText(context.getString(R.string.update_ready_text))
+            .setContentIntent(tap)
+            .setAutoCancel(true)
+            .build()
+        runCatching { androidx.core.app.NotificationManagerCompat.from(context).notify(UPDATE_NOTIFICATION_ID, n) }
+    }
+
+    private fun cancelConfirmNotification() {
+        runCatching { androidx.core.app.NotificationManagerCompat.from(context).cancel(UPDATE_NOTIFICATION_ID) }
     }
 
     /** Result from PackageInstaller (on success the app is replaced and restarted, so this rarely runs). */
     internal fun onInstallResult(status: Int, message: String?) {
-        pendingConfirm = null
+        _confirm.value = null
+        cancelConfirmNotification()
         val info = (state.value as? UpdateState.Installing)?.info
         when (status) {
             PackageInstaller.STATUS_SUCCESS -> _state.value = UpdateState.UpToDate
@@ -167,6 +210,9 @@ class AppUpdater(
 
     private companion object {
         const val KEY_LAST_CHECK = "last_check_ms"
+        const val INSTALL_TIMEOUT_MS = 120_000L
+        const val UPDATE_CHANNEL = "updates"
+        const val UPDATE_NOTIFICATION_ID = 7
     }
 }
 
@@ -178,12 +224,39 @@ class InstallResultReceiver : BroadcastReceiver() {
             @Suppress("DEPRECATION")
             val confirm = (if (Build.VERSION.SDK_INT >= 33) intent.getParcelableExtra(Intent.EXTRA_INTENT, Intent::class.java)
             else intent.getParcelableExtra(Intent.EXTRA_INTENT)) ?: return
-            // From the background Android blocks this launch; the app then shows it on its next resume.
-            (context.applicationContext as? GpsRadioApp)?.updater?.pendingConfirm = confirm
-            runCatching { context.startActivity(confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+            // Opened by the visible activity (it collects updater.confirm); a notification if the app isn't on screen.
+            (context.applicationContext as? GpsRadioApp)?.updater?.requestConfirm(confirm)
             return
         }
         val app = context.applicationContext as? GpsRadioApp ?: return
         app.updater.onInstallResult(status, intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE))
+    }
+}
+
+/**
+ * After an update is installed Android stops the old app; this says it's done and offers to reopen GPS Radio
+ * (an app can't start its own activity from the background).
+ */
+class UpdatedReceiver : BroadcastReceiver() {
+    @android.annotation.SuppressLint("MissingPermission")
+    override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action != Intent.ACTION_MY_PACKAGE_REPLACED) return
+        val nm = context.getSystemService(android.app.NotificationManager::class.java)
+        nm.createNotificationChannel(
+            android.app.NotificationChannel("updates", context.getString(R.string.update_channel), android.app.NotificationManager.IMPORTANCE_HIGH),
+        )
+        val open = PendingIntent.getActivity(
+            context, 8,
+            Intent(context, com.gpsradio.app.ui.MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            PendingIntent.FLAG_IMMUTABLE,
+        )
+        val n = androidx.core.app.NotificationCompat.Builder(context, "updates")
+            .setSmallIcon(R.drawable.ic_radio)
+            .setContentTitle(context.getString(R.string.update_done_title, BuildConfig.VERSION_NAME))
+            .setContentText(context.getString(R.string.update_done_text))
+            .setContentIntent(open)
+            .setAutoCancel(true)
+            .build()
+        runCatching { androidx.core.app.NotificationManagerCompat.from(context).notify(8, n) }
     }
 }

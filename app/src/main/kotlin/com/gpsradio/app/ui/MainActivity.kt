@@ -52,6 +52,11 @@ class MainActivity : ComponentActivity() {
                 val radio by vm.radio.collectAsStateWithLifecycle()
                 val update by vm.update.collectAsStateWithLifecycle()
                 val cost by vm.cost.collectAsStateWithLifecycle()
+                // Android's "install this update?" screen: open it from here, the visible activity (spec B §36).
+                val installConfirm by (application as GpsRadioApp).updater.confirm.collectAsStateWithLifecycle()
+                LaunchedEffect(installConfirm) {
+                    if (installConfirm != null) (application as GpsRadioApp).updater.showPendingConfirm(this@MainActivity)
+                }
                 var showSettings by remember { mutableStateOf(false) }
                 var autoStart by remember { mutableStateOf(false) }
                 val openSettings by openSettingsRequest

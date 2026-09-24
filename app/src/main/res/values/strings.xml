@@ -244,4 +244,9 @@
     <string name="update_not_installed">Update not installed.</string>
     <string name="update_not_installed_reason">Update not installed: %1$s</string>
     <string name="photo_credit">Photo: %1$s</string>
+    <string name="update_channel">App updates</string>
+    <string name="update_ready_title">GPS Radio %1$s is ready</string>
+    <string name="update_ready_text">Tap to install the update.</string>
+    <string name="update_done_title">GPS Radio updated to %1$s</string>
+    <string name="update_done_text">Tap to open.</string>
 </resources>

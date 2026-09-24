@@ -244,4 +244,9 @@
     <string name="update_not_installed">Обновление не установлено.</string>
     <string name="update_not_installed_reason">Обновление не установлено: %1$s</string>
     <string name="photo_credit">Фото: %1$s</string>
+    <string name="update_channel">Обновления приложения</string>
+    <string name="update_ready_title">GPS Radio %1$s готово</string>
+    <string name="update_ready_text">Нажмите, чтобы установить обновление.</string>
+    <string name="update_done_title">GPS Radio обновлено до %1$s</string>
+    <string name="update_done_text">Нажмите, чтобы открыть.</string>
 </resources>

@@ -770,3 +770,14 @@ Sources: OpenAI's realtime prompting guide and voice-agent metaprompt, and the r
   - The threshold is 700 RMS normally and 2,500 RMS while playback is audible: the radio's story (`PcmAudio.setRadioAudible`, wired from `RadioState.NARRATING`) or the host's own audio.
   - Only speech is uploaded, instead of about 170 MB/h of continuous PCM.
 - **Audio focus:** `AndroidPcmAudio` no longer takes focus when capture starts (an open mic must not duck or pause the radio). It takes focus only while the live host speaks.
+
+### Self-update: the install confirmation (fix)
+
+Android usually asks "Install this update?" (always on the first self-update, and whenever the app is not the installer of record). PackageInstaller reports this to `InstallResultReceiver` as `STATUS_PENDING_USER_ACTION`, with the confirmation intent.
+
+- **The bug.** The receiver opened the confirmation itself. Android blocks activity starts from a broadcast receiver, and the fallback only ran on the app's next resume. With the app already on screen, the update downloaded and then sat at "Installing…" forever.
+- **Now:**
+  - The intent goes into `AppUpdater.confirm` (a StateFlow). The visible `MainActivity` collects it and opens it at once.
+  - A high-priority notification, "GPS Radio x is ready: tap to install", covers the case where the app isn't on screen.
+  - If Android answers nothing within 2 minutes, the state becomes Failed with a retry.
+  - After the update, `UpdatedReceiver` (`MY_PACKAGE_REPLACED`) posts "GPS Radio updated to x: tap to open", because Android stops the old app and an app can't restart itself from the background.
