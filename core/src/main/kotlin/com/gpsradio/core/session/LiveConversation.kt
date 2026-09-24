@@ -41,6 +41,8 @@ interface LiveHost {
     fun liveVoice(): String
     fun liveModel(): String
     fun transcriptionModel(): String
+    /** The listener's language (BCP-47), a hint for transcribing what they say. */
+    fun liveLanguage(): String? = null
     fun onUserSaid(text: String)
     fun onAssistantSaid(text: String)
     /** Runs a tool call; returns the text result for the model. */
@@ -214,7 +216,9 @@ class LiveConversation(
         when (e) {
             RealtimeEvent.SessionReady -> {
                 conn.send(
-                    RealtimeProtocol.sessionUpdate(host.liveInstructions(), host.liveVoice(), host.transcriptionModel(), RealtimeProtocol.tools),
+                    RealtimeProtocol.sessionUpdate(
+                        host.liveInstructions(), host.liveVoice(), host.transcriptionModel(), RealtimeProtocol.tools, host.liveLanguage(),
+                    ),
                 )
                 val micOk = audio.startCapture { chunk -> if (isOpen) conn.send(RealtimeProtocol.appendAudio(chunk)) }
                 if (!micOk) {

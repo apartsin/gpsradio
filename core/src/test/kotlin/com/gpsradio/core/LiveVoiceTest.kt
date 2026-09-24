@@ -122,6 +122,11 @@ class LiveVoiceTest {
         assertEquals(24000, audio["input"]!!.jsonObject["format"]!!.jsonObject["rate"]!!.jsonPrimitive.content.toInt())
         val toolNames = RealtimeProtocol.tools.map { it.name }
         assertEquals(listOf("web_search", "radio_control", "remember", "set_trip"), toolNames)
+        // The listener's language (Russian by default) is a hint for transcribing what they say.
+        assertNull(audio["input"]!!.jsonObject["transcription"]!!.jsonObject["language"])
+        val ru = RealtimeProtocol.sessionUpdate("x", "marin", "gpt-4o-mini-transcribe", RealtimeProtocol.tools, language = "ru-RU")
+        val t = ru["session"]!!.jsonObject["audio"]!!.jsonObject["input"]!!.jsonObject["transcription"]!!.jsonObject
+        assertEquals("ru", t["language"]!!.jsonPrimitive.content)
     }
 
     @Test

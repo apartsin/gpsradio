@@ -42,7 +42,17 @@ object RealtimeProtocol {
     const val SAMPLE_RATE = 24_000
     private val json = Json { ignoreUnknownKeys = true }
 
-    fun sessionUpdate(instructions: String, voice: String, transcriptionModel: String, tools: List<RealtimeTool>): JsonObject =
+    /**
+     * [language]: the listener's language (e.g. "ru" by default) as a hint for the input transcription, so captions and
+     * the transcript aren't guessed from a few words (mixed with foreign place names).
+     */
+    fun sessionUpdate(
+        instructions: String,
+        voice: String,
+        transcriptionModel: String,
+        tools: List<RealtimeTool>,
+        language: String? = null,
+    ): JsonObject =
         buildJsonObject {
             put("type", "session.update")
             putJsonObject("session") {
@@ -52,7 +62,10 @@ object RealtimeProtocol {
                 putJsonObject("audio") {
                     putJsonObject("input") {
                         putJsonObject("format") { put("type", "audio/pcm"); put("rate", SAMPLE_RATE) }
-                        putJsonObject("transcription") { put("model", transcriptionModel) }
+                        putJsonObject("transcription") {
+                            put("model", transcriptionModel)
+                            language?.substringBefore('-')?.lowercase()?.takeIf { it.length == 2 }?.let { put("language", it) }
+                        }
                         // Semantic VAD decides the end of a turn from what was said, not just silence: it waits
                         // through "um… and the castle…" instead of cutting in, and answers quickly when a
                         // question is clearly complete (closer to how people take turns).

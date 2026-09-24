@@ -1256,6 +1256,7 @@ class RadioSession(
         override fun liveVoice() = com.gpsradio.core.ai.RealtimeProtocol.liveVoice(config().realtimeVoice)
         override fun liveModel() = config().liveModel
         override fun transcriptionModel() = config().transcriptionModel
+        override fun liveLanguage() = sessionLanguage
 
         override fun onUserSaid(text: String) {
             addTranscript(TranscriptEntry(Speaker.USER, text, clock()))
