@@ -756,3 +756,17 @@ Where earlier sections disagreed, the later decision and the code win. The secti
 | Country scope | "country is not enough" (§35) vs country angles (§37) | §35 governs "on this day"; country-scope area stories are limited to country-wide angles |
 | Events today | on (§30) vs off in `core` | on in the app; `core` defaults to off and the app passes the setting |
 | Research model | conversation model (§37) | gpt-4.1-mini research model (§38) |
+
+## 47. Detours and Photo Stops in Non-Stop
+
+Both still air in the default non-stop mode.
+
+- **Detours.**
+  - While driving, a worth-a-stop sight ahead gets a full story that says how far off the route it is ("right by the route", "about 3 km there and back").
+  - With the mic open, the story ends by offering directions. "Yes" opens the maps app.
+  - With the mic closed, the detour is only described (§36).
+  - The Nearby page lists the detour minutes.
+- **Photo stops.**
+  - A photo tip for a photogenic spot nearby airs at most once every 15 minutes, never twice for the same place. It uses the sun's position for the light.
+  - While driving, only viewpoints just off the road ahead qualify.
+  - In non-stop, a due photo tip now goes before the researched area stories. Before this change, the endless loop always had an area story ready, so it crowded photo tips out.

@@ -127,7 +127,10 @@ class Programme(val config: Config = Config()) {
         if (s.eventsDue) return Plan.Filler(SegmentFormat.EVENTS)
         if (s.storyReady) return Plan.None
         if (nonstop) {
-            val plan = relaxed(s)?.let { Plan.RelaxedStory(it) }
+            // A photo stop is time-bound (light, being there): when one is due it goes before researched area stories,
+            // which would otherwise always be available in the endless loop and crowd it out.
+            val plan = photoTip(s)
+                ?: relaxed(s)?.let { Plan.RelaxedStory(it) }
                 ?: freshFacet(s)?.let { Plan.Filler(SegmentFormat.AREA, areaFacet = it) }
                 ?: rotation(s)
             // Widening is silent network work: start it right away, so new places are ready when the gap ends.
@@ -143,13 +146,18 @@ class Programme(val config: Config = Config()) {
     private fun rotation(s: Situation): Plan.Filler? {
         val options = ArrayList<Plan.Filler>()
         if (s.onThisDayAvailable && !s.themeActive && onThisDayDoneFor != s.dayKey) options += Plan.Filler(SegmentFormat.ON_THIS_DAY)
-        val photoOk = lastAired[SegmentFormat.PHOTO_TIP]?.let { s.nowMs - it >= config.photoGapMs } ?: true
-        if (photoOk) s.photoSpot?.takeIf { it.place.id !in usedPlaceIds }?.let { options += Plan.Filler(SegmentFormat.PHOTO_TIP, it) }
+        photoTip(s)?.let { options += it }
         fresh(s, config.bumperMinFactsChars)?.let { options += Plan.Filler(SegmentFormat.BUMPER, it) }
         val quizOk = lastAired[SegmentFormat.QUIZ]?.let { s.nowMs - it >= config.quizGapMs } ?: true
         if (config.quizzes && quizOk) fresh(s, config.quizMinFactsChars)?.let { options += Plan.Filler(SegmentFormat.QUIZ, it) }
         if (!s.themeActive) freshFacet(s)?.let { options += Plan.Filler(SegmentFormat.AREA, areaFacet = it) }
         return options.minByOrNull { lastAired[it.format] ?: Long.MIN_VALUE }
+    }
+
+    /** A photo tip for the current photogenic spot, at most one per [Config.photoGapMs] and never twice for a place. */
+    private fun photoTip(s: Situation): Plan.Filler? {
+        val due = lastAired[SegmentFormat.PHOTO_TIP]?.let { s.nowMs - it >= config.photoGapMs } ?: true
+        return s.photoSpot?.takeIf { due && it.place.id !in usedPlaceIds }?.let { Plan.Filler(SegmentFormat.PHOTO_TIP, it) }
     }
 
     /** The best nearby place that hasn't been told, mentioned or used by a filler, with enough facts. */

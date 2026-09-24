@@ -142,6 +142,26 @@ class PhotoAndDetourTest {
     }
 
     @Test
+    fun nonStopStillMakesPhotoStopsAlthoughAreaStoriesAreAlwaysAvailable() {
+        val p = Programme()
+        val w = walking()
+        val spot = rc(place("c", Geo.destination(here, 90.0, 300.0), name = "Schloss Ort"), w)
+        val facet = com.gpsradio.core.discovery.AreaFacet("Gmunden", com.gpsradio.core.discovery.AreaFacetKind.OVERVIEW, "Facts. ".repeat(40), angle = "water", title = "Lake")
+        fun sit(now: Long, photo: RankedCandidate? = spot) = Programme.Situation(
+            nowMs = now, mode = TravelMode.WALKING, pacing = Pacing.NONSTOP, minGapMs = 2_000, lastSpeechEndMs = now - 10_000,
+            storyReady = false, ranked = emptyList(), recentTitles = emptyList(), onThisDayAvailable = false, dayKey = "09-23",
+            photoSpot = photo, areaFacets = listOf(facet),
+        )
+        val t0 = 10_000_000L
+        assertEquals(Programme.Plan.Filler(SegmentFormat.PHOTO_TIP, spot), p.next(sit(t0)))
+        p.onFillerAired(SegmentFormat.PHOTO_TIP, "c", t0, "09-23")
+        // Then the endless loop goes on; the next photo stop waits its 15 minutes.
+        val other = rc(place("w", Geo.destination(here, 180.0, 200.0), name = "Old Bridge"), w)
+        assertEquals(SegmentFormat.AREA, (p.next(sit(t0 + 60_000, other)) as Programme.Plan.Filler).format)
+        assertEquals(Programme.Plan.Filler(SegmentFormat.PHOTO_TIP, other), p.next(sit(t0 + 16 * 60_000, other)))
+    }
+
+    @Test
     fun photoTipPromptCarriesLightAndSafetyRules() = runTest {
         val server = MockWebServer()
         server.enqueue(MockResponse().setBody("""{"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":${JsonPrimitive("Photo tip: the castle from the pier.")},"annotations":[]}]}]}"""))
