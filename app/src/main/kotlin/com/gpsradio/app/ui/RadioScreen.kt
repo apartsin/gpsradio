@@ -397,11 +397,12 @@ fun RadioContent(
                     }
                     NowLine(state, micOpen, onFixKey = actions.onOpenSettings)
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(40.dp),
+                        horizontalArrangement = Arrangement.spacedBy(24.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.padding(bottom = 16.dp),
                     ) {
                         RadioOnOffButton(running, onStart = actions.onStart, onStop = actions.onStop)
+                        NextButton(running, onNext = actions.onSkip)
                         MicSwitch(micOpen, running, state.live, recording, onToggle = actions.onToggleListening)
                     }
                 }
@@ -479,12 +480,32 @@ private fun RadioOnOffButton(running: Boolean, onStart: () -> Unit, onStop: () -
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         FilledIconButton(
             onClick = if (running) onStop else onStart,
-            modifier = Modifier.size(96.dp),
+            modifier = Modifier.size(CONTROL_SIZE),
             shape = CircleShape,
         ) {
             Icon(if (running) Icons.Default.Stop else Icons.Default.PlayArrow, stringResource(if (running) R.string.stop_radio else R.string.start_radio), Modifier.size(56.dp))
         }
         Text(stringResource(if (running) R.string.stop else R.string.start), style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 4.dp))
+    }
+}
+
+/** The three main controls side by side, sized to fit a phone (spec A §57). */
+private val CONTROL_SIZE = 84.dp
+
+/** Next story: the current one stops at once and the next one starts without the usual pause. */
+@Composable
+private fun NextButton(running: Boolean, onNext: () -> Unit) {
+    val haptics = LocalHapticFeedback.current
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        FilledTonalIconButton(
+            onClick = { haptics.performHapticFeedback(HapticFeedbackType.LongPress); onNext() },
+            enabled = running,
+            modifier = Modifier.size(CONTROL_SIZE).testTag("nextButton"),
+            shape = CircleShape,
+        ) {
+            Icon(Icons.Default.SkipNext, stringResource(R.string.next_story), Modifier.size(48.dp))
+        }
+        Text(stringResource(R.string.next), style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 4.dp))
     }
 }
 
@@ -506,7 +527,7 @@ private fun MicSwitch(open: Boolean, running: Boolean, live: LiveState?, recordi
         }
         FilledIconButton(
             onClick = { haptics.performHapticFeedback(HapticFeedbackType.LongPress); onToggle() },
-            modifier = Modifier.size(96.dp).testTag("micSwitch").semantics {
+            modifier = Modifier.size(CONTROL_SIZE).testTag("micSwitch").semantics {
                 contentDescription = micDescription
                 stateDescription = micState
             },

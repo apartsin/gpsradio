@@ -2,6 +2,8 @@ package com.gpsradio.app
 
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.assertIsNotDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -105,6 +107,21 @@ class RadioContentTest {
         // The menu's items exist off-screen until it's opened.
         compose.onNodeWithText("Transcript").assertIsNotDisplayed()
         compose.onNodeWithTag("offerCard").assertDoesNotExist()
+    }
+
+    @Test
+    fun nextSkipsToTheNextStoryAndIsOffWhenTheRadioIs() {
+        var skipped = 0
+        show(RadioUiState(radioState = RadioState.NARRATING, location = loc), RadioActions(onSkip = { skipped++ }))
+        compose.onNodeWithText("Next").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Next story").assertIsEnabled().performClick()
+        assertEquals(1, skipped)
+    }
+
+    @Test
+    fun nextIsDisabledWhileTheRadioIsOff() {
+        show(RadioUiState())
+        compose.onNodeWithTag("nextButton").assertIsNotEnabled()
     }
 
     @Test

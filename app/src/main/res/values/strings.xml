@@ -253,4 +253,6 @@
     <string name="update_prompt_text">%1$s is available. Update now?</string>
     <string name="update_now">Update</string>
     <string name="later">Later</string>
+    <string name="next">Next</string>
+    <string name="next_story">Next story</string>
 </resources>

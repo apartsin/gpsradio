@@ -900,3 +900,11 @@ A review of the two voice paths found these problems. All are fixed.
    - "Next" shows "Next story…" at once instead of a separate sting that could overlap the next story's own sting.
 
 Regression tests reproduce #1 and #2 on the old code.
+
+## 57. A "Next" Button on the Main Screen
+
+The main screen now has three controls side by side: **Start/Stop**, **Next** and **Mic**. They are 84 dp each, so all three fit on a phone.
+
+- Next does exactly what saying "next" does (§52): the current story stops at once, and the next one starts without the usual pause, with "Next story…" shown immediately.
+- Next is disabled while the radio is off.
+- Pause, repeat and the other controls stay voice-first (§36) and on the notification.
