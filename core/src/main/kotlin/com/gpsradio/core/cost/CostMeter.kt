@@ -27,6 +27,9 @@ class CostMeter(
 
     data class Prices(
         val text: Map<String, ModelPrice> = mapOf(
+            "gpt-5.1" to ModelPrice(1.25, 0.125, 10.00),
+            "gpt-5" to ModelPrice(1.25, 0.125, 10.00),
+            "gpt-5-mini" to ModelPrice(0.25, 0.025, 2.00),
             "gpt-4.1" to ModelPrice(2.00, 0.50, 8.00),
             "gpt-4.1-mini" to ModelPrice(0.40, 0.10, 1.60),
             "gpt-4.1-nano" to ModelPrice(0.10, 0.025, 0.40),

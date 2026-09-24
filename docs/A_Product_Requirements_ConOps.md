@@ -843,3 +843,18 @@ Now:
 - **The next story starts at once.** An explicit "next" (voice, notification or headset) waives the pacing gap for up to 60 s, until the next segment airs. A junction while driving still holds it.
 - **The prompt.** The live instructions say to call skip at once, with no preamble, and never to continue the current story for "next".
 - **The speaker.** Live audio is written in 40 ms slices, so cutting the model off silences it at once.
+
+## 53. Short, Dense Stories; "Another Story" Means a New One
+
+- **Shorter.** Target lengths are 25 s walking (was 40), 20 s driving (was 30), 22 s cycling, 30 s standing still, and 25 s for area stories. That is 3–5 sentences.
+- **Denser.** The story prompt now asks for one concrete fact per sentence, the most surprising first, and 3–5 sentences.
+  - Removed: reactions ("which is wild"), rhetorical questions, scene-setting, summaries.
+  - Humour is at most a few words.
+  - Grounding, retelling and dignity rules are unchanged.
+- **Better model.** Stories are written by `gpt-5.1` with reasoning effort `none` (fast), instead of gpt-4.1.
+  - If an account can't use it, requests fall back automatically to `gpt-5`, then to `gpt-4.1`. A missing model is remembered, so it isn't retried.
+  - Saved settings move to the new default once (`models_version` 3).
+- **"Another story" never repeats and never asks.**
+  - «Другую историю», «ещё историю», «расскажи что-нибудь интересное», "surprise me" and similar are handled on the device as "next" (§52).
+  - The live host is told never to ask what the listener wants to hear: the radio researches its 50 angles on its own. A named topic steers (§37).
+  - The research returns the story's subject (§51). A subject already told, as a place story or under another angle, is not told again, across days too (§40).

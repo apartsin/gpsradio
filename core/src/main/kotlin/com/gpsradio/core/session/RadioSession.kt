@@ -2316,7 +2316,12 @@ class RadioSession(
                     airingFacetId = null
                 }
                 programme.onFillerAired(plan.format, c?.place?.id, clock(), dayKey(day), plan.areaFacet?.id)
-                plan.areaFacet?.let { heard.markFacetTold(it.id, clock()); persistHeard() }
+                plan.areaFacet?.let { f ->
+                    heard.markFacetTold(f.id, clock())
+                    // Its subject counts as told too (spec A §53): no second story about the same lake from another angle.
+                    f.subject?.let { heard.markHeard("subject:" + com.gpsradio.core.editorial.HeardHistory.normalizeName(it), it, clock()) }
+                    persistHeard()
+                }
                 // A bumper or quiz touched the place: it stays a candidate, but less novel.
                 c?.let { mentionedIds += it.place.id }
                 lastSpeechEndMs = clock()
@@ -2484,7 +2489,10 @@ class RadioSession(
         angleJob = scope.launch {
             val facet = try {
                 kotlinx.coroutines.withTimeoutOrNull(ANGLE_TIMEOUT_MS) {
-                    research.research(target, area, point, recentTitles.toList() + researchedFacets.mapNotNull { it.title })
+                    research.research(
+                        target, area, point,
+                        recentTitles.toList() + researchedFacets.mapNotNull { it.title } + researchedFacets.mapNotNull { it.subject },
+                    )
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -2493,6 +2501,8 @@ class RadioSession(
                 angleBackoffUntilMs = clock() + 60_000L
                 null
             }
+            // The same subject under another angle ("water", then "records": both the lake's depth) is a repeat.
+            if (facet != null && isRepeatSubject(facet)) return@launch
             if (facet != null) {
                 researchedFacets += facet
                 // Found while something plays: prepare it now so it can follow without a pause.
@@ -2547,6 +2557,14 @@ class RadioSession(
     }
 
     private var steerJob: Job? = null
+
+    /** A researched item about something already told (as a place story or another angle's story). */
+    private fun isRepeatSubject(facet: com.gpsradio.core.discovery.AreaFacet): Boolean {
+        val subject = facet.subject ?: return false
+        val key = com.gpsradio.core.editorial.HeardHistory.normalizeName(subject)
+        return heard.wasHeard("subject:$key", subject, clock()) ||
+            researchedFacets.any { it.subject?.let(com.gpsradio.core.editorial.HeardHistory::normalizeName) == key }
+    }
 
     /** How long an explicit "next" waives the pacing gap (the next segment may still be being written). */
     private val NEXT_NOW_WINDOW_MS = 60_000L
@@ -2703,6 +2721,10 @@ class RadioSession(
             "the next story", "next please", "another story", "tell me another story", "go to the next one",
             "следующая история", "следующую историю", "давай следующую", "давай следующую историю", "другую историю",
             "расскажи другую историю", "расскажи следующую", "дальше давай", "переключи", "следующий рассказ",
+            "другая история", "ещё историю", "еще историю", "ещё одну историю", "еще одну историю", "давай другую",
+            "расскажи что-нибудь другое", "что-нибудь другое", "расскажи что-нибудь ещё", "расскажи что-нибудь еще",
+            "расскажи что-нибудь интересное", "tell me something else", "tell me something interesting", "surprise me",
+            "another one", "one more story",
             "дальше", "давай дальше", "пропусти", "пропустить", "пропусти это", "следующий", "следующая", "следующее",
             "следующую", "другое", "давай другое", "неинтересно", "не интересно",
             "הבא", "דלג", "תדלג", "הלאה",

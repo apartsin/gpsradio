@@ -224,7 +224,8 @@ data class ConversationReply(
 
 data class ModelConfig(
     /** Stories: the full model writes livelier, denser, more natural prose than mini (spec A §38). */
-    val narrationModel: String = "gpt-4.1",
+    /** Stories: a reasoning model for smoother, better-chosen retelling (spec A §53); falls back to gpt-5, gpt-4.1. */
+    val narrationModel: String = "gpt-5.1",
     val conversationModel: String = "gpt-4.1",
     /** Web research for angles, events and visit checks: fast and cheap; its notes are retold by [narrationModel]. */
     val researchModel: String = "gpt-4.1-mini",
@@ -492,11 +493,12 @@ class RadioAgent(
         const val MAX_FACTS_CHARS = 1500
 
         /** Target spoken length; driving segments stay at or under 30 s (spec B §24). */
+        /** Short and dense (spec A §53): a few strong facts, not a lecture. */
         fun targetSeconds(mode: TravelMode): Int = when (mode) {
-            TravelMode.DRIVING -> 30
-            TravelMode.CYCLING -> 35
-            TravelMode.WALKING, TravelMode.UNKNOWN -> 40
-            TravelMode.STATIONARY -> 50
+            TravelMode.DRIVING -> 20
+            TravelMode.CYCLING -> 22
+            TravelMode.WALKING, TravelMode.UNKNOWN -> 25
+            TravelMode.STATIONARY -> 30
         }
 
         /** Spoken length per format; driving never exceeds 30 s. */
@@ -507,8 +509,8 @@ class RadioAgent(
                 SegmentFormat.QUIZ -> 15
                 SegmentFormat.ON_THIS_DAY -> 30
                 SegmentFormat.STATION_ID -> 10
-                SegmentFormat.AREA -> 40
-                SegmentFormat.ARRIVAL -> 25
+                SegmentFormat.AREA -> 25
+                SegmentFormat.ARRIVAL -> 20
                 SegmentFormat.PHOTO_TIP -> 15
                 SegmentFormat.EVENTS -> 25
             }
@@ -590,15 +592,14 @@ class RadioAgent(
             the facts are in another language. Translate the facts; keep original place names.
 
             RETELL, DON'T READ: "facts" is your research, not a script. Never read it out or copy its sentences
-            (not even translated word for word). Take in what matters and tell it in your own words, casually, the way
-            you'd tell a friend sitting next to you: everyday spoken language (in every language: the relaxed register
-            people actually speak, not bookish or official), one idea per sentence, the most interesting bit first,
-            dates and numbers only when they matter and rounded when that sounds more natural ("almost a thousand
-            years ago"), except opening hours, prices, times and distances: say those exactly as given. Talk to the listener ("you"), react to your own facts now and then ("which is wild, if you
-            think about it"), and leave out encyclopedia filler (full titles, lists of dates, administrative trivia).
-            Practical visit facts are NOT filler: when "visit" gives today's hours or admission, always say them (briefly).
-            Casual never means inventing: a reaction is an opinion, not a new fact. Never speculate about what people
-            did, saw or felt ("he surely loved…", "undoubtedly enjoyed…", "must have…") unless the facts say so.
+            (not even translated word for word). Pick the few facts a visitor would remember and say them in your own
+            plain spoken words, like a sharp radio presenter: everyday language (in every language the register people
+            actually speak, not bookish or official), one fact per sentence, the most surprising one first. Round dates
+            and numbers when that sounds more natural ("almost a thousand years ago"),
+            except opening hours, prices, times and distances: say those exactly as given. Talk to the listener ("you"). No reactions or commentary
+            ("which is wild", "isn't that amazing"), no rhetorical questions, no scene-setting, no summaries.
+            Practical visit facts are content, not filler: when "visit" gives today's hours or admission, say them (briefly).
+            Never speculate about what people did, saw or felt ("he surely loved…", "must have…") unless the facts say so.
 
             Write ONE spoken segment in the "format" given in the JSON input (by default a story about the place).
             Facts:
@@ -612,19 +613,19 @@ class RadioAgent(
               purveyor to the court" when the facts list both separately): keep them as separate facts.
             - Label legends, folklore and disputed claims as such ("the story goes…", "locals insist…").
             - Humour and comparisons are welcome but must not add new facts, and never joke about tragedies, victims, war or disasters.
-            Craft: ENGAGING, DENSE, CLEAR, FUN.
-            - Engaging: the first sentence is the hook, the single most surprising, specific or human detail, in under
-              15 words. Build to one "wow, really?" moment. End on a payoff (a twist, something to look for, a wry
-              line), never on a summary or a moral. Avoid stock openers ("Right here, where you're standing",
-              "Imagine…", "Welcome", "Did you know" every time, the place's name followed by "is a") and stock closers
-              ("making you wonder…", "a timeless legacy", "a reminder of…").
-            - Dense: every sentence carries something concrete: a name, a number, a date, an image, a cause. No padding
-              and no generic praise: never "rich history", "nestled", "charming", "picturesque", "boasts", "steeped in",
-              "testament to", "a must-see", "hidden gem", "fascinating", "iconic". Show why it's interesting instead.
-            - Clear: short spoken sentences (about 15 words or fewer), one idea each, everyday words; explain any
-              technical term or title in a few words. Numbers the ear can hold ("about 190 metres deep").
-            - Fun: one light touch per story, a witty aside, a vivid comparison, a playful question to the listener,
-              grounded in the facts (never about tragedies, victims, war or disasters).
+            Craft: ENGAGING, DENSE, CLEAR, FUN, and above all SHORT.
+            - Short: 3 to 5 sentences, never above target_length_words. Fewer, better facts beat more words; with thin
+              facts, say less.
+            - Dense: every sentence is a concrete, interesting fact: a name, a number, a date, a cause, an image. Nothing
+              else: no intro, no transition, no padding, no generic praise: never "rich history", "nestled", "charming",
+              "picturesque", "boasts", "steeped in", "testament to", "a must-see", "hidden gem", "fascinating", "iconic".
+            - Engaging: open with the single most surprising fact, in under 12 words. Stock openers are banned ("Right
+              here, where you're standing", "Imagine…", "Welcome", "Did you know", the place's name followed by "is a").
+              End on the last strong fact or on something to look for; never a summary, a moral or "making you wonder…".
+            - Clear: sentences under 15 words, everyday words; explain a technical term in two or three words. Numbers
+              the ear can hold ("about 190 metres deep").
+            - Fun: at most one quick witty touch of a few words, grounded in the facts (never about tragedies, victims,
+              war or disasters). Skip it rather than spend a sentence on it.
             - Pick the angle: from "facts", tell the most interesting angle a visitor would enjoy, for example
               (headliners first):
               legends; documented mysteries; inventions and firsts; records; quirky facts; film and TV; famous natives and
@@ -634,14 +635,12 @@ class RadioAgent(
               characters, war memory, then-and-now, work heritage, and the rest (daily life in the past, faith, prehistory,
               rulers, communities, women, dialect, crafts, gardens, climate, transport, today's economy, sports, science,
               street names, links abroad).
-            - Blend the story, one memorable fact and the context that makes it matter (who, why, what changed).
             - Say where it is once, naturally, using the given distance and direction ("just ahead on your left, about 200 metres").
               When travel_mode is driving, don't quote exact distances (they go stale at speed): say "coming up on your left",
               "just ahead", or use time_to_reach_s ("in about a minute").
-            - Sound like speech, not an encyclopedia: contractions, vivid verbs, the occasional rhetorical question.
+            - Sound like speech, not an encyclopedia: contractions, vivid verbs.
             - Your persona's own style rules (sentence length, vocabulary, audience) override the craft rules here;
               for a children's persona keep every sentence short and every word simple.
-            - Stay close to target_length_words; with thin facts, be shorter rather than padding.
             - Do not repeat anything from already_told_this_trip. No greetings or sign-offs.
             - If "trip" is given, you may connect the place to where the listener is heading, briefly.
             - travel_mode "driving": keep it short (never over target_length_words) and never ask the driver to look at a screen.
@@ -933,6 +932,9 @@ class RadioAgent(
               lake / what happened here in the war" (not a listed place) → radio_control steer with their wish in
               "request". "More history" / "only nature for a while" → set_theme. "Shorter stories" → remember (style).
               After a steer, say only a few words ("Ooh, let me dig into that.") and stop: the story follows.
+            - Never ask the listener what they'd like to hear: the radio always has the next story ready (it researches
+              50 kinds of local stories on its own). "Another story", "tell me something interesting", "surprise me",
+              «расскажи что-нибудь», «другую историю» → radio_control skip. A named topic → steer.
             - "Next", "next story", "skip", «дальше», «следующая история», "something else", "not interested" → call
               radio_control skip AT ONCE, with no preamble and no words: the radio moves on and says so itself. Never
               continue or retell the current story for these.

@@ -58,7 +58,8 @@ class RecentChangesTest {
             val agent = RadioAgent(openAi, { ModelConfig() })
             agent.narrate(NarrationRequest(ranked, walking, "ru-RU", setOf(Topic.HISTORY), emptyList(), canReply = false))
             val closed = server.takeRequest().body.readUtf8()
-            assertTrue("\"model\":\"gpt-4.1\"" in closed, "stories on gpt-4.1")
+            assertTrue("\"model\":\"gpt-5.1\"" in closed, "stories on gpt-5.1")
+            assertTrue("\"effort\":\"none\"" in closed, "no deliberation: fast")
             // The per-request context (escaped JSON inside the input), not the instructions that describe the rule.
             val flag = "listener_can_reply\\\":false"
             assertTrue(flag in closed, "mic closed is told to the narrator")
@@ -105,7 +106,8 @@ class RecentChangesTest {
     @Test
     fun narrationPromptHasTheCraftRulesAndTheAngleCatalogue() {
         val p = RadioAgent.narrationInstructions("ru-RU")
-        assertTrue("ENGAGING, DENSE, CLEAR, FUN" in p)
+        assertTrue("ENGAGING, DENSE, CLEAR, FUN" in p && "3 to 5 sentences" in p && "SHORT" in p)
+        assertFalse("which is wild, if you" in p, "no filler reactions")
         for (banned in listOf("rich history", "nestled", "charming", "testament to", "boasts")) assertTrue(banned in p, banned)
         assertTrue("Pick the angle" in p && "legends" in p && "film and TV" in p && "street names" in p)
         assertTrue("listener_can_reply" in p, "the mic-closed rule")
@@ -128,9 +130,54 @@ class RecentChangesTest {
     @Test
     fun defaultsAreTheFullModelsForTalkAndTheFastOneForResearch() {
         val m = ModelConfig()
-        assertEquals("gpt-4.1", m.narrationModel)
+        assertEquals("gpt-5.1", m.narrationModel)
         assertEquals("gpt-4.1", m.conversationModel)
         assertEquals("gpt-4.1-mini", m.researchModel)
         assertEquals("gpt-realtime", m.realtimeModel)
+    }
+}
+
+/** Spec A §53: a newer story model never breaks an account without it; stories are short. */
+class StoryModelTest {
+    @Test
+    fun anUnavailableModelFallsBackOnceAndIsRemembered() = kotlinx.coroutines.runBlocking {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setResponseCode(404).setBody("""{"error":{"message":"The model `gpt-5.1` does not exist or you do not have access to it.","code":"model_not_found"}}"""))
+        val ok = """{"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"Hi","annotations":[]}]}]}"""
+        server.enqueue(MockResponse().setBody(ok))
+        server.enqueue(MockResponse().setBody(ok))
+        server.start()
+        try {
+            val client = OpenAiClient(OkHttpClient(), { "sk-test" }, server.url("/v1").toString())
+            val req = OpenAiClient.ResponseRequest("gpt-5.1", "i", listOf(OpenAiClient.Message("user", "x")))
+            assertEquals("Hi", client.respond(req).text)
+            assertTrue("\"model\":\"gpt-5.1\"" in server.takeRequest().body.readUtf8())
+            val second = server.takeRequest().body.readUtf8()
+            assertTrue("\"model\":\"gpt-5\"" in second && "\"effort\":\"minimal\"" in second, second)
+            client.respond(req)
+            assertTrue("\"model\":\"gpt-5\"" in server.takeRequest().body.readUtf8(), "remembered: no second 404")
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun storiesAreShort() {
+        assertEquals(25, RadioAgent.targetSeconds(com.gpsradio.core.model.TravelMode.WALKING))
+        assertEquals(20, RadioAgent.targetSeconds(com.gpsradio.core.model.TravelMode.DRIVING))
+        assertEquals(25, RadioAgent.targetSeconds(com.gpsradio.core.model.TravelMode.WALKING, com.gpsradio.core.ai.SegmentFormat.AREA))
+    }
+
+    @Test
+    fun anotherStoryIsASkipAndTheHostNeverAsksWhatToPlay() {
+        for (p in listOf("Расскажи другую историю", "Другая история", "Ещё историю!", "Tell me something else", "surprise me")) {
+            assertEquals(com.gpsradio.core.ai.ConversationAction.SKIP, com.gpsradio.core.session.RadioSession.localCommand(p), p)
+        }
+        // "Tell me more" continues the current story; it is not a skip.
+        assertNull(com.gpsradio.core.session.RadioSession.localCommand("Расскажи ещё"))
+        val live = RadioAgent.liveInstructions(
+            ConversationRequest("", "ru-RU", null, null, null, emptyList(), emptyList(), emptyList(), null),
+        )
+        assertTrue("Never ask the listener what they'd like to hear" in live)
     }
 }

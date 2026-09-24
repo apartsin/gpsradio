@@ -86,7 +86,27 @@ class OpenAiClient(
         val webSearches: Int = 0,
     )
 
+    /** Models this key can't use (not found or no access); requests go straight to their fallback. */
+    private val unavailableModels = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
+    /**
+     * Sends [req], falling back along [MODEL_FALLBACKS] when the model doesn't exist or this key has no access to it
+     * (spec A §53), so a newer default model never breaks the radio on an older account.
+     */
     suspend fun respond(req: ResponseRequest): ResponseResult {
+        var model = req.model
+        while (model in unavailableModels) model = MODEL_FALLBACKS[model] ?: break
+        return try {
+            respondOnce(if (model == req.model) req else req.copy(model = model))
+        } catch (e: OpenAiException) {
+            val next = MODEL_FALLBACKS[model]
+            if (next == null || !isModelUnavailable(e)) throw e
+            unavailableModels += model
+            respond(req.copy(model = next))
+        }
+    }
+
+    private suspend fun respondOnce(req: ResponseRequest): ResponseResult {
         val body = buildJsonObject {
             put("model", req.model)
             put("instructions", req.instructions)
@@ -122,7 +142,7 @@ class OpenAiClient(
             }
             req.cacheKey?.let { put("prompt_cache_key", it) }
             val reasoning = isReasoningModel(req.model)
-            if (reasoning) put("reasoning", buildJsonObject { put("effort", "low") })
+            if (reasoning) put("reasoning", buildJsonObject { put("effort", reasoningEffort(req.model)) })
             // For reasoning models the cap also covers hidden reasoning tokens; leave generous room.
             req.maxOutputTokens?.let { put("max_output_tokens", if (reasoning) maxOf(it, 4000) else it) }
         }
@@ -199,6 +219,22 @@ class OpenAiClient(
                 429 -> "OpenAI rate limit reached" + (detail?.let { ": $it" } ?: "")
                 else -> "OpenAI error $code" + (detail?.let { ": $it" } ?: "")
             }
+        }
+
+        /** Newer default models step down to one every account has. */
+        val MODEL_FALLBACKS = mapOf("gpt-5.1" to "gpt-5", "gpt-5" to "gpt-4.1", "gpt-5-mini" to "gpt-4.1-mini")
+
+        /** "The model does not exist or you do not have access to it" (404, or 400/403 naming the model). */
+        fun isModelUnavailable(e: OpenAiException): Boolean {
+            val m = e.message.orEmpty().lowercase()
+            return e.status == 404 || (e.status in setOf(400, 403) && "model" in m && ("not exist" in m || "not found" in m || "access" in m))
+        }
+
+        /** Lowest effort each model accepts: stories need good writing, not long deliberation, and speed matters. */
+        fun reasoningEffort(model: String): String = when {
+            model.startsWith("gpt-5.1") -> "none"
+            model == "gpt-5" || model.startsWith("gpt-5-") -> "minimal"
+            else -> "low"
         }
 
         fun isReasoningModel(model: String): Boolean =

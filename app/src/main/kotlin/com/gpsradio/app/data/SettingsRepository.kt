@@ -126,7 +126,7 @@ class SettingsRepository(context: Context) {
                 ?.takeUnless { plain.getInt(KEY_INTERESTS_VERSION, 1) < INTERESTS_VERSION && it == OLD_DEFAULT_INTERESTS }
                 ?: d.interests,
             models = ModelConfig(
-                // Models saved before v2 were the old mini defaults: move to the new defaults once (spec A §38).
+                // Models saved before v3 were older defaults: move to the new defaults once (spec A §38, §53).
                 narrationModel = plain.getString(KEY_NARRATION_MODEL, null)?.takeIf { modelsCurrent } ?: m.narrationModel,
                 conversationModel = plain.getString(KEY_CONVERSATION_MODEL, null)?.takeIf { modelsCurrent } ?: m.conversationModel,
                 ttsModel = plain.getString(KEY_TTS_MODEL, null) ?: m.ttsModel,
@@ -181,7 +181,7 @@ class SettingsRepository(context: Context) {
         const val KEY_INTERESTS = "interests"
         const val KEY_NARRATION_MODEL = "narration_model"
         const val KEY_MODELS_VERSION = "models_version"
-        const val MODELS_VERSION = 2
+        const val MODELS_VERSION = 3
         const val KEY_LANG_VERSION = "language_version"
         const val LANG_VERSION = 2
         const val KEY_VOICE_VERSION = "voice_version"
