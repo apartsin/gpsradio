@@ -148,6 +148,9 @@ class LiveConversation(
         }
     }
 
+    /** The host is talking or its answer is still coming out of the speaker. */
+    val isAudible: Boolean get() = speaking || audio.pendingPlaybackMs() > 0
+
     /** Typed question while the live conversation is open. */
     fun sendText(text: String) {
         val conn = connection ?: return

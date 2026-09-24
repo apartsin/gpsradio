@@ -793,3 +793,18 @@ Stories and the live conversation are the same host, so they use the same voice.
 - **Interface language.** The interface follows the narration language, not the phone's, so the app reads in the language it speaks.
   - Russian and English strings exist; other languages show English.
   - Changing the language in Settings switches the interface at once.
+
+## 50. One Voice at a Time: Steering Without Races
+
+Steering by voice ("tell me about the local wine") starts web research that can take up to 30 s. This used to race with the rest of the radio:
+
+- After 15 s of silence the assistant handed back to the radio, so the next prepared story started and was then cut off mid-sentence when the steered one was ready.
+- The steered story could also cut the assistant off mid-word.
+- A "couldn't find anything" reply could talk over a story.
+
+Now:
+
+- **The radio holds for the steer.** While a steer is being researched, nothing else airs.
+- **One voice at a time.** The steered story waits, up to 8 s, until the assistant's own words have finished playing.
+- **Cancelled on stop.** Pause, stop, skip and "back to the radio" cancel a pending steer, so it can't barge in later.
+- **Test.** `LiveVoiceTest.aSlowSteerHoldsTheRadioAndNeverTalksOverTheHost` reproduces the old race.

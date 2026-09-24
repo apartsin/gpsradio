@@ -368,6 +368,7 @@ class RadioSession(
     }
 
     fun stop() = scope.launch {
+        steerJob?.cancel()
         endLive()
         clearOffer()
         schedulerJob?.cancel()
@@ -1339,6 +1340,9 @@ class RadioSession(
         }
 
         override fun onLiveIdle() {
+            // A steered story is being researched: keep holding the radio for it, or the next prepared story would
+            // start now and then be cut off when the steered one is ready.
+            if (steerJob?.isActive == true) return
             // The exchange is over: back to the radio, the mic stays open.
             if (_state.value.radioState == RadioState.CONVERSING) {
                 clearOffer()
@@ -1389,9 +1393,10 @@ class RadioSession(
                 }
                 val action = ConversationAction.parse(arg("action"))
                 when (action) {
-                    ConversationAction.RESUME_RADIO -> { closeLive(); endConversation() }
+                    ConversationAction.RESUME_RADIO -> { steerJob?.cancel(); closeLive(); endConversation() }
                     ConversationAction.PAUSE -> { closeLive(); doPause() }
                     ConversationAction.SKIP -> {
+                        steerJob?.cancel()
                         activeId?.let { id -> candidates[id]?.let { penalize(it) } }
                         closeLive()
                         endConversation()
@@ -1569,6 +1574,7 @@ class RadioSession(
     }
 
     private fun doPause() {
+        steerJob?.cancel()
         closeLive()
         if (speechJob?.isActive == true) lastSpeechEndMs = clock()
         speechJob?.cancel()
@@ -2382,18 +2388,22 @@ class RadioSession(
             } catch (e: Exception) {
                 null
             }
+            // One voice at a time: let the host finish its sentence ("let me dig into that…") first.
+            var waited = 0L
+            while (live?.isAudible == true && waited < STEER_MAX_WAIT_MS) { delay(200); waited += 200 }
+            if (_state.value.radioState == RadioState.IDLE || _state.value.radioState == RadioState.PAUSED) return@launch
             if (facet == null) {
+                // Still holding the radio for the steer: the host says so, and the idle exchange then hands back.
                 live?.takeIf { it.isOpen }?.prompt(
                     "Tell the listener in one short sentence that you couldn't find anything reliable about \"$request\" here, and that the radio carries on.",
-                )
+                ) ?: endConversation()
                 return@launch
             }
-            val loc = _state.value.location ?: return@launch
+            val loc = _state.value.location ?: return@launch endConversation()
             closeLive()
             clearOffer()
             engagedUntilMs = 0
             speechJob?.cancel()
-            if (_state.value.radioState == RadioState.IDLE) return@launch
             setRadioState(RadioState.RADIO)
             speakFiller(Programme.Plan.Filler(SegmentFormat.AREA, areaFacet = facet), loc)
         }
@@ -2401,6 +2411,9 @@ class RadioSession(
     }
 
     private var steerJob: Job? = null
+
+    /** A steered story waits at most this long for the host to finish talking. */
+    private val STEER_MAX_WAIT_MS = 8_000L
 
     private fun maybeScoutEvents(now: Long) {
         // Drop events that are over.

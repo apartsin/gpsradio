@@ -571,6 +571,43 @@ class LiveVoiceTest {
     }
 
     @Test
+    fun aSlowSteerHoldsTheRadioAndNeverTalksOverTheHost() = runTest {
+        // Research slower than the live idle timeout (20 s here): nothing else may start meanwhile, and the steered
+        // story then waits until the host's own words have finished playing.
+        val r = Radio(listOf(place("a", Geo.destination(here, 0.0, 100.0)), place("b", Geo.destination(here, 90.0, 120.0))))
+        val conns = mutableListOf<FakeConnection>()
+        val pcm = FakePcm()
+        val research = com.gpsradio.core.discovery.AngleResearch { t, _, _, _ ->
+            delay(26_000)
+            com.gpsradio.core.discovery.AreaFacet(
+                t.scopeName, com.gpsradio.core.discovery.AreaFacetKind.OVERVIEW, "The Traunsee has char and whitefish. ".repeat(5),
+                angle = "request", title = "Fish of the Traunsee",
+            )
+        }
+        val played = mutableListOf<String>()
+        val s = session(r, conns, pcm, handsFree = { true }, angleResearch = research, audio = AudioOutput { played += String(it); delay(5_000) })
+        running(s) {
+            s.onLocation(LocationSample(here.lat, here.lon, 5f, 1_000_000, 0f)); runCurrent()
+            advanceTimeBy(3_000); runCurrent()
+            val c = conns.single()
+            c.server.trySend(RealtimeEvent.SessionReady); runCurrent()
+            c.server.trySend(RealtimeEvent.SpeechStarted); runCurrent()
+            c.server.trySend(RealtimeEvent.FunctionCall("s1", "radio_control", """{"action":"steer","request":"the fish in the lake"}""")); runCurrent()
+            val before = played.size
+            // The host's "let me dig into that" is still coming out of the speaker when the research is done.
+            advanceTimeBy(25_000); runCurrent()
+            pcm.pending = 3_000
+            assertEquals(before, played.size, "nothing else aired while the steer was researched: $played")
+            assertEquals(com.gpsradio.core.model.RadioState.CONVERSING, s.state.value.radioState)
+            advanceTimeBy(2_000); runCurrent()
+            assertEquals(before, played.size, "waits for the host to finish: $played")
+            pcm.pending = 0
+            advanceTimeBy(1_000); runCurrent()
+            assertTrue(played.drop(before).firstOrNull()?.contains("char and whitefish") == true, played.toString())
+        }
+    }
+
+    @Test
     fun speechGateSendsOnlySpeechWithPrerollAndNeedsToBeLouderThanTheRadio() {
         val gate = SpeechGate(prerollMs = 100, onsetMs = 40, hangoverMs = 200)
         fun chunk(amplitude: Int, ms: Int = 20): ByteArray {
