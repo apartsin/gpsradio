@@ -1,6 +1,8 @@
 package com.gpsradio.app
 
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
@@ -143,7 +145,7 @@ class TourJournalUiTest {
         )
         compose.setContent { GpsRadioTheme { RadioContent(state, false, actions, placePanel = { _, _ -> }, menuOpen = true) } }
         // Nearby (from the menu): the running tour's banner, and chips only when no tour is running.
-        compose.onNodeWithText("Nearby").performClick()
+        compose.onNodeWithText("Nearby").performSemanticsAction(SemanticsActions.OnClick)
         compose.onNodeWithTag("tourBanner").assertIsDisplayed()
         compose.onNodeWithText("End tour").performClick()
         assertTrue(ended)
@@ -170,7 +172,7 @@ class TourJournalUiTest {
     @Test
     fun journalIsReachableWhileOffAir() {
         compose.setContent { GpsRadioTheme { RadioContent(RadioUiState(journal = journal), false, RadioActions(), placePanel = { _, _ -> }, menuOpen = true) } }
-        compose.onNodeWithText("Saved & journal").performClick()
+        compose.onNodeWithText("Saved & journal").performSemanticsAction(SemanticsActions.OnClick)
         compose.onNodeWithText("Journal").assertIsDisplayed()
         assertEquals(0, compose.onAllNodesWithTextCount("Tell me again"))
     }

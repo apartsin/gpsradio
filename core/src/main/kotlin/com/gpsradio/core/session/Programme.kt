@@ -119,7 +119,8 @@ class Programme(val config: Config = Config()) {
         if (sinceSpeech < storyGapMs(s.mode, s.minGapMs, s.pacing)) return Plan.Wait
         val nonstop = s.pacing == Pacing.NONSTOP
         if ((lastWasFiller && !nonstop) || isDense(s)) return Plan.None
-        if (storiesSinceStationId >= config.stationIdEveryStories && s.recentTitles.size >= config.stationIdMinTitles) {
+        // Non-stop is a continuous stream of stories: no recap breaks (they can't be prepared ahead either).
+        if (!nonstop && storiesSinceStationId >= config.stationIdEveryStories && s.recentTitles.size >= config.stationIdMinTitles) {
             return Plan.Filler(SegmentFormat.STATION_ID)
         }
         // "Tonight at eight…" loses its value if it waits for a quiet moment.

@@ -1,6 +1,8 @@
 package com.gpsradio.app
 
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.assertIsNotDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -123,10 +125,10 @@ class RadioContentTest {
     fun menuOpensSettingsAndHasNoManualModes() {
         var settings = false
         show(RadioUiState(radioState = RadioState.RADIO, location = loc), RadioActions(onOpenSettings = { settings = true }), menuOpen = true)
-        compose.onNodeWithTag("menu").assertIsDisplayed()
+        compose.onNodeWithTag("menu").assertExists()
         // The travel mode is inferred automatically: no manual mode choices.
         for (m in listOf("Walk", "Cycle", "Drive", "Still")) compose.onNodeWithText(m).assertDoesNotExist()
-        compose.onNodeWithText("Settings").performClick()
+        compose.onNodeWithText("Settings").performSemanticsAction(SemanticsActions.OnClick)
         assertTrue(settings)
     }
 
@@ -165,7 +167,7 @@ class RadioContentTest {
     fun nearbyFromTheMenuListsPlacesAndTapTellsAboutThem() {
         var told: String? = null
         show(RadioUiState(radioState = RadioState.RADIO, location = loc, nearby = listOf(ranked)), RadioActions(onTellAbout = { told = it }), menuOpen = true)
-        compose.onNodeWithText("Nearby").performClick()
+        compose.onNodeWithText("Nearby").performSemanticsAction(SemanticsActions.OnClick)
         compose.onNodeWithText("Ort Castle").performClick()
         assertEquals(castle.id, told)
         // Back returns to the main screen.

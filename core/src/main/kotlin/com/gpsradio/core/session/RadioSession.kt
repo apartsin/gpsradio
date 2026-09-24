@@ -353,7 +353,8 @@ class RadioSession(
         schedulerJob = scope.launch {
             while (isActive) {
                 tick()
-                delay(tickMs)
+                // Wait for the next tick, or less when a segment just ended and non-stop wants the next one now.
+                kotlinx.coroutines.withTimeoutOrNull(tickMs) { wake.receive() }
             }
         }
     }
@@ -932,7 +933,8 @@ class RadioSession(
                 !teaserEligible(r) &&
                 (!moving || (r.distanceM > travelled * 0.6 && Geo.angleDiff(r.bearingDeg, loc.headingDeg ?: r.bearingDeg) < 80)) &&
                 // Ignore the temporary conversation-cost penalty: it will have decayed by the time this airs.
-                r.score + ranker.weights.conversationCost * r.breakdown.conversationCost >= ranker.thresholdFor(config().pacing)
+                r.score + ranker.weights.conversationCost * r.breakdown.conversationCost >= prefetchThreshold() &&
+                r.breakdown.novelty > 0.0 && !(r.place.extract ?: r.place.description).isNullOrBlank()
         } ?: return
         if (prefetched?.placeId == next.place.id) return
         val lang = sessionLanguage
@@ -944,7 +946,17 @@ class RadioSession(
         }
     }
 
+    /** Non-stop also airs weaker ("relaxed") places, so it prepares those ahead too. */
+    private fun prefetchThreshold(): Double {
+        val pacing = config().pacing
+        val t = ranker.thresholdFor(pacing)
+        return if (pacing == Pacing.NONSTOP) t * programme.config.relaxedFactor else t
+    }
+
     // ---- researched/area stories prepared ahead --------------------------------------------
+
+    /** The area story on air now (so the one prepared next isn't the same). */
+    private var airingFacetId: String? = null
 
     private var preparedArea: Triple<String, String, Pair<Segment, ByteArray>>? = null
     private var areaPrefetchJob: Job? = null
@@ -1561,7 +1573,28 @@ class RadioSession(
         runCatching { historyStore.save(heard.serialize(clock())) }
     }
 
-    private fun setRadioState(s: RadioState) = _state.update { it.copy(radioState = s) }
+    private fun setRadioState(s: RadioState) {
+        val before = _state.value.radioState
+        _state.update { it.copy(radioState = s) }
+        // Non-stop: when a segment ends, look for the next one right after the gap, not at the next 3 s tick.
+        if (s == RadioState.RADIO && before == RadioState.NARRATING && config().pacing == Pacing.NONSTOP) wakeAfterGap()
+    }
+
+    /** Wakes the scheduler early (non-stop continuity). */
+    private val wake = kotlinx.coroutines.channels.Channel<Unit>(kotlinx.coroutines.channels.Channel.CONFLATED)
+    private var wakeJob: Job? = null
+
+    private fun wakeAfterGap() {
+        val loc = _state.value.location ?: return
+        val pacing = config().pacing
+        val minGap = ranker.minGapMs(loc.travelMode, pacing)
+        val gap = maxOf(minGap, programme.storyGapMs(loc.travelMode, minGap, pacing))
+        wakeJob?.cancel()
+        wakeJob = scope.launch {
+            delay(gap + 50)
+            wake.trySend(Unit)
+        }
+    }
 
     /** Clearing the status falls back to the preview-mode note while there is no key. */
     private fun setStatus(msg: String?, level: StatusLevel = StatusLevel.INFO) =
@@ -2083,7 +2116,12 @@ class RadioSession(
                     prefetchNext(excludeId = c?.place?.id ?: "", leadMs = spokenMs(segment.text))
                     if (prefetchJob?.isActive != true && prefetched == null) prefetchArea(excludeId = plan.areaFacet?.id)
                 }
-                audio.play(bytes)
+                airingFacetId = plan.areaFacet?.id
+                try {
+                    audio.play(bytes)
+                } finally {
+                    airingFacetId = null
+                }
                 programme.onFillerAired(plan.format, c?.place?.id, clock(), dayKey(day), plan.areaFacet?.id)
                 // A bumper or quiz touched the place: it stays a candidate, but less novel.
                 c?.let { mentionedIds += it.place.id }
@@ -2238,7 +2276,8 @@ class RadioSession(
         val unheard = ranked.count { it.breakdown.novelty > 0.0 && !(it.place.extract ?: it.place.description).isNullOrBlank() }
         val told = programme.toldFacets.toSet()
         val readyFacets = (areaFacets + currentResearched()).count { it.id !in told }
-        if (unheard >= 3 || readyFacets >= 2) return
+        // Untold: the one on air, the one prepared next, and one more in reserve.
+        if (unheard >= 3 || readyFacets >= 3) return
         while (angleLookupTimes.isNotEmpty() && now - angleLookupTimes.first() > 3_600_000L) angleLookupTimes.removeFirst()
         if (angleLookupTimes.size >= ANGLE_LOOKUPS_PER_HOUR) return
         val avoid = memory.topicWeights().filterValues { it < 0.5 }.keys
@@ -2258,7 +2297,13 @@ class RadioSession(
                 angleBackoffUntilMs = clock() + 60_000L
                 null
             }
-            if (facet != null) researchedFacets += facet
+            if (facet != null) {
+                researchedFacets += facet
+                // Found while something plays: prepare it now so it can follow without a pause.
+                if (_state.value.radioState == RadioState.NARRATING && prefetchJob?.isActive != true && prefetched == null) {
+                    prefetchArea(excludeId = airingFacetId)
+                }
+            }
         }
     }
 
