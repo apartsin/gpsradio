@@ -65,6 +65,12 @@ class RadioEndToEndTest {
 
     private fun fix() = app.session.onLocation(LocationSample(47.9180, 13.7990, 5f, System.currentTimeMillis(), 0f))
 
+    private fun openMenuItem(label: String) {
+        compose.onNodeWithContentDescription("Menu").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText(label).performClick()
+    }
+
     @Test
     fun narratesNearbyStoryAnswersQuestionAndRemembersPreference() {
         // First launch: enter a (fake) key.
@@ -72,33 +78,34 @@ class RadioEndToEndTest {
         compose.onNodeWithText("Save and start listening").performScrollTo().performClick()
 
         // Saving starts the radio right away (location already granted); feed GPS fixes.
-        waitFor(hasText("Stop"), 10_000)
+        waitFor(hasContentDescription("Stop radio"), 10_000)
         repeat(3) { fix(); Thread.sleep(300) }
 
-        // A grounded story about the nearby castle is narrated and shown.
+        // The main screen shows the place on air; the story itself is in the Transcript (menu).
+        waitFor(hasText("Schloss Ort"), 30_000)
+        openMenuItem("Transcript")
         waitFor(hasText("FAKE-STORY", substring = true), 30_000)
         assertTrue(FakeServices.played.any { it.startsWith("AUDIO:") })
 
-        // Ask a follow-up by typing; the answer arrives in the transcript.
-        compose.onNodeWithTag("askField").performTextInput("How long is the bridge?")
-        compose.onNodeWithContentDescription("Send").performClick()
+        // A follow-up question (spoken in the app; sent as text here): the answer arrives in the transcript.
+        app.session.ask("How long is the bridge?")
         waitFor(hasText("FAKE-ANSWER", substring = true), 30_000)
-        compose.onNodeWithText("Transcript").performClick()
         compose.onNodeWithTag("transcript").performScrollToNode(hasText("How long is the bridge?"))
-        compose.onNodeWithText("Now").performClick()
+        compose.onNodeWithContentDescription("Back").performClick()
 
-        // Star the place in focus; it appears in the Saved tab.
-        compose.onNodeWithContentDescription("Save place").performClick()
-        compose.onNodeWithText("Saved").performClick()
+        // Saved places (voice: "save this place"): it appears under Saved & journal in the menu.
+        val focus = app.session.state.value.focus!!.id
+        app.session.toggleFavorite(focus)
+        openMenuItem("Saved & journal")
         waitFor(hasText("Schloss Ort"), 5_000)
-        compose.onNodeWithText("Now").performClick()
+        compose.onNodeWithContentDescription("Back").performClick()
 
-        // The preference the model extracted is remembered and visible in Settings.
-        compose.onNodeWithContentDescription("Settings").performClick()
+        // The preference the model extracted is remembered and visible in Settings (menu).
+        openMenuItem("Settings")
         waitFor(hasText("style: Keep stories short"), 10_000)
         compose.onNodeWithContentDescription("Back").performClick()
 
-        compose.onNodeWithText("Stop").performClick()
+        compose.onNodeWithContentDescription("Stop radio").performClick()
         waitFor(hasText("Off air"), 10_000)
     }
 }

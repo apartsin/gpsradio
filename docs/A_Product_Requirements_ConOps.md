@@ -566,3 +566,38 @@ Everything the radio airs on its own is about where the listener is. Nothing air
 - **Framing.** The narration ties the event to the place ("right here in Gmunden…") and never invents a connection.
 
 Answers to the listener's own questions follow the question, wherever it leads.
+
+## 36. A Minimal, Voice-First Main Screen
+
+The main screen has only the essentials:
+
+- **Start / Stop radio:** one big button.
+- **Mic open / closed:** one big button.
+  - **Open** means just talk at any time: always listening with the natural voice. The first tap asks for the microphone permission.
+  - **Closed** means the mic is off.
+  - The notification's Mic action does the same.
+- **The image / map area:** the photo of the place on air, or the map. Under it are the place name (with the ON AIR light) and one status line. An error that needs the API key links to Settings.
+- **Menu (☰):**
+  - travel mode: Auto, Walk, Cycle, Drive or Still;
+  - Nearby, with events today and walking tours;
+  - Saved & journal;
+  - Transcript;
+  - an available update;
+  - Settings.
+
+Driving uses the same screen.
+
+**Removed from the main screen:**
+- Pause, Skip, Repeat and Nearby? buttons;
+- the ask field;
+- the tabs;
+- the star, share and navigate buttons;
+- the offer and detour cards;
+- the separate driving layout.
+
+These are now by voice ("skip", "pause", «следующий», "save this place", "yes / not now", "navigate there"), and the Nearby and Saved pages still have per-place actions. Pause and skip also stay on the notification, lock screen and headset or car buttons (previous = repeat).
+
+**Mic closed means no questions.** The listener can't answer, so the radio asks nothing it would need an answer to (`SessionConfig.canReply`):
+- no "want the full story?" teasers (the full story is told);
+- no detour offers: a worth-a-stop story describes the detour without offering to navigate;
+- no trip or preference questions.

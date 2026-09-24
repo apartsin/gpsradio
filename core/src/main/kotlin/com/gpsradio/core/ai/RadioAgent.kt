@@ -162,6 +162,8 @@ data class NarrationRequest(
     val visit: VisitInfo? = null,
     /** Detour length there and back, minutes, for a worth-a-stop place. */
     val detourMinutes: Int? = null,
+    /** The listener can answer out loud; when false the segment must not end with an offer or question. */
+    val canReply: Boolean = true,
 )
 
 data class ConversationTurn(val fromUser: Boolean, val text: String)
@@ -267,6 +269,7 @@ class RadioAgent(
             }
             c.place.eventYear?.let { put("event_year", it) }
             req.detourMinutes?.let { put("detour_minutes", it) }
+            if (!req.canReply) put("listener_can_reply", false)
             req.visit?.let { v ->
                 putJsonObject("visit") {
                     put(
@@ -622,6 +625,8 @@ class RadioAgent(
               using "detour_minutes" and "visit": a quick look or a proper visit, how long to spend, whether there's a
               walk and how hard it is, and what to expect. Then end with ONE short, low-pressure offer to take them
               there (for example "Want me to navigate there?"). Do not offer more than once.
+            - "listener_can_reply" false: the listener's mic is off, so end with no question or offer at all; for
+              "worth_a_stop" describe the detour and say it could be worth a stop, without offering to navigate.
             - "visit" holds practical facts ("checked" says from where). Mention today's hours or "closed today" and the
               admission briefly and naturally ("open until five, eight euros for adults, according to their website").
               If "visit" is missing or a value is absent, don't guess: say at most that hours or prices couldn't be

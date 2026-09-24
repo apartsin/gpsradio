@@ -108,7 +108,9 @@ class RadioService : Service() {
             ACTION_MIC -> {
                 // Mic switch from the notification / lock screen: always listening on or off.
                 val app = application as GpsRadioApp
-                app.settings.update { it.copy(alwaysListening = !it.alwaysListening) }
+                app.settings.update {
+                    if (it.liveVoice && it.alwaysListening) it.copy(alwaysListening = false) else it.copy(liveVoice = true, alwaysListening = true)
+                }
                 updateMediaUi(session.state.value)
                 return START_STICKY
             }
@@ -338,8 +340,8 @@ class RadioService : Service() {
             .addAction(android.R.drawable.ic_media_next, "Skip", action(ACTION_SKIP, 3))
             .apply {
                 val app = application as GpsRadioApp
-                if (app.settings.current.liveVoice) {
-                    val on = app.settings.current.alwaysListening
+                run {
+                    val on = app.settings.current.alwaysListening && app.settings.current.liveVoice
                     addAction(
                         if (on) android.R.drawable.ic_btn_speak_now else android.R.drawable.ic_lock_silent_mode,
                         if (on) "Mic off" else "Mic on",

@@ -43,20 +43,6 @@ class PreviewAndTrustUiTest {
     private val loc = LocationContext(GeoPoint(47.61, 13.78), 6f, 0, 1.2, 0.0, TravelMode.WALKING)
 
     @Test
-    fun nowPlayingShowsWhyThisStoryAndBasisChip() {
-        val seg = Segment("The castle rises from the lake.", "wiki:en:1", "Ort Castle", emptyList(), basis = StoryBasis.MIXED)
-        val state = RadioUiState(
-            radioState = RadioState.NARRATING,
-            location = loc,
-            nowPlaying = seg,
-            nowPlayingReason = "Close by (200 m) · matches your interest in history · well documented",
-        )
-        compose.setContent { GpsRadioTheme { RadioContent(state, false, RadioActions(), placePanel = { _, _ -> }) } }
-        compose.onNodeWithText("Close by (200 m) · matches your interest in history · well documented").assertIsDisplayed()
-        compose.onNodeWithText("Includes legend").assertIsDisplayed()
-    }
-
-    @Test
     fun previewStatusOffersToAddKey() {
         var opened = false
         val state = RadioUiState(

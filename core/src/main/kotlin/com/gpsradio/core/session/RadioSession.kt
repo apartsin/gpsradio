@@ -770,7 +770,7 @@ class RadioSession(
                 setRadioState(RadioState.RADIO)
                 rerank()
                 // The story ended with "want me to navigate there?": take a yes as directions.
-                if (c.roadTrip == RoadTripKind.WORTH_A_STOP && segment.text.trimEnd().endsWith("?")) offerDetour(c.place)
+                if (c.roadTrip == RoadTripKind.WORTH_A_STOP && config().canReply && segment.text.trimEnd().endsWith("?")) offerDetour(c.place)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: NotInListenerLanguageException) {
@@ -800,7 +800,7 @@ class RadioSession(
         val (atPlayback, rel) = projectForPlayback(c, loc, prepLatencyMs.toLong())
         val base = NarrationRequest(
             rel, atPlayback, lang, cfg.interests, recentTitles.toList(), memory.promptLines(),
-            style = cfg.style, format = format, tripContext = tripContext,
+            style = cfg.style, format = format, tripContext = tripContext, canReply = cfg.canReply,
         )
         if (onDeviceNow()) return prepareOnDevice(base)
         val request = if (format == SegmentFormat.STORY) {
@@ -1329,7 +1329,7 @@ class RadioSession(
     }
 
     private fun shouldTease(c: RankedCandidate): Boolean =
-        teaserEligible(c) && storiesSinceTeaser >= 2 && !onDeviceNow() &&
+        config().canReply && teaserEligible(c) && storiesSinceTeaser >= 2 && !onDeviceNow() &&
             config().pacing != Pacing.NONSTOP // no answer window in non-stop
 
     private fun clearOffer() {
@@ -1379,7 +1379,7 @@ class RadioSession(
     /** Asks a driver once per session where they're heading, to shape stories along the route. */
     private fun maybeAskAboutTrip(): Boolean {
         val loc = _state.value.location ?: return false
-        if (tripAsked || tripContext != null || loc.travelMode != TravelMode.DRIVING || !config().askAboutTrip) return false
+        if (tripAsked || tripContext != null || loc.travelMode != TravelMode.DRIVING || !config().askAboutTrip || !config().canReply) return false
         // The question needs a model to understand the answer.
         if (config().previewMode || !isOnline()) return false
         tripAsked = true
@@ -1392,7 +1392,7 @@ class RadioSession(
      */
     private fun maybeAskPreferences(): Boolean {
         val cfg = config()
-        if (preferencesAsked || !cfg.askPreferences || cfg.pacing == Pacing.NONSTOP || cfg.previewMode || !isOnline()) return false
+        if (preferencesAsked || !cfg.askPreferences || !cfg.canReply || cfg.pacing == Pacing.NONSTOP || cfg.previewMode || !isOnline()) return false
         if (recentTitles.size < 4 || memory.promptLines().size >= 3) return false
         preferencesAsked = true
         return askHost(HostLine.PREFERENCE_QUESTION)

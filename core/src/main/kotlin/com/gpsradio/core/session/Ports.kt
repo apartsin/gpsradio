@@ -64,6 +64,11 @@ data class SessionConfig(
     val localEvents: Boolean = false,
     /** Once per session, after a few stories, ask what the listener would like more of (never a knowledge quiz). */
     val askPreferences: Boolean = false,
+    /**
+     * The listener can answer out loud (the mic is open). When false the radio asks nothing it would need an
+     * answer to: no "want the full story?" teasers, detour offers or trip/preference questions (spec A §36).
+     */
+    val canReply: Boolean = true,
     /** True when running on the app's built-in key rather than the listener's own (changes the out-of-credit advice). */
     val usingBuiltInKey: Boolean = false,
 )

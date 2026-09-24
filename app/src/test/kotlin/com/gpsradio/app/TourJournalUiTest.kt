@@ -134,7 +134,7 @@ class TourJournalUiTest {
         onAllNodes(androidx.compose.ui.test.hasText(text)).fetchSemanticsNodes().size
 
     @Test
-    fun radioScreenShowsTourBannerChipsAndJournalTab() {
+    fun menuPagesShowTourBannerChipsAndJournal() {
         val started = mutableListOf<Int>()
         var ended = false
         val exported = mutableListOf<String>()
@@ -147,19 +147,21 @@ class TourJournalUiTest {
             RadioUiState(radioState = RadioState.RADIO, location = loc, tour = tour, journal = journal),
         )
         compose.setContent { GpsRadioTheme { RadioContent(state, false, actions, placePanel = { _, _ -> }) } }
+        // Nearby (from the menu): the running tour's banner, and chips only when no tour is running.
+        compose.onNodeWithContentDescription("Menu").performClick()
+        compose.onNodeWithText("Nearby").performClick()
         compose.onNodeWithTag("tourBanner").assertIsDisplayed()
         compose.onNodeWithText("End tour").performClick()
         assertTrue(ended)
-
-        // Nearby: chips only when no tour is running.
-        compose.onNodeWithText("Nearby").performClick()
         assertEquals(0, compose.onAllNodesWithTextCount("30 min"))
         state = state.copy(tour = null)
         compose.onNodeWithText("30 min").performClick()
         assertEquals(listOf(30), started)
 
-        // Saved: the journal section with its GPX export.
-        compose.onNodeWithText("Saved").performClick()
+        // Saved & journal: the journal section with its GPX export.
+        compose.onNodeWithContentDescription("Back").performClick()
+        compose.onNodeWithContentDescription("Menu").performClick()
+        compose.onNodeWithText("Saved & journal").performClick()
         compose.onNodeWithText("Journal").assertIsDisplayed()
         assertEquals(2, compose.onAllNodesWithTextCount("Tell me again"))
         compose.onAllNodes(androidx.compose.ui.test.hasText("Export GPX"))[0].performClick()
@@ -167,9 +169,10 @@ class TourJournalUiTest {
     }
 
     @Test
-    fun idleScreenOffersSavedTabForJournalOnly() {
+    fun journalIsReachableWhileOffAir() {
         compose.setContent { GpsRadioTheme { RadioContent(RadioUiState(journal = journal), false, RadioActions(), placePanel = { _, _ -> }) } }
-        compose.onNodeWithText("Saved (0)").performClick()
+        compose.onNodeWithContentDescription("Menu").performClick()
+        compose.onNodeWithText("Saved & journal").performClick()
         compose.onNodeWithText("Journal").assertIsDisplayed()
         assertEquals(0, compose.onAllNodesWithTextCount("Tell me again"))
     }

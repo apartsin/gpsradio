@@ -1,6 +1,22 @@
 package com.gpsradio.app.ui
 
-import androidx.compose.material3.LocalContentColor
+import androidx.activity.compose.BackHandler
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.NavigationDrawerItem
+import androidx.compose.material3.rememberDrawerState
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import com.gpsradio.core.session.StatusLevel
+import kotlinx.coroutines.launch
 import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.ui.platform.LocalUriHandler
 import com.gpsradio.core.events.EventScout
@@ -182,6 +198,8 @@ fun RadioScreen(vm: MainViewModel, onOpenSettings: () -> Unit, autoStart: Boolea
     var micGranted by remember { mutableStateOf(granted(Manifest.permission.RECORD_AUDIO)) }
     val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
         micGranted = ok
+        // Granted from the mic switch: open the mic right away.
+        if (ok) vm.saveSettings { it.copy(liveVoice = true, alwaysListening = true) }
         // Re-start the running service so it gains the microphone type (hands-free with the screen off).
         if (ok && state.radioState != com.gpsradio.core.model.RadioState.IDLE) vm.startRadio()
     }
@@ -232,7 +250,14 @@ fun RadioScreen(vm: MainViewModel, onOpenSettings: () -> Unit, autoStart: Boolea
         onLiveToggle = {
             if (granted(Manifest.permission.RECORD_AUDIO)) vm.toggleLive() else micPermission.launch(Manifest.permission.RECORD_AUDIO)
         },
-        onToggleListening = { vm.saveSettings { it.copy(alwaysListening = !it.alwaysListening) } },
+        // The mic switch: open = natural voice + always listening; asks for the mic permission first.
+        onToggleListening = {
+            if (!granted(Manifest.permission.RECORD_AUDIO)) {
+                micPermission.launch(Manifest.permission.RECORD_AUDIO)
+            } else {
+                vm.saveSettings { if (it.liveVoice && it.alwaysListening) it.copy(alwaysListening = false) else it.copy(liveVoice = true, alwaysListening = true) }
+            }
+        },
         onStartTour = vm::startTour,
         onEndTour = vm::endTour,
         journal = JournalActions(
@@ -262,6 +287,15 @@ fun RadioScreen(vm: MainViewModel, onOpenSettings: () -> Unit, autoStart: Boolea
     )
 }
 
+/** Secondary pages reached from the menu (the main screen itself shows only the essentials). */
+enum class RadioPage(val title: String) { NEARBY("Nearby"), SAVED("Saved & journal"), TRANSCRIPT("Transcript") }
+
+/**
+ * The main screen, voice-first and deliberately minimal (spec A §36): the photo/map of what's on air, and two big
+ * controls, radio on/off and microphone open/closed. Everything else lives behind the menu: travel mode, Nearby,
+ * Saved & journal, Transcript, updates and Settings. Pause, skip, "tell me more" and answers to offers are by
+ * voice (or the notification, lock screen and headset buttons).
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RadioContent(
@@ -274,114 +308,293 @@ fun RadioContent(
     onOpenAppSettings: () -> Unit = {},
     approximateOnly: Boolean = false,
     onRequestPrecise: () -> Unit = {},
-    /** Natural voice: the mic is tap-to-talk hands-free instead of hold-to-talk. */
+    /** Natural voice is available (setting on and the mic permission granted). */
     liveMode: Boolean = false,
     update: UpdateState = UpdateState.Idle,
     onInstallUpdate: (UpdateInfo) -> Unit = {},
     onAllowInstalls: () -> Unit = {},
-    /** Always listening is switched on (only meaningful with [liveMode]). */
+    /** Always listening is switched on: with [liveMode], the mic is open. */
     alwaysListening: Boolean = false,
+    /** Opens this secondary page right away (tests). */
+    initialPage: RadioPage? = null,
 ) {
     val running = state.radioState != RadioState.IDLE
-    val driving = (state.modeOverride ?: state.location?.travelMode) == TravelMode.DRIVING
+    val micOpen = liveMode && alwaysListening
     val starredIds = remember(state.favorites) { state.favorites.map { it.id }.toSet() }
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text("GPS Radio", fontWeight = FontWeight.Bold)
-                        val sub = listOfNotNull(
-                            state.area?.city,
-                            Languages.displayName(state.sessionLanguage),
-                            "listening".takeIf { state.listening && alwaysListening && liveMode },
-                        ).joinToString(" · ")
-                        Text(sub, style = MaterialTheme.typography.labelMedium)
-                    }
+    val drawer = rememberDrawerState(DrawerValue.Closed)
+    val scope = rememberCoroutineScope()
+    var page by remember { mutableStateOf(initialPage) }
+    val closeMenu = { scope.launch { drawer.close() } }
+
+    BackHandler(enabled = page != null) { page = null }
+    Box(Modifier.fillMaxSize()) {
+        ModalNavigationDrawer(
+            drawerState = drawer,
+            drawerContent = {
+                RadioMenu(
+                    state = state,
+                    update = update,
+                    onMode = { actions.onMode(it); closeMenu() },
+                    onPage = { page = it; closeMenu() },
+                    onSettings = { closeMenu(); actions.onOpenSettings() },
+                    onInstallUpdate = onInstallUpdate,
+                    onAllowInstalls = onAllowInstalls,
+                )
+            },
+        ) {
+            Scaffold(
+                topBar = {
+                    TopAppBar(
+                        navigationIcon = {
+                            IconButton(onClick = { scope.launch { drawer.open() } }, modifier = Modifier.testTag("menuButton")) {
+                                Icon(Icons.Default.Menu, "Menu")
+                            }
+                        },
+                        title = {
+                            Column {
+                                Text("GPS Radio", fontWeight = FontWeight.Bold)
+                                val mode = (state.modeOverride ?: state.location?.travelMode)?.takeIf { running && it != TravelMode.UNKNOWN }
+                                val sub = listOfNotNull(
+                                    state.area?.city,
+                                    Languages.displayName(state.sessionLanguage),
+                                    mode?.let { modeInfo(it).title },
+                                ).joinToString(" · ")
+                                Text(sub, style = MaterialTheme.typography.labelMedium)
+                            }
+                        },
+                    )
                 },
-                actions = {
-                    // The mic switch: always listening on/off, reachable in one tap (also while driving).
-                    if (liveMode && running) {
-                        IconButton(onClick = actions.onToggleListening, modifier = Modifier.testTag("micSwitch")) {
-                            Icon(
-                                if (alwaysListening) Icons.Default.Mic else Icons.Default.MicOff,
-                                if (alwaysListening) "Turn microphone off" else "Turn microphone on",
-                                tint = if (alwaysListening && state.listening) MaterialTheme.colorScheme.primary else LocalContentColor.current,
-                            )
+            ) { pad ->
+                Column(
+                    Modifier
+                        .padding(pad)
+                        .fillMaxSize()
+                        .padding(horizontal = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    if (locationDenied) PermissionCard(onOpenAppSettings)
+                    if (approximateOnly && running) PreciseLocationCard(onRequestPrecise)
+                    // The image/map area: what's on air, or where you are.
+                    Box(Modifier.weight(1f).fillMaxWidth()) {
+                        if (running) {
+                            placePanel(state, Modifier.fillMaxSize())
+                        } else {
+                            Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(Icons.Default.Radio, null, Modifier.size(96.dp), tint = MaterialTheme.colorScheme.primary)
+                                Text(
+                                    "Stories about the places around you, told as you go.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(top = 12.dp),
+                                )
+                            }
                         }
                     }
-                    if (running) TextButton(onClick = actions.onStop) { Text("Stop") }
-                    IconButton(onClick = actions.onOpenSettings) { Icon(Icons.Default.Settings, "Settings") }
-                },
-            )
-        },
-    ) { pad ->
-        Column(
-            Modifier
-                .padding(pad)
-                .fillMaxSize()
-                .imePadding()
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            StatusCard(state, onMode = actions.onMode, onFixKey = actions.onOpenSettings)
-            if (locationDenied) PermissionCard(onOpenAppSettings)
-            if (approximateOnly && running) PreciseLocationCard(onRequestPrecise)
-            // Never distract the driver with an update prompt.
-            if (!driving) UpdateBanner(update, onInstallUpdate, onAllowInstalls)
-            state.pendingOffer?.let { OfferCard(it, state.pendingOfferKind, actions.onAnswerOffer) }
-            if (!running) {
-                IdleContent(state, actions, starredIds, Modifier.weight(1f))
-            } else if (driving) {
-                DrivingContent(state, recording, actions, starredIds, liveMode, Modifier.weight(1f))
-            } else {
-                ContentTabs(state, starredIds, actions, placePanel, Modifier.weight(1f))
-                Controls(state, actions)
-                TalkBar(recording, actions, liveMode, state)
+                    NowLine(state, micOpen, onFixKey = actions.onOpenSettings)
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(40.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(bottom = 16.dp),
+                    ) {
+                        RadioOnOffButton(running, onStart = actions.onStart, onStop = actions.onStop)
+                        MicSwitch(micOpen, running, state.live, recording, onToggle = actions.onToggleListening)
+                    }
+                }
+            }
+        }
+        page?.let { p ->
+            RadioPageScreen(p, onClose = { page = null }) {
+                when (p) {
+                    RadioPage.NEARBY -> Column {
+                        state.tour?.let { TourBanner(it, state.location, actions.onEndTour) }
+                        TourChips(state.tour, actions.onStartTour)
+                        Nearby(state, starredIds, actions)
+                    }
+                    RadioPage.SAVED -> Saved(state.favorites, actions, state.journal, canRetell = running)
+                    RadioPage.TRANSCRIPT -> Transcript(state.transcript)
+                }
             }
         }
     }
 }
 
-// ---- idle ----------------------------------------------------------------------------------
-
+/** The place on air (or the radio's state) and one line of status. */
 @Composable
-private fun IdleContent(state: RadioUiState, actions: RadioActions, starredIds: Set<String>, modifier: Modifier) {
-    var tab by remember { mutableIntStateOf(0) }
-    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        if (state.favorites.isNotEmpty() || state.journal.isNotEmpty()) {
-            TabRow(selectedTabIndex = tab) {
-                Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Listen") })
-                Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Saved (${state.favorites.size})") })
-            }
-        }
-        if (tab == 1 && (state.favorites.isNotEmpty() || state.journal.isNotEmpty())) {
-            Saved(state.favorites, actions, state.journal)
-            return@Column
-        }
-        Spacer(Modifier.weight(1f))
-        FilledIconButton(
-            onClick = actions.onStart,
-            modifier = Modifier.size(112.dp),
-            shape = CircleShape,
-        ) { Icon(Icons.Default.PlayArrow, "Start radio", Modifier.size(64.dp)) }
-        Spacer(Modifier.size(12.dp))
-        Text("Start listening", style = MaterialTheme.typography.titleMedium)
-        Text(
-            "Stories about the places around you, told as you go.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),
-        )
-        Spacer(Modifier.weight(1f))
-        if (starredIds.isEmpty()) {
+private fun NowLine(state: RadioUiState, micOpen: Boolean, onFixKey: () -> Unit) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (state.radioState == RadioState.NARRATING) OnAirBadge()
             Text(
-                "Tip: tap ☆ on any story to save it for later.",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(bottom = 16.dp),
+                state.focus?.name?.takeIf { state.radioState != RadioState.IDLE } ?: stateLabel(state),
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
             )
         }
+        val status = state.status
+        val line = when {
+            status != null -> status.text
+            state.radioState == RadioState.IDLE -> null
+            state.focus != null -> stateLabel(state) + (state.live?.let { " · " + micHint(false, true, it) } ?: "")
+            micOpen && state.live != null -> micHint(false, true, state.live)
+            else -> null
+        }
+        line?.let {
+            val color = when (status?.level) {
+                StatusLevel.ERROR -> MaterialTheme.colorScheme.error
+                StatusLevel.WORKING -> MaterialTheme.colorScheme.primary
+                else -> MaterialTheme.colorScheme.onSurfaceVariant
+            }
+            Text(
+                it,
+                style = MaterialTheme.typography.bodyMedium,
+                color = color,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+                modifier = if (status?.needsKey == true) Modifier.clickable(onClickLabel = status?.actionLabel ?: "Open Settings", onClick = onFixKey) else Modifier,
+            )
+            if (status?.needsKey == true) {
+                Text(
+                    status?.actionLabel ?: "Open Settings",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.clickable(onClick = onFixKey).padding(4.dp),
+                )
+            }
+        }
+    }
+}
+
+/** Radio on/off: the one big play/stop button. */
+@Composable
+private fun RadioOnOffButton(running: Boolean, onStart: () -> Unit, onStop: () -> Unit) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        FilledIconButton(
+            onClick = if (running) onStop else onStart,
+            modifier = Modifier.size(96.dp),
+            shape = CircleShape,
+        ) {
+            Icon(if (running) Icons.Default.Stop else Icons.Default.PlayArrow, if (running) "Stop radio" else "Start radio", Modifier.size(56.dp))
+        }
+        Text(if (running) "Stop" else "Start", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 4.dp))
+    }
+}
+
+/** Microphone open/closed: when open, just talk to the radio at any time (always listening). */
+@Composable
+private fun MicSwitch(open: Boolean, running: Boolean, live: LiveState?, recording: Boolean, onToggle: () -> Unit) {
+    val haptics = LocalHapticFeedback.current
+    val active = open && running && (live == LiveState.USER_SPEAKING || live == LiveState.ASSISTANT_SPEAKING) || recording
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        val colors = if (open) {
+            IconButtonDefaults.filledIconButtonColors()
+        } else {
+            IconButtonDefaults.filledIconButtonColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        FilledIconButton(
+            onClick = { haptics.performHapticFeedback(HapticFeedbackType.LongPress); onToggle() },
+            modifier = Modifier.size(96.dp).testTag("micSwitch").semantics {
+                contentDescription = if (open) "Turn microphone off" else "Turn microphone on"
+                stateDescription = if (open) "Microphone open" else "Microphone closed"
+            },
+            shape = CircleShape,
+            colors = colors,
+        ) {
+            if (active) {
+                Equalizer(Modifier.size(44.dp), color = MaterialTheme.colorScheme.onPrimary)
+            } else {
+                Icon(if (open) Icons.Default.Mic else Icons.Default.MicOff, null, Modifier.size(48.dp))
+            }
+        }
+        Text(if (open) "Mic on" else "Mic off", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 4.dp))
+    }
+}
+
+/** What the live voice is doing, in a few words (shown under the place name). */
+fun micHint(recording: Boolean, liveMode: Boolean, live: LiveState?): String = when {
+    live == LiveState.CONNECTING -> "Connecting…"
+    live == LiveState.USER_SPEAKING -> "I'm listening…"
+    live == LiveState.ASSISTANT_SPEAKING -> "Talk anytime to interrupt"
+    live == LiveState.LISTENING -> "Just talk"
+    liveMode -> "Tap to talk"
+    recording -> "Listening… release to send"
+    else -> "Hold to talk"
+}
+
+/** The menu: travel mode, the secondary pages, an available update, and Settings. */
+@Composable
+private fun RadioMenu(
+    state: RadioUiState,
+    update: UpdateState,
+    onMode: (TravelMode?) -> Unit,
+    onPage: (RadioPage) -> Unit,
+    onSettings: () -> Unit,
+    onInstallUpdate: (UpdateInfo) -> Unit,
+    onAllowInstalls: () -> Unit,
+) {
+    ModalDrawerSheet(Modifier.testTag("menu")) {
+        Column(Modifier.verticalScroll(rememberScrollState()).padding(vertical = 12.dp)) {
+            Text("Mode", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(horizontal = 28.dp, vertical = 8.dp))
+            val detected = state.location?.travelMode?.takeIf { it != TravelMode.UNKNOWN }
+            val modes = listOf(
+                null to (detected?.let { "Auto · ${modeInfo(it).title.lowercase()}" } ?: "Auto"),
+                TravelMode.WALKING to "Walk",
+                TravelMode.CYCLING to "Cycle",
+                TravelMode.DRIVING to "Drive",
+                TravelMode.STATIONARY to "Still",
+            )
+            modes.forEach { (mode, label) ->
+                NavigationDrawerItem(
+                    label = { Text(label) },
+                    icon = { Icon(mode?.let { modeInfo(it).icon } ?: Icons.Default.Explore, null) },
+                    selected = state.modeOverride == mode,
+                    onClick = { onMode(mode) },
+                    modifier = Modifier.padding(horizontal = 12.dp),
+                )
+            }
+            HorizontalDivider(Modifier.padding(vertical = 8.dp))
+            NavigationDrawerItem(
+                label = { Text(RadioPage.NEARBY.title) }, icon = { Icon(Icons.Default.Explore, null) }, selected = false,
+                onClick = { onPage(RadioPage.NEARBY) }, modifier = Modifier.padding(horizontal = 12.dp),
+            )
+            NavigationDrawerItem(
+                label = { Text(RadioPage.SAVED.title) }, icon = { Icon(Icons.Default.Star, null) }, selected = false,
+                badge = { if (state.favorites.isNotEmpty()) Text("${state.favorites.size}") },
+                onClick = { onPage(RadioPage.SAVED) }, modifier = Modifier.padding(horizontal = 12.dp),
+            )
+            NavigationDrawerItem(
+                label = { Text(RadioPage.TRANSCRIPT.title) }, icon = { Icon(Icons.AutoMirrored.Filled.List, null) }, selected = false,
+                onClick = { onPage(RadioPage.TRANSCRIPT) }, modifier = Modifier.padding(horizontal = 12.dp),
+            )
+            HorizontalDivider(Modifier.padding(vertical = 8.dp))
+            Box(Modifier.padding(horizontal = 16.dp)) { UpdateBanner(update, onInstallUpdate, onAllowInstalls) }
+            NavigationDrawerItem(
+                label = { Text("Settings") }, icon = { Icon(Icons.Default.Settings, null) }, selected = false,
+                onClick = onSettings, modifier = Modifier.padding(horizontal = 12.dp),
+            )
+        }
+    }
+}
+
+/** A secondary page over the main screen, with a back arrow. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RadioPageScreen(page: RadioPage, onClose: () -> Unit, content: @Composable () -> Unit) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(page.title) },
+                navigationIcon = { IconButton(onClick = onClose) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
+            )
+        },
+    ) { pad ->
+        Box(Modifier.padding(pad).fillMaxSize().padding(horizontal = 16.dp)) { content() }
     }
 }
 
@@ -406,326 +619,6 @@ private fun PreciseLocationCard(onRequest: () -> Unit) {
             )
             TextButton(onClick = onRequest) { Text("Use precise location") }
         }
-    }
-}
-
-@Composable
-private fun OfferCard(placeName: String, kind: OfferKind, onAnswer: (Boolean) -> Unit) {
-    val detour = kind == OfferKind.DETOUR
-    Card(Modifier.fillMaxWidth().testTag("offerCard")) {
-        Column(Modifier.padding(12.dp)) {
-            Text(
-                if (detour) "Take a short detour to $placeName?" else "Want the full story about $placeName?",
-                style = MaterialTheme.typography.titleSmall,
-            )
-            Text("Just say \"yes\" or \"not now\" — or tap.", style = MaterialTheme.typography.labelMedium)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
-                Button(onClick = { onAnswer(true) }) { Text(if (detour) "Navigate there" else "Yes, tell it") }
-                OutlinedButton(onClick = { onAnswer(false) }) { Text("Not now") }
-            }
-        }
-    }
-}
-
-// ---- driving -------------------------------------------------------------------------------
-
-/** Big, glanceable, voice-first layout: photo, place name, a large mic, pause and skip. */
-@Composable
-private fun DrivingContent(
-    state: RadioUiState,
-    recording: Boolean,
-    a: RadioActions,
-    starredIds: Set<String>,
-    liveMode: Boolean,
-    modifier: Modifier,
-) {
-    val focus = state.focus
-    Column(modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        if (focus?.imageUrl != null) {
-            AsyncImage(
-                model = focus.imageUrl,
-                contentDescription = "Photo of ${focus.name}",
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxWidth().heightIn(max = 200.dp).clip(MaterialTheme.shapes.large),
-            )
-        }
-        Text(
-            focus?.name ?: stateLabel(state),
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
-        if (focus != null) {
-            Row {
-                IconButton(onClick = { a.onToggleStar(focus.id) }, modifier = Modifier.size(64.dp)) {
-                    Icon(if (focus.id in starredIds) Icons.Default.Star else Icons.Default.StarBorder, "Save place", Modifier.size(36.dp))
-                }
-                IconButton(onClick = { a.onNavigate(focus.id) }, modifier = Modifier.size(64.dp)) {
-                    Icon(Icons.Default.Directions, "Navigate there", Modifier.size(36.dp))
-                }
-            }
-        }
-        if (state.pendingOffer == null && state.detours.isNotEmpty()) DetourCard(state.detours.first(), a)
-        Spacer(Modifier.weight(1f))
-        MicButton(recording, a, size = 104, liveMode = liveMode, live = state.live)
-        Text(micHint(recording, liveMode, state.live), style = MaterialTheme.typography.labelLarge)
-        Row(horizontalArrangement = Arrangement.spacedBy(32.dp), modifier = Modifier.padding(bottom = 12.dp)) {
-            PauseOrBack(state, a, size = 72)
-            BigButton(Icons.Default.SkipNext, "Skip", a.onSkip, size = 72)
-        }
-    }
-}
-
-// ---- tabs ----------------------------------------------------------------------------------
-
-@Composable
-private fun ContentTabs(
-    state: RadioUiState,
-    starredIds: Set<String>,
-    a: RadioActions,
-    placePanel: @Composable (RadioUiState, Modifier) -> Unit,
-    modifier: Modifier,
-) {
-    var tab by remember { mutableIntStateOf(0) }
-    Column(modifier) {
-        TabRow(selectedTabIndex = tab) {
-            Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Now") })
-            Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Transcript") })
-            Tab(selected = tab == 2, onClick = { tab = 2 }, text = { Text("Nearby") })
-            Tab(selected = tab == 3, onClick = { tab = 3 }, text = { Text("Saved") })
-        }
-        when (tab) {
-            0 -> BoxWithConstraints(Modifier.fillMaxSize().padding(top = 8.dp)) {
-                // Photo/map height adapts to the screen so the title, actions and story stay visible on small phones.
-                val panelHeight = (maxHeight * 0.45f).coerceIn(110.dp, 240.dp)
-                Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    state.tour?.let { TourBanner(it, state.location, a.onEndTour) }
-                    FocusActions(state, starredIds, a)
-                    // The panel is not inside a scroll container, so the map can be panned freely.
-                    placePanel(state, Modifier.height(panelHeight))
-                    Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) { NowPlaying(state) }
-                }
-            }
-            1 -> Transcript(state.transcript)
-            2 -> Column {
-                TourChips(state.tour, a.onStartTour)
-                Nearby(state, starredIds, a)
-            }
-            else -> Saved(state.favorites, a, state.journal, canRetell = true)
-        }
-    }
-}
-
-@Composable
-private fun FocusActions(state: RadioUiState, starredIds: Set<String>, a: RadioActions) {
-    val focus = state.focus ?: return
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(
-            focus.name,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
-        val starred = focus.id in starredIds
-        IconButton(onClick = { a.onToggleStar(focus.id) }) {
-            Icon(
-                if (starred) Icons.Default.Star else Icons.Default.StarBorder,
-                if (starred) "Remove from saved" else "Save place",
-                tint = if (starred) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        IconButton(onClick = { a.onShare(focus.id) }) { Icon(Icons.Default.Share, "Share place") }
-        IconButton(onClick = { a.onNavigate(focus.id) }) { Icon(Icons.Default.Directions, "Navigate there") }
-    }
-}
-
-/** What is being said right now: the story on air, or the latest answer during a conversation. */
-@Composable
-private fun NowPlaying(state: RadioUiState) {
-    val context = LocalContext.current
-    val seg = state.nowPlaying?.takeIf { state.radioState == RadioState.NARRATING }
-    val reply = state.transcript.lastOrNull()?.takeIf { state.radioState == RadioState.CONVERSING && it.speaker == Speaker.RADIO }
-    val title = seg?.let { "On air" } ?: reply?.let { "Answer" }
-    if (title == null) {
-        Text(
-            when (state.radioState) {
-                RadioState.RESEARCHING -> "Tuning in to the next story…"
-                RadioState.PAUSED -> "Paused. Press play to continue."
-                else -> "Scanning for stories around you. Ask anything with the mic."
-            },
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(4.dp),
-        )
-        return
-    }
-    val text = seg?.text ?: reply?.text.orEmpty()
-    val sources = seg?.sources ?: reply?.sources.orEmpty()
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(12.dp)) {
-            Text(title, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-            // "Why this story?" in one line, e.g. "Close by (200 m) · matches your interest in history".
-            if (seg != null) state.nowPlayingReason?.let { reason ->
-                Text(
-                    reason,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            Text(text, style = MaterialTheme.typography.bodyLarge)
-            // How well-founded the story is: "Documented" / "Includes legend".
-            seg?.basis?.let { basis ->
-                Text(
-                    basis.label,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                    modifier = Modifier
-                        .padding(top = 6.dp)
-                        .background(MaterialTheme.colorScheme.secondaryContainer, MaterialTheme.shapes.small)
-                        .padding(horizontal = 8.dp, vertical = 2.dp),
-                )
-            }
-            sources.take(3).forEach { src ->
-                Text(
-                    "Source: ${src.title}",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier
-                        .padding(top = 6.dp)
-                        .clickable { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(src.url))) },
-                )
-            }
-        }
-    }
-}
-
-// ---- controls ------------------------------------------------------------------------------
-
-@Composable
-private fun Controls(state: RadioUiState, a: RadioActions) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-        BigButton(Icons.Default.Replay, "Repeat", a.onRepeat)
-        PauseOrBack(state, a, size = 64)
-        BigButton(Icons.Default.SkipNext, "Skip", a.onSkip)
-        BigButton(Icons.Default.Explore, "Nearby?", a.onNearby)
-    }
-}
-
-/** Primary control: pause/resume, or "Back to radio" while in a conversation. */
-@Composable
-private fun PauseOrBack(state: RadioUiState, a: RadioActions, size: Int) {
-    when (state.radioState) {
-        RadioState.PAUSED -> BigButton(Icons.Default.PlayArrow, "Resume", a.onResume, size = size, primary = true)
-        RadioState.CONVERSING -> BigButton(Icons.Default.Radio, "Back to radio", a.onResume, size = size, primary = true)
-        else -> BigButton(Icons.Default.Pause, "Pause", a.onPause, size = size, primary = true)
-    }
-}
-
-@Composable
-private fun BigButton(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    label: String,
-    onClick: () -> Unit,
-    size: Int = 56,
-    primary: Boolean = false,
-) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        if (primary) {
-            FilledIconButton(onClick = onClick, modifier = Modifier.size(size.dp)) { Icon(icon, label, Modifier.size((size / 2).dp)) }
-        } else {
-            FilledTonalIconButton(onClick = onClick, modifier = Modifier.size(size.dp)) { Icon(icon, label) }
-        }
-        Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1)
-    }
-}
-
-fun micHint(recording: Boolean, liveMode: Boolean, live: LiveState?): String = when {
-    live == LiveState.CONNECTING -> "Connecting…"
-    live == LiveState.USER_SPEAKING -> "I'm listening…"
-    live == LiveState.ASSISTANT_SPEAKING -> "Talk anytime to interrupt"
-    live == LiveState.LISTENING -> "Just talk · tap to end"
-    liveMode -> "Tap to talk"
-    recording -> "Listening… release to send"
-    else -> "Hold to talk"
-}
-
-@Composable
-private fun MicButton(recording: Boolean, a: RadioActions, size: Int, liveMode: Boolean = false, live: LiveState? = null) {
-    val haptics = LocalHapticFeedback.current
-    val pressStart by rememberUpdatedState(a.onTalkStart)
-    val release by rememberUpdatedState(a.onTalkEnd)
-    val active = recording || live != null
-    val base = Modifier
-        .size(size.dp)
-        .clip(CircleShape)
-        .background(if (active) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
-    val gesture = if (liveMode) {
-        base
-            .semantics {
-                contentDescription = if (live != null) "End voice conversation" else "Talk to the radio"
-                role = Role.Button
-                stateDescription = live?.name?.lowercase()?.replace('_', ' ') ?: "Idle"
-            }
-            .clickable {
-                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                a.onLiveToggle()
-            }
-    } else {
-        base
-            .semantics {
-                contentDescription = "Hold to ask a question"
-                role = Role.Button
-                stateDescription = if (recording) "Recording" else "Idle"
-            }
-            .pointerInput(Unit) {
-                detectTapGestures(onPress = {
-                    if (pressStart()) {
-                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                        tryAwaitRelease()
-                        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        release()
-                    }
-                })
-            }
-    }
-    Box(contentAlignment = Alignment.Center, modifier = gesture) {
-        if (active) Equalizer(Modifier.size((size / 2).dp), color = MaterialTheme.colorScheme.onError)
-        else Icon(Icons.Default.Mic, null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size((size / 2).dp))
-    }
-}
-
-@Composable
-private fun TalkBar(recording: Boolean, a: RadioActions, liveMode: Boolean, state: RadioUiState) {
-    var text by remember { mutableStateOf("") }
-    val keyboard = LocalSoftwareKeyboardController.current
-    val send = {
-        if (text.isNotBlank()) {
-            a.onAsk(text)
-            text = ""
-            keyboard?.hide()
-        }
-    }
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 8.dp)) {
-        MicButton(recording, a, size = 64, liveMode = liveMode, live = state.live)
-        OutlinedTextField(
-            value = text,
-            onValueChange = { text = it },
-            placeholder = { Text(if (recording || state.live != null) micHint(recording, liveMode, state.live) else "Ask anything…") },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-            keyboardActions = KeyboardActions(onSend = { send() }),
-            modifier = Modifier.weight(1f).testTag("askField"),
-            trailingIcon = {
-                IconButton(enabled = text.isNotBlank(), onClick = send) {
-                    Icon(Icons.AutoMirrored.Filled.Send, "Send")
-                }
-            },
-        )
     }
 }
 
@@ -819,29 +712,6 @@ private fun NearbyRow(
         }
         IconButton(onClick = { a.onToggleStar(c.place.id) }) {
             Icon(if (starred) Icons.Default.Star else Icons.Default.StarBorder, if (starred) "Remove ${c.place.name} from saved" else "Save ${c.place.name}")
-        }
-    }
-}
-
-/** Driving: the best drive-by detour ahead, with one big button to hand off navigation. */
-@Composable
-private fun DetourCard(d: DetourSuggestion, a: RadioActions) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
-        modifier = Modifier.fillMaxWidth().testTag("detourCard"),
-    ) {
-        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text("Detour ahead", style = MaterialTheme.typography.labelLarge)
-                Text(d.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(d.label, style = MaterialTheme.typography.bodyMedium)
-                d.visit?.let { Text(it, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis) }
-            }
-            Button(onClick = { a.onNavigate(d.placeId) }, modifier = Modifier.heightIn(min = 56.dp)) {
-                Icon(Icons.Default.Directions, contentDescription = null)
-                Spacer(Modifier.width(6.dp))
-                Text("Navigate")
-            }
         }
     }
 }

@@ -1,6 +1,7 @@
 package com.gpsradio.app
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
@@ -11,6 +12,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.gpsradio.app.ui.GpsRadioTheme
 import com.gpsradio.app.ui.RadioActions
 import com.gpsradio.app.ui.RadioContent
+import com.gpsradio.app.ui.RadioPage
 import com.gpsradio.core.ai.Segment
 import com.gpsradio.core.model.GeoPoint
 import com.gpsradio.core.model.LocationContext
@@ -52,243 +54,173 @@ class RadioContentTest {
     )
     private val ranked = RankedCandidate(castle, 220.0, 0.0, 3.1, ScoreBreakdown(0.8, 1.0, 1.0, 0.6, 1.0, 0.9, 0.0, 0.0))
 
-    private fun show(state: RadioUiState, actions: RadioActions = RadioActions(), recording: Boolean = false) =
-        compose.setContent { GpsRadioTheme { RadioContent(state, recording, actions, placePanel = { _, _ -> }) } }
+    private fun show(
+        state: RadioUiState,
+        actions: RadioActions = RadioActions(),
+        recording: Boolean = false,
+        page: RadioPage? = null,
+        liveMode: Boolean = false,
+        alwaysListening: Boolean = false,
+    ) = compose.setContent {
+        GpsRadioTheme {
+            RadioContent(state, recording, actions, placePanel = { _, _ -> }, liveMode = liveMode, alwaysListening = alwaysListening, initialPage = page)
+        }
+    }
+
+    private fun openMenu() {
+        compose.onNodeWithContentDescription("Menu").performClick()
+        compose.waitForIdle()
+    }
 
     @Test
     fun idleShowsOffStateAndStartCallsAction() {
         var started = false
         show(RadioUiState(), RadioActions(onStart = { started = true }))
         compose.onNodeWithText("Off air").assertIsDisplayed()
-        compose.onNodeWithText("Start listening").assertIsDisplayed()
+        compose.onNodeWithText("Start").assertIsDisplayed()
         compose.onNodeWithContentDescription("Start radio").performClick()
         assertTrue(started)
     }
 
     @Test
-    fun narratingShowsNowPlayingWithSource() {
-        val seg = Segment("The castle rises from the lake.", castle.id, "Ort Castle", listOf(SourceRef("Ort Castle", castle.url!!)))
-        show(RadioUiState(radioState = RadioState.NARRATING, location = loc, nowPlaying = seg, nearby = listOf(ranked)))
-        compose.onAllNodesWithText("On air")[0].assertIsDisplayed()
+    fun mainScreenHasOnlyRadioMicPictureAndMenu() {
+        val calls = mutableListOf<String>()
+        show(
+            RadioUiState(radioState = RadioState.NARRATING, location = loc, focus = FocusPlace.of(castle), nearby = listOf(ranked)),
+            RadioActions(onStop = { calls += "stop" }, onToggleListening = { calls += "mic" }),
+            liveMode = true, alwaysListening = true,
+        )
+        compose.onNodeWithText("Ort Castle").assertIsDisplayed()
         compose.onNodeWithText("ON AIR", substring = true).assertIsDisplayed()
-        compose.onNodeWithText("The castle rises from the lake.").assertIsDisplayed()
-        compose.onNodeWithText("Source: Ort Castle").assertIsDisplayed()
-        compose.onNodeWithText("Walking mode · 4 km/h").assertIsDisplayed()
-        compose.onNodeWithText("Very local stories", substring = true).assertIsDisplayed()
+        compose.onNodeWithContentDescription("Menu").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Stop radio").performClick()
+        compose.onNodeWithContentDescription("Turn microphone off").performClick()
+        assertEquals(listOf("stop", "mic"), calls)
+        // Nothing else on the main screen: no transport buttons, text entry, tabs or per-place actions.
+        for (gone in listOf("Skip", "Pause", "Repeat", "Nearby?", "Save place", "Share place", "Navigate there", "Send")) {
+            compose.onNodeWithContentDescription(gone).assertDoesNotExist()
+        }
+        compose.onNodeWithTag("askField").assertDoesNotExist()
+        // The menu's items exist off-screen until it's opened.
+        compose.onNodeWithText("Transcript").assertIsNotDisplayed()
+        compose.onNodeWithTag("offerCard").assertDoesNotExist()
     }
 
     @Test
-    fun controlsModeChipsAndTypedQuestionsReachActions() {
-        val calls = mutableListOf<String>()
+    fun micSwitchShowsOpenAndClosed() {
+        show(RadioUiState(radioState = RadioState.RADIO, location = loc), liveMode = true, alwaysListening = false)
+        compose.onNodeWithContentDescription("Turn microphone on").assertIsDisplayed()
+        compose.onNodeWithText("Mic off").assertIsDisplayed()
+    }
+
+    @Test
+    fun micSwitchIsOpenWhenAlwaysListening() {
+        show(RadioUiState(radioState = RadioState.RADIO, location = loc, listening = true, live = LiveState.LISTENING), liveMode = true, alwaysListening = true)
+        compose.onNodeWithText("Mic on").assertIsDisplayed()
+        compose.onNodeWithTag("micSwitch").assertIsDisplayed()
+    }
+
+    @Test
+    fun menuSelectsTheTravelModeAndOpensSettings() {
         var mode: TravelMode? = TravelMode.UNKNOWN
+        var settings = false
         show(
             RadioUiState(radioState = RadioState.RADIO, location = loc),
-            RadioActions(
-                onSkip = { calls += "skip" },
-                onPause = { calls += "pause" },
-                onRepeat = { calls += "repeat" },
-                onNearby = { calls += "nearby" },
-                onMode = { mode = it },
-                onAsk = { calls += "ask:$it" },
-            ),
+            RadioActions(onMode = { mode = it }, onOpenSettings = { settings = true }),
         )
-        compose.onNodeWithContentDescription("Skip").performClick()
-        compose.onNodeWithContentDescription("Pause").performClick()
-        compose.onNodeWithContentDescription("Repeat").performClick()
-        compose.onNodeWithContentDescription("Nearby?").performClick()
+        openMenu()
         compose.onNodeWithText("Drive").performClick()
-        compose.onNodeWithTag("askField").performTextInput("Is that true?")
-        compose.onNodeWithContentDescription("Send").performClick()
-        assertEquals(listOf("skip", "pause", "repeat", "nearby", "ask:Is that true?"), calls)
         assertEquals(TravelMode.DRIVING, mode)
+        openMenu()
+        compose.onNodeWithText("Settings").performClick()
+        assertTrue(settings)
     }
 
     @Test
-    fun primaryButtonFollowsTheRadioState() {
-        val calls = mutableListOf<String>()
-        val actions = RadioActions(
-            onPause = { calls += "pause" },
-            onResume = { calls += "resume" },
-            onStop = { calls += "stop" },
-            onSkip = { calls += "skip" },
-        )
-        val state = androidx.compose.runtime.mutableStateOf(RadioUiState(radioState = RadioState.NARRATING, location = loc))
-        compose.setContent { GpsRadioTheme { RadioContent(state.value, false, actions, placePanel = { _, _ -> }) } }
-        // Playing: Pause.
-        compose.onNodeWithContentDescription("Pause").performClick()
-        // Paused: the same button is Resume.
-        state.value = state.value.copy(radioState = RadioState.PAUSED)
-        compose.onNodeWithContentDescription("Resume").performClick()
-        // In a conversation: "Back to radio" (resume).
-        state.value = state.value.copy(radioState = RadioState.CONVERSING)
-        compose.onNodeWithContentDescription("Back to radio").performClick()
-        // Skip and Stop work in every running state.
-        compose.onNodeWithContentDescription("Skip").performClick()
-        compose.onNodeWithText("Stop").performClick()
-        assertEquals(listOf("pause", "resume", "resume", "skip", "stop"), calls)
-    }
-
-    @Test
-    fun nearbyTabListsPlacesAndTapTellsAboutThem() {
-        var told: String? = null
-        show(RadioUiState(radioState = RadioState.RADIO, location = loc, nearby = listOf(ranked)), RadioActions(onTellAbout = { told = it }))
-        compose.onNodeWithText("Nearby").performClick()
-        compose.onNodeWithText("Ort Castle").performClick()
-        assertEquals(castle.id, told)
-    }
-
-    @Test
-    fun transcriptShowsConversationAndErrors() {
-        show(
-            RadioUiState(
-                radioState = RadioState.CONVERSING,
-                location = loc,
-                status = Status("OpenAI didn't accept the API key. Check it in Settings.", StatusLevel.ERROR, needsKey = true),
-                transcript = listOf(
-                    TranscriptEntry(Speaker.USER, "Is that actually true?", 1),
-                    TranscriptEntry(Speaker.RADIO, "Partly: the treasure is a legend.", 2),
-                ),
-            ),
-        )
-        compose.onNodeWithText("Conversation").assertIsDisplayed()
-        // The Now tab shows the latest spoken answer; the Transcript tab has the whole exchange.
-        compose.onNodeWithText("Answer").assertIsDisplayed()
-        compose.onNodeWithText("Transcript").performClick()
-        compose.onNodeWithText("Is that actually true?").assertIsDisplayed()
-        compose.onNodeWithText("Partly: the treasure is a legend.").assertIsDisplayed()
-        compose.onNodeWithText("OpenAI didn't accept the API key. Check it in Settings.").assertIsDisplayed()
-        compose.onNodeWithText("Open Settings").assertIsDisplayed()
-    }
-
-    @Test
-    fun starShareAndNavigateTheFocusedPlace() {
-        val calls = mutableListOf<String>()
-        show(
-            RadioUiState(radioState = RadioState.RADIO, location = loc, focus = FocusPlace.of(castle), nearby = listOf(ranked)),
-            RadioActions(onToggleStar = { calls += "star:$it" }, onShare = { calls += "share:$it" }, onNavigate = { calls += "nav:$it" }),
-        )
-        compose.onNodeWithContentDescription("Save place").performClick()
-        compose.onNodeWithContentDescription("Share place").performClick()
-        compose.onNodeWithContentDescription("Navigate there").performClick()
-        assertEquals(listOf("star:${castle.id}", "share:${castle.id}", "nav:${castle.id}"), calls)
-    }
-
-    @Test
-    fun savedTabListsFavoritesWithActions() {
-        val fav = FavoritePlace.of(castle, 1)
-        var removed: String? = null
-        show(
-            RadioUiState(radioState = RadioState.RADIO, location = loc, favorites = listOf(fav)),
-            RadioActions(onRemoveFavorite = { removed = it }),
-        )
-        compose.onNodeWithText("Saved").performClick()
-        compose.onNodeWithText("Ort Castle").assertIsDisplayed()
-        compose.onNodeWithContentDescription("Remove Ort Castle").performClick()
-        assertEquals(castle.id, removed)
-    }
-
-    @Test
-    fun offerCardAnswersYesOrNo() {
-        val answers = mutableListOf<Boolean>()
-        show(
-            RadioUiState(radioState = RadioState.CONVERSING, location = loc, pendingOffer = "Ort Castle"),
-            RadioActions(onAnswerOffer = { answers += it }),
-        )
-        compose.onNodeWithText("Want the full story about Ort Castle?").assertIsDisplayed()
-        compose.onNodeWithText("Yes, tell it").performClick()
-        compose.onNodeWithText("Not now").performClick()
-        assertEquals(listOf(true, false), answers)
-        // During a conversation the primary control returns to the radio.
-        compose.onNodeWithContentDescription("Back to radio").assertIsDisplayed()
-    }
-
-    @Test
-    fun drivingShowsGlanceableLayoutWithoutTextEntry() {
-        var skipped = false
+    fun drivingUsesTheSameSimpleScreen() {
         show(
             RadioUiState(
                 radioState = RadioState.NARRATING,
                 location = loc.copy(travelMode = TravelMode.DRIVING, speedMps = 22.0),
                 focus = FocusPlace.of(castle),
             ),
-            RadioActions(onSkip = { skipped = true }),
         )
         compose.onNodeWithText("Ort Castle").assertIsDisplayed()
-        compose.onNodeWithText("Driving mode · 79 km/h").assertIsDisplayed()
-        compose.onNodeWithText("Looking ahead along the road", substring = true).assertIsDisplayed()
-        compose.onNodeWithContentDescription("Hold to ask a question").assertIsDisplayed()
-        compose.onNodeWithTag("askField").assertDoesNotExist()
-        compose.onNodeWithContentDescription("Skip").performClick()
-        assertTrue(skipped)
-    }
-
-    @Test
-    fun naturalVoiceMicIsTapToTalkAndShowsLiveState() {
-        var toggles = 0
-        compose.setContent {
-            GpsRadioTheme {
-                RadioContent(
-                    RadioUiState(radioState = RadioState.CONVERSING, location = loc, live = LiveState.LISTENING),
-                    recording = false,
-                    actions = RadioActions(onLiveToggle = { toggles++ }),
-                    placePanel = { _, _ -> },
-                    liveMode = true,
-                )
-            }
-        }
-        compose.onNodeWithContentDescription("End voice conversation").performClick()
-        assertEquals(1, toggles)
-        compose.onNodeWithText("Just talk · tap to end").assertExists()
-    }
-
-    @Test
-    fun drivingShowsTheDetourAheadWithABigNavigateButton() {
-        val navigated = mutableListOf<String>()
-        show(
-            RadioUiState(
-                radioState = RadioState.RADIO,
-                location = loc.copy(travelMode = TravelMode.DRIVING, speedMps = 22.0),
-                detours = listOf(DetourSuggestion("abbey", "Lambach Abbey", 6, "open 09:00–17:00 · adults €8 · ~45 min visit · easy walk")),
-            ),
-            RadioActions(onNavigate = { navigated += it }),
-        )
-        compose.onNodeWithTag("detourCard").assertIsDisplayed()
-        compose.onNodeWithText("Lambach Abbey").assertIsDisplayed()
-        compose.onNodeWithText("about 6 min detour").assertIsDisplayed()
-        compose.onNodeWithText("open 09:00–17:00 · adults €8 · ~45 min visit · easy walk").assertIsDisplayed()
-        compose.onNodeWithText("Navigate").performClick()
-        assertEquals(listOf("abbey"), navigated)
-    }
-
-    @Test
-    fun detourOfferCardNavigatesOnYes() {
-        val answers = mutableListOf<Boolean>()
-        show(
-            RadioUiState(
-                radioState = RadioState.CONVERSING, location = loc.copy(travelMode = TravelMode.DRIVING, speedMps = 22.0),
-                pendingOffer = "Lambach Abbey", pendingOfferKind = OfferKind.DETOUR,
-            ),
-            RadioActions(onAnswerOffer = { answers += it }),
-        )
-        compose.onNodeWithText("Take a short detour to Lambach Abbey?").assertIsDisplayed()
-        compose.onNodeWithText("Navigate there").performClick()
-        assertEquals(listOf(true), answers)
-        // The detour card is hidden while the offer is pending (one question at a time).
+        compose.onNodeWithText("Driving mode", substring = true).assertIsDisplayed()
+        compose.onNodeWithContentDescription("Stop radio").assertIsDisplayed()
         compose.onNodeWithTag("detourCard").assertDoesNotExist()
     }
 
     @Test
-    fun nearbyMarksPhotoSpots() {
-        show(RadioUiState(radioState = RadioState.RADIO, location = loc, nearby = listOf(ranked), photoSpotIds = setOf(castle.id)))
+    fun statusShowsErrorsWithASettingsLink() {
+        var opened = false
+        show(
+            RadioUiState(
+                radioState = RadioState.RADIO,
+                location = loc,
+                status = Status("OpenAI didn't accept the API key. Check it in Settings.", StatusLevel.ERROR, needsKey = true),
+            ),
+            RadioActions(onOpenSettings = { opened = true }),
+        )
+        compose.onNodeWithText("OpenAI didn't accept the API key. Check it in Settings.").assertIsDisplayed()
+        compose.onNodeWithText("Open Settings").performClick()
+        assertTrue(opened)
+    }
+
+    @Test
+    fun nearbyFromTheMenuListsPlacesAndTapTellsAboutThem() {
+        var told: String? = null
+        show(RadioUiState(radioState = RadioState.RADIO, location = loc, nearby = listOf(ranked)), RadioActions(onTellAbout = { told = it }))
+        openMenu()
         compose.onNodeWithText("Nearby").performClick()
+        compose.onNodeWithText("Ort Castle").performClick()
+        assertEquals(castle.id, told)
+        // Back returns to the main screen.
+        compose.onNodeWithContentDescription("Back").performClick()
+        compose.onNodeWithContentDescription("Menu").assertIsDisplayed()
+    }
+
+    @Test
+    fun transcriptPageShowsTheConversation() {
+        show(
+            RadioUiState(
+                radioState = RadioState.CONVERSING,
+                location = loc,
+                transcript = listOf(
+                    TranscriptEntry(Speaker.USER, "Is that actually true?", 1),
+                    TranscriptEntry(Speaker.RADIO, "Partly: the treasure is a legend.", 2),
+                ),
+            ),
+            page = RadioPage.TRANSCRIPT,
+        )
+        compose.onNodeWithText("Is that actually true?").assertIsDisplayed()
+        compose.onNodeWithText("Partly: the treasure is a legend.").assertIsDisplayed()
+    }
+
+    @Test
+    fun savedPageListsFavoritesWithActions() {
+        val fav = FavoritePlace.of(castle, 1)
+        var removed: String? = null
+        show(
+            RadioUiState(radioState = RadioState.RADIO, location = loc, favorites = listOf(fav)),
+            RadioActions(onRemoveFavorite = { removed = it }),
+            page = RadioPage.SAVED,
+        )
+        compose.onNodeWithText("Ort Castle").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Remove Ort Castle").performClick()
+        assertEquals(castle.id, removed)
+    }
+
+    @Test
+    fun nearbyMarksPhotoSpots() {
+        show(RadioUiState(radioState = RadioState.RADIO, location = loc, nearby = listOf(ranked), photoSpotIds = setOf(castle.id)), page = RadioPage.NEARBY)
         compose.onNodeWithContentDescription("Photo spot").assertIsDisplayed()
     }
 
     @Test
     fun nearbyShowsWhatMakesAPlaceSpecial() {
         val special = ranked.copy(place = castle.copy(features = setOf(com.gpsradio.core.model.PlaceFeature.JEWISH_HERITAGE, com.gpsradio.core.model.PlaceFeature.FILM_LOCATION)))
-        show(RadioUiState(radioState = RadioState.RADIO, location = loc, nearby = listOf(special)))
-        compose.onNodeWithText("Nearby").performClick()
+        show(RadioUiState(radioState = RadioState.RADIO, location = loc, nearby = listOf(special)), page = RadioPage.NEARBY)
         compose.onNodeWithText("Jewish heritage", substring = true).assertIsDisplayed()
         compose.onNodeWithText("filmed here", substring = true).assertIsDisplayed()
     }
@@ -298,41 +230,10 @@ class RadioContentTest {
         val event = com.gpsradio.core.events.LocalEvent(
             "Jazz on the Lake", "concert", "Esplanade", System.currentTimeMillis() + 3_600_000, null, "https://example.org/jazz", "Open-air, free", 1.2,
         )
-        show(RadioUiState(radioState = RadioState.RADIO, location = loc, nearby = listOf(ranked), todayEvents = listOf(event)))
-        compose.onNodeWithText("Nearby").performClick()
+        show(RadioUiState(radioState = RadioState.RADIO, location = loc, nearby = listOf(ranked), todayEvents = listOf(event)), page = RadioPage.NEARBY)
         compose.onNodeWithText("Today nearby").assertIsDisplayed()
         compose.onNodeWithText("Jazz on the Lake").assertIsDisplayed()
         compose.onNodeWithText("Esplanade · 1.2 km · Open-air, free").assertIsDisplayed()
         compose.onNodeWithText("Ort Castle").assertIsDisplayed()
-    }
-
-    @Test
-    fun micSwitchTurnsAlwaysListeningOnAndOff() {
-        var toggles = 0
-        compose.setContent {
-            GpsRadioTheme {
-                RadioContent(
-                    RadioUiState(radioState = RadioState.NARRATING, location = loc, listening = true), false,
-                    RadioActions(onToggleListening = { toggles++ }), placePanel = { _, _ -> },
-                    liveMode = true, alwaysListening = true,
-                )
-            }
-        }
-        compose.onNodeWithContentDescription("Turn microphone off").performClick()
-        assertEquals(1, toggles)
-        compose.onNodeWithText("listening", substring = true).assertIsDisplayed()
-    }
-
-    @Test
-    fun micSwitchShowsOffState() {
-        compose.setContent {
-            GpsRadioTheme {
-                RadioContent(
-                    RadioUiState(radioState = RadioState.RADIO, location = loc), false, RadioActions(), placePanel = { _, _ -> },
-                    liveMode = true, alwaysListening = false,
-                )
-            }
-        }
-        compose.onNodeWithContentDescription("Turn microphone on").assertIsDisplayed()
     }
 }

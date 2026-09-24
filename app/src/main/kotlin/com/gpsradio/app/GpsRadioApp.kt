@@ -185,6 +185,8 @@ open class GpsRadioApp : Application() {
                         usingBuiltInKey = it.usingEmbeddedKey,
                         askPreferences = true,
                         localEvents = it.localEvents,
+                        // With the mic closed the listener can't answer: no teasers, offers or questions.
+                        canReply = it.alwaysListening && it.liveVoice && micGranted() && it.hasApiKey,
                     )
                 }
             },
