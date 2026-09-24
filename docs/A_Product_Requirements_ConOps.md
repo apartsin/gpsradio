@@ -700,3 +700,7 @@ Every OpenAI call reports its usage to an on-device meter, priced at list prices
   - When today's estimate reaches the limit, the radio switches once to free on-device notes (the same as offline, §32) and says so in the session language.
     - It keeps playing, but questions and standby research are off.
     - It returns to OpenAI at local midnight, or as soon as the limit is raised.
+
+## 42. Nothing Pops Up While Driving
+
+While the travel mode is driving, the app's alerts (out of credit, events today nearby) post **silently**: no heads-up banner, sound or vibration. The radio already says these things aloud, and a banner draws the driver's eyes off the road. The notification still lands quietly in the shade for later. On foot or on a bike, alerts behave as before. The playback notification was already silent.

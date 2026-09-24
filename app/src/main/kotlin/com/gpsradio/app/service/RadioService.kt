@@ -267,6 +267,7 @@ class RadioService : Service() {
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setCategory(NotificationCompat.CATEGORY_ERROR)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setSilent(driving())
             .setContentIntent(openSettings)
             .addAction(0, getString(R.string.add_key), openSettings)
             .setAutoCancel(true)
@@ -300,11 +301,18 @@ class RadioService : Service() {
             .setContentText(lines.first())
             .setStyle(style)
             .setCategory(NotificationCompat.CATEGORY_EVENT)
+            .setSilent(driving())
             .setContentIntent(open)
             .setAutoCancel(true)
             .build()
         runCatching { NotificationManagerCompat.from(this).notify(EVENTS_NOTIFICATION_ID, n) }
     }
+
+    /**
+     * While driving nothing pops up or sounds (spec A §42): the radio already says it aloud, and a heads-up
+     * banner draws the eyes off the road. The notification still lands quietly in the shade for later.
+     */
+    private fun driving() = session.state.value.location?.travelMode == TravelMode.DRIVING
 
     private fun cancelQuotaNotice() {
         runCatching { NotificationManagerCompat.from(this).cancel(QUOTA_NOTIFICATION_ID) }
