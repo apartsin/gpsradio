@@ -43,8 +43,18 @@ object LocalModelCatalog {
     fun byId(id: String?) = all.firstOrNull { it.id == id }
 }
 
+/** The biggest model that runs comfortably: the model takes about its file size in memory besides Android and apps. */
+fun recommendedFor(ramGb: Double): LocalModelSpec = when {
+    ramGb >= 11 -> LocalModelCatalog.byId("gemma4-e4b")!!
+    ramGb >= 6 -> LocalModelCatalog.byId("gemma4-e2b")!!
+    else -> LocalModelCatalog.byId("qwen3-1.7b")!!
+}
+
 /** Gemini Nano's state on this phone (Android AICore). */
 enum class NanoState { UNKNOWN, UNAVAILABLE, DOWNLOADABLE, DOWNLOADING, AVAILABLE }
+
+/** What this phone offers for on-device AI, shown in Settings → Free & offline (spec A §70). */
+data class DeviceInfo(val android: String, val ramGb: Double, val freeGb: Double, val aiCore: Boolean, val recommended: LocalModelSpec)
 
 /** A model download: [fraction] null while the size is unknown; [error] set when it failed. */
 data class ModelDownload(val fraction: Float? = null, val error: String? = null)
@@ -84,6 +94,21 @@ class LocalModels(private val context: Context, http: OkHttpClient, private val 
     private fun scanInstalled() = LocalModelCatalog.all.filter { File(dir, it.fileName).isFile }.map { it.id }.toSet()
 
     fun fileOf(spec: LocalModelSpec) = File(dir, spec.fileName)
+
+    /** Android version, memory, free space, whether AICore (Gemini Nano) supports this phone, and the model that fits. */
+    fun deviceInfo(): DeviceInfo {
+        val mem = android.app.ActivityManager.MemoryInfo()
+        (context.getSystemService(Context.ACTIVITY_SERVICE) as? android.app.ActivityManager)?.getMemoryInfo(mem)
+        val ramGb = mem.totalMem / 1e9
+        val aiCore = runCatching { com.google.mlkit.genai.common.internal.GenAiUtils.isAiCoreCompatible(context) }.getOrDefault(false)
+        return DeviceInfo(
+            android = android.os.Build.VERSION.RELEASE ?: "?",
+            ramGb = ramGb,
+            freeGb = dir.usableSpace / 1e9,
+            aiCore = aiCore,
+            recommended = recommendedFor(ramGb),
+        )
+    }
 
     suspend fun refreshNano(): NanoState {
         val state = nanoWriter.state()

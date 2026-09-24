@@ -76,6 +76,13 @@ data class SessionConfig(
     val budgetReached: Boolean = false,
     /** True when running on the app's built-in key rather than the listener's own (changes the out-of-credit advice). */
     val usingBuiltInKey: Boolean = false,
+    /**
+     * Provider choice (spec A §70): stories come from the on-device model (or the plain facts) by choice,
+     * not only when OpenAI can't be used. The voice is chosen separately (the app routes the speech port).
+     */
+    val storiesOnDevice: Boolean = false,
+    /** Provider choice (spec A §70): questions are answered by the on-device model, never by OpenAI. */
+    val assistantOnDevice: Boolean = false,
 )
 
 class OpenAiSpeech(

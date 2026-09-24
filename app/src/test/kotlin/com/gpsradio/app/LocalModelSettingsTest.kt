@@ -64,4 +64,22 @@ class LocalModelSettingsTest {
         compose.onNodeWithTag("localModelDelete").performScrollTo().performClick()
         assertEquals(listOf("gemma4-e4b"), deleted)
     }
+
+    @Test
+    fun providersAreChosenPerJob() {
+        var saved: AppSettings? = null
+        compose.setContent {
+            GpsRadioTheme {
+                SettingsScreen(AppSettings(apiKey = "sk-x"), onSave = { saved = it }, onClearHistory = {}, onBack = {})
+            }
+        }
+        compose.onNodeWithTag("storyProvider").performScrollTo().performClick()
+        compose.onNodeWithText("On this phone (free, offline)").performClick()
+        compose.onNodeWithTag("voiceProvider").performScrollTo().performClick()
+        compose.onNodeWithText("Phone voice (free, offline)").performClick()
+        compose.onNodeWithText("Save").performScrollTo().performClick()
+        assertEquals(true, saved!!.storyOnDevice)
+        assertEquals(true, saved!!.voiceOnDevice)
+        assertEquals(false, saved!!.assistantOnDevice)
+    }
 }

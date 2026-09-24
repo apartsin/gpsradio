@@ -1053,3 +1053,21 @@ A free fallback that needs no key, no money and no network, built on the phone's
   - **Settings → Free & offline → Stories without OpenAI**: *Automatic* (default: Nano when ready, else a downloaded model, else plain notes), *Gemini Nano*, one of the open models, or *Off*.
   - The on-device model writes only the stories. Questions still need OpenAI; offline, the listener gets the fallback answer.
   - **Downloaded once, kept across updates.** Models live in the app's private no-backup storage (`noBackupFilesDir/models`), so the self-update, which installs over the same app, keeps them and they are never downloaded again. They're also kept out of the phone's cloud backup. LiteRT-LM's prepared-model cache is kept there too. A download cut short (by an update or by closing the app) continues from where it stopped on the next start. Only Delete in Settings, "clear data" or uninstalling removes a model. Gemini Nano, Android's offline voices and its speech-recognition languages belong to the system (AICore, the TTS engine, the recognizer), so app updates don't touch them either.
+
+## 70. Providers: Choose Who Does Each Job, With Fallbacks
+
+Settings → Free & offline starts with one choice per job. Each shows what takes over when the choice can't be used (no internet, no key, daily limit reached, OpenAI out of credit or unreachable):
+
+| Job | Choices | Fallback chain |
+|---|---|---|
+| **Stories** | OpenAI (best) · On this phone | OpenAI → the phone's model (§69) → the facts read as they are |
+| **Voice** | OpenAI voice (natural) · Phone voice | OpenAI voice → the phone's TextToSpeech voice (engine chosen below) |
+| **Speech recognition** | OpenAI (best) · On this phone | OpenAI live/transcription → the phone's recognizer, one phrase per tap |
+| **Voice assistant (questions)** | OpenAI (best) · On this phone | OpenAI (live voice or tap-to-talk, per "Natural voice") → the phone's model answers from the place on air and what's nearby → without a model, "questions need the internet" |
+
+- Choosing the phone is silent: there's no "OpenAI is unreachable" notice, because nothing failed. The forced fallbacks still say why once.
+- "On this phone" for the assistant uses the phone's recognizer, model and voice for questions, fully offline. The OpenAI live voice is off then.
+- Stories from the phone are still read by the chosen voice (the OpenAI voice while online), unless the voice is set to the phone too.
+- The phone's model also answers questions whenever OpenAI can't: offline, without a key, or over the limit. Before, those questions were refused.
+- **"This phone"** in the same section shows the Android version, memory and free space, and whether Gemini Nano (AICore) supports the phone. It also names the open model that fits the memory: Gemma 4 E4B from 11 GB, Gemma 4 E2B from 6 GB, otherwise Qwen3 1.7B. Under *Automatic* that model is the one offered for download.
+- **llama.cpp** was considered as a further engine. LiteRT-LM already runs the same open models (Gemma 4, Qwen3), with Google's mobile tuning and GPU/NPU paths. llama.cpp would add GGUF models, for example Russian-tuned fine-tunes, but needs a native build of our own. The `LocalWriter` port (§69) lets it be added later as one more choice in the model list.

@@ -56,6 +56,12 @@ data class AppSettings(
     val offlineTtsEngine: String? = null,
     /** On-device story writer when OpenAI can't: "auto", "off", "nano" or a downloadable model id (spec A §69). */
     val localModel: String = "auto",
+    /** Providers (spec A §70): stories from the on-device model instead of OpenAI. */
+    val storyOnDevice: Boolean = false,
+    /** Providers: the phone's own voice reads everything instead of the OpenAI voice. */
+    val voiceOnDevice: Boolean = false,
+    /** Providers: questions answered on the phone (its recognizer, model and voice) instead of OpenAI. */
+    val assistantOnDevice: Boolean = false,
 ) {
     /** The listener's own key if they entered one, otherwise the key built into this app (if any). */
     val effectiveApiKey: String get() = apiKey.ifBlank { EmbeddedKey.value }
@@ -116,6 +122,9 @@ class SettingsRepository(context: Context) {
             putBoolean(KEY_ASR_ON_DEVICE, next.asrOnDevice)
             putString(KEY_OFFLINE_TTS_ENGINE, next.offlineTtsEngine?.takeIf { it.isNotBlank() })
             putString(KEY_LOCAL_MODEL, next.localModel)
+            putBoolean(KEY_STORY_ON_DEVICE, next.storyOnDevice)
+            putBoolean(KEY_VOICE_ON_DEVICE, next.voiceOnDevice)
+            putBoolean(KEY_ASSISTANT_ON_DEVICE, next.assistantOnDevice)
         }
         _settings.value = next.copy(apiKey = next.apiKey.trim())
     }
@@ -160,6 +169,9 @@ class SettingsRepository(context: Context) {
             asrOnDevice = plain.getBoolean(KEY_ASR_ON_DEVICE, d.asrOnDevice),
             offlineTtsEngine = plain.getString(KEY_OFFLINE_TTS_ENGINE, null)?.takeIf { it.isNotBlank() },
             localModel = plain.getString(KEY_LOCAL_MODEL, null)?.takeIf { it.isNotBlank() } ?: d.localModel,
+            storyOnDevice = plain.getBoolean(KEY_STORY_ON_DEVICE, d.storyOnDevice),
+            voiceOnDevice = plain.getBoolean(KEY_VOICE_ON_DEVICE, d.voiceOnDevice),
+            assistantOnDevice = plain.getBoolean(KEY_ASSISTANT_ON_DEVICE, d.assistantOnDevice),
         )
     }
 
@@ -224,5 +236,8 @@ class SettingsRepository(context: Context) {
         const val KEY_ASR_ON_DEVICE = "asr_on_device"
         const val KEY_OFFLINE_TTS_ENGINE = "offline_tts_engine"
         const val KEY_LOCAL_MODEL = "local_model"
+        const val KEY_STORY_ON_DEVICE = "story_on_device"
+        const val KEY_VOICE_ON_DEVICE = "voice_on_device"
+        const val KEY_ASSISTANT_ON_DEVICE = "assistant_on_device"
     }
 }

@@ -56,8 +56,16 @@ class LocalNarrator(
         )
     }
 
-    override suspend fun converse(req: ConversationRequest, onSearching: suspend () -> Unit): ConversationReply =
-        notes.converse(req, onSearching)
+    /** A spoken answer from the on-device model, grounded in the place on air and what's nearby. */
+    override suspend fun converse(req: ConversationRequest, onSearching: suspend () -> Unit): ConversationReply {
+        if (!writer.available()) return notes.converse(req, onSearching)
+        val raw = withTimeoutOrNull(timeoutMs) { writer.write(answerPrompt(req, factChars)) }
+            ?: throw IllegalStateException("The on-device model didn't answer")
+        val text = clean(raw, minChars = 2) ?: throw IllegalStateException("The on-device model gave no answer")
+        return ConversationReply(reply = text, entityId = req.active?.place?.id)
+    }
+
+    override suspend fun canConverse(): Boolean = runCatching { writer.available() }.getOrDefault(false)
 
     override suspend fun webAnswer(question: String, language: String, area: AreaLabel?): String =
         notes.webAnswer(question, language, area)
@@ -76,8 +84,35 @@ class LocalNarrator(
             $facts
         """.trimIndent()
 
+        fun answerPrompt(req: ConversationRequest, factChars: Int = 1_500): String = buildString {
+            appendLine("You are the host of a local radio show. A listener asks you something by voice.")
+            appendLine("Answer in ${languageName(req.language)}, in 1 to 3 short spoken sentences, no lists.")
+            appendLine("Use the facts below when they help. If you don't know, say so briefly; never invent names, dates or numbers.")
+            req.area?.let { a -> listOfNotNull(a.city, a.region, a.countryCode).takeIf { it.isNotEmpty() } }
+                ?.let { appendLine("Where the listener is: ${it.joinToString(", ")}") }
+            req.active?.place?.let { p ->
+                appendLine()
+                appendLine("On air now: ${p.name}")
+                (p.extract ?: p.description)?.let { appendLine(NarrationFallback.stripParentheticals(it).take(factChars)) }
+            }
+            if (req.nearby.isNotEmpty()) {
+                appendLine()
+                appendLine("Nearby: " + req.nearby.take(8).joinToString("; ") { c ->
+                    c.place.name + (c.place.description?.let { " ($it)" } ?: "")
+                })
+            }
+            val recent = req.history.takeLast(4)
+            if (recent.isNotEmpty()) {
+                appendLine()
+                recent.forEach { appendLine((if (it.fromUser) "Listener: " else "Host: ") + it.text) }
+            }
+            appendLine()
+            appendLine("Listener: ${req.utterance}")
+            append("Host (reply with the answer only): /no_think")
+        }
+
         /** Plain spoken text, or null when the model's reply is unusable. */
-        fun clean(raw: String): String? {
+        fun clean(raw: String, minChars: Int = 40): String? {
             val text = raw
                 // Reasoning models (Qwen3) may think out loud first.
                 .replace(Regex("(?s)<think>.*?</think>"), "")
@@ -87,7 +122,7 @@ class LocalNarrator(
                 .trim()
                 .trim('"', '«', '»')
                 .trim()
-            if (text.length < 40) return null
+            if (text.length < minChars) return null
             if (text.length <= 900) return text
             val cut = text.take(900)
             val end = cut.lastIndexOfAny(charArrayOf('.', '!', '?'))

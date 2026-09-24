@@ -43,6 +43,8 @@ class NarrationFallback(
     override suspend fun converse(req: ConversationRequest, onSearching: suspend () -> Unit): ConversationReply =
         throw UnsupportedOperationException("Questions need an OpenAI key")
 
+    override suspend fun canConverse(): Boolean = false
+
     override suspend fun webAnswer(question: String, language: String, area: AreaLabel?): String =
         throw UnsupportedOperationException("Web search needs an OpenAI key")
 

@@ -165,6 +165,9 @@ private fun SettingsForm(
     var asrOnDevice by remember { mutableStateOf(initial.asrOnDevice) }
     var offlineTtsEngine by remember { mutableStateOf(initial.offlineTtsEngine) }
     var localModel by remember { mutableStateOf(initial.localModel) }
+    var storyOnDevice by remember { mutableStateOf(initial.storyOnDevice) }
+    var voiceOnDevice by remember { mutableStateOf(initial.voiceOnDevice) }
+    var assistantOnDevice by remember { mutableStateOf(initial.assistantOnDevice) }
     var language by remember { mutableStateOf(if (initial.languageAuto) AUTO else initial.preferredLanguage) }
     var interests by remember { mutableStateOf(initial.interests) }
     var narrationModel by remember { mutableStateOf(initial.models.narrationModel) }
@@ -332,6 +335,12 @@ private fun SettingsForm(
             ModelPicker(stringResource(R.string.model_transcription), sttModel, transcriptionOptions(), "modelTranscription") { sttModel = it }
             ModelPicker(stringResource(R.string.model_realtime), realtimeModel, realtimeOptions(), "modelRealtime") { realtimeModel = it }
             FreeOfflineSection(
+                storyOnDevice = storyOnDevice,
+                onStoryOnDevice = { storyOnDevice = it },
+                voiceOnDevice = voiceOnDevice,
+                onVoiceOnDevice = { voiceOnDevice = it },
+                assistantOnDevice = assistantOnDevice,
+                onAssistantOnDevice = { assistantOnDevice = it },
                 asrOnDevice = asrOnDevice,
                 onAsrOnDevice = { asrOnDevice = it },
                 engine = offlineTtsEngine,
@@ -358,6 +367,9 @@ private fun SettingsForm(
             asrOnDevice = asrOnDevice,
             offlineTtsEngine = offlineTtsEngine,
             localModel = localModel,
+            storyOnDevice = storyOnDevice,
+            voiceOnDevice = voiceOnDevice,
+            assistantOnDevice = assistantOnDevice,
             dailyBudgetUsd = if (budget) budgetText.replace(',', '.').toDoubleOrNull()?.coerceAtLeast(0.0) ?: 0.0 else initial.dailyBudgetUsd,
             // Adding a key ends the keyless preview.
             previewMode = initial.previewMode && apiKey.isBlank(),
@@ -589,6 +601,12 @@ private fun CostSection(cost: CostMeter.Totals, limit: Double) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun FreeOfflineSection(
+    storyOnDevice: Boolean,
+    onStoryOnDevice: (Boolean) -> Unit,
+    voiceOnDevice: Boolean,
+    onVoiceOnDevice: (Boolean) -> Unit,
+    assistantOnDevice: Boolean,
+    onAssistantOnDevice: (Boolean) -> Unit,
     asrOnDevice: Boolean,
     onAsrOnDevice: (Boolean) -> Unit,
     engine: String?,
@@ -599,6 +617,20 @@ private fun FreeOfflineSection(
 ) {
     Text(stringResource(R.string.free_offline_title), style = MaterialTheme.typography.titleSmall)
     Text(stringResource(R.string.free_offline_hint), style = MaterialTheme.typography.bodySmall)
+    Text(stringResource(R.string.providers_hint), style = MaterialTheme.typography.bodySmall)
+
+    ProviderPicker(
+        stringResource(R.string.provider_stories), stringResource(R.string.provider_stories_fallback), "storyProvider",
+        storyOnDevice, stringResource(R.string.provider_openai_best), stringResource(R.string.provider_phone_model), onStoryOnDevice,
+    )
+    ProviderPicker(
+        stringResource(R.string.provider_voice), stringResource(R.string.provider_voice_fallback), "voiceProvider",
+        voiceOnDevice, stringResource(R.string.provider_openai_voice), stringResource(R.string.provider_phone_voice), onVoiceOnDevice,
+    )
+    ProviderPicker(
+        stringResource(R.string.provider_assistant), stringResource(R.string.provider_assistant_fallback), "assistantProvider",
+        assistantOnDevice, stringResource(R.string.provider_openai_best), stringResource(R.string.provider_phone_assistant), onAssistantOnDevice,
+    )
 
     val openAiLabel = stringResource(R.string.asr_engine_openai)
     val phoneLabel = stringResource(R.string.asr_engine_phone)
@@ -664,5 +696,36 @@ private fun FreeOfflineSection(
     )
     OutlinedButton(onClick = onInstallVoiceData, modifier = Modifier.fillMaxWidth()) {
         Text(stringResource(R.string.install_voice_data))
+    }
+}
+
+/** One provider choice (spec A §70): OpenAI or the phone, with what happens when the choice can't be used. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ProviderPicker(
+    label: String,
+    fallback: String,
+    tag: String,
+    onDevice: Boolean,
+    openAiLabel: String,
+    phoneLabel: String,
+    onChange: (Boolean) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+        OutlinedTextField(
+            value = if (onDevice) phoneLabel else openAiLabel,
+            onValueChange = {},
+            readOnly = true,
+            singleLine = true,
+            label = { Text(label) },
+            supportingText = { Text(fallback) },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
+            modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable).testTag(tag),
+        )
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(text = { Text(openAiLabel) }, onClick = { onChange(false); expanded = false })
+            DropdownMenuItem(text = { Text(phoneLabel) }, onClick = { onChange(true); expanded = false })
+        }
     }
 }

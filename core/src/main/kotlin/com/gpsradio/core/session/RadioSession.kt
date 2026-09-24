@@ -55,6 +55,7 @@ import com.gpsradio.core.tour.TourText
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import com.gpsradio.core.ai.HostStyle
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineExceptionHandler
@@ -924,15 +925,39 @@ class RadioSession(
 
     private val hasFallback: Boolean get() = fallbackNarrator != null && fallbackSpeech != null
 
-    /** Keyless preview, offline, or OpenAI resting after an outage: narrate on the device. */
+    /** Keyless preview, offline, OpenAI resting after an outage, or the listener chose it: narrate on the device. */
     private fun onDeviceNow(): Boolean =
-        hasFallback && (config().previewMode || config().budgetReached || !isOnline() || fallbackGate.primaryResting())
+        hasFallback && (config().storiesOnDevice || openAiUnusable())
+
+    /** OpenAI can't be used right now (not a choice): preview, over the limit, offline or resting after an outage. */
+    private fun openAiUnusable(): Boolean =
+        config().previewMode || config().budgetReached || !isOnline() || fallbackGate.primaryResting()
+
+    /**
+     * The voice for on-device stories and answers: the chosen voice (the speech port, which the app routes to
+     * OpenAI or the phone) while OpenAI can be used, else the phone's own; the phone's if the first one fails.
+     */
+    private suspend fun speakFree(text: String, lang: String, style: HostStyle): ByteArray {
+        val fallback = fallbackSpeech
+        if (fallback == null || (!openAiUnusable() && !_state.value.quotaExhausted && !keyRejected)) {
+            try {
+                return timed(timeouts.speechMs, "Speech") { speech.synthesize(text, lang, style) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (fallback == null) throw e
+            }
+        }
+        return timed(timeouts.speechMs, "Speech") { fallback!!.synthesize(text, lang, style) }
+    }
 
     /** On-device notes and voice; [spoken] is model text that was generated but could not be voiced. */
     private suspend fun prepareOnDevice(req: NarrationRequest, spoken: Segment? = null): Pair<Segment, ByteArray> {
+        // Chosen in Settings rather than forced: nothing to explain.
+        val chosen = config().storiesOnDevice && !openAiUnusable()
         if (config().budgetReached) {
             setStatus(BUDGET_NOTE)
-        } else if (!config().previewMode && !_state.value.quotaExhausted && !keyRejected) {
+        } else if (!chosen && !config().previewMode && !_state.value.quotaExhausted && !keyRejected) {
             setStatus(if (isOnline()) DEGRADED_NOTE else OFFLINE_NOTE)
         }
         var segment = spoken?.takeIf { req.format == SegmentFormat.STORY }
@@ -943,7 +968,7 @@ class RadioSession(
                 budgetAnnounced = true
                 segment = segment.copy(text = Notices.text(Notice.BUDGET_REACHED, req.language) + " " + segment.text)
             }
-        } else if (!_state.value.quotaExhausted && !config().previewMode && !degradedAnnounced &&
+        } else if (!chosen && !_state.value.quotaExhausted && !config().previewMode && !degradedAnnounced &&
             (segment.language ?: req.language).let { langBase(it) == langBase(req.language) }
         ) {
             degradedAnnounced = true
@@ -953,9 +978,7 @@ class RadioSession(
             quotaAnnounced = true
             segment = segment.copy(text = quotaSpoken(req.language) + " " + segment.text)
         }
-        val bytes = timed(timeouts.speechMs, "Speech") {
-            fallbackSpeech!!.synthesize(segment.text, segment.language ?: req.language, req.style)
-        }
+        val bytes = speakFree(segment.text, segment.language ?: req.language, req.style)
         return segment to bytes
     }
 
@@ -1113,11 +1136,16 @@ class RadioSession(
             ConversationAction.PAUSE -> { doPause(); return }
             else -> Unit
         }
-        if (questionsUnavailable()) { endConversation(); return }
+        // The on-device model answers when chosen, or when OpenAI can't (spec A §70).
+        val local = fallbackNarrator?.takeIf {
+            (config().assistantOnDevice || config().previewMode || !isOnline() || config().budgetReached) && it.canConverse()
+        }
+        if (local == null && questionsUnavailable()) { endConversation(); return }
+        val answerer = local ?: narrator
         val active = activeId?.let { id -> ranked.firstOrNull { it.place.id == id } }
         val reply: ConversationReply = try {
-            timed(timeouts.conversationMs, "Answer") {
-                narrator.converse(
+            timed(if (local != null) maxOf(timeouts.conversationMs, LOCAL_ANSWER_MS) else timeouts.conversationMs, "Answer") {
+                answerer.converse(
                     ConversationRequest(
                         utterance = text,
                         language = sessionLanguage,
@@ -1184,7 +1212,8 @@ class RadioSession(
 
         if (reply.reply.isNotBlank()) {
             val bytes = try {
-                timed(timeouts.speechMs, "Speech") { speech.synthesize(reply.reply, sessionLanguage, config().style) }
+                if (local != null) speakFree(reply.reply, sessionLanguage, config().style)
+                else timed(timeouts.speechMs, "Speech") { speech.synthesize(reply.reply, sessionLanguage, config().style) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -2834,6 +2863,8 @@ class RadioSession(
 
     /** The station sting plays before a story's words start. */
     private val STING_LEAD_MS = 700L
+    /** The on-device model is slower than OpenAI, especially while it loads: give its answer this long. */
+    private val LOCAL_ANSWER_MS = 60_000L
 
     /** Shown the moment "next" is heard, until the next story starts, in the session language. */
     private val NEXT_STATUS: String get() = Notices.text(Notice.NEXT_STORY, sessionLanguage)

@@ -312,4 +312,21 @@
     <string name="local_model_download_hint">Free, runs offline. Use Wi-Fi and keep the app open until it finishes.</string>
     <string name="local_model_download">Download %1$s (%2$s)</string>
     <string name="local_model_cancel">Cancel</string>
+    <string name="providers_hint">Choose who does each job. When the choice can\'t be used (no internet, no key, limit reached), the next one takes over.</string>
+    <string name="provider_stories">Stories</string>
+    <string name="provider_stories_fallback">Then: the phone\'s model, then the facts read as they are.</string>
+    <string name="provider_voice">Voice</string>
+    <string name="provider_voice_fallback">Then: the phone\'s voice.</string>
+    <string name="provider_assistant">Voice assistant (questions)</string>
+    <string name="provider_assistant_fallback">Then: the phone\'s model answers; without one, questions wait for the internet.</string>
+    <string name="provider_openai_best">OpenAI (best)</string>
+    <string name="provider_openai_voice">OpenAI voice (natural)</string>
+    <string name="provider_phone_model">On this phone (free, offline)</string>
+    <string name="provider_phone_voice">Phone voice (free, offline)</string>
+    <string name="provider_phone_assistant">On this phone (free, offline)</string>
+    <string name="device_check_title">This phone</string>
+    <string name="device_check_line">Android %1$s · %2$s GB memory · %3$s GB free</string>
+    <string name="device_check_aicore_yes">Gemini Nano (AICore): supported by this phone.</string>
+    <string name="device_check_aicore_no">Gemini Nano (AICore): not on this phone.</string>
+    <string name="device_check_recommend">Recommended open model: %1$s</string>
 </resources>

@@ -46,6 +46,9 @@ interface Narrator {
     /** A host line built from a plain English [draft] (e.g. tour directions); the draft is its own fallback. */
     suspend fun hostLine(kind: HostLine, draft: String, language: String, style: HostStyle): String = draft
 
+    /** Whether [converse] can answer right now (an on-device narrator may have no model). */
+    suspend fun canConverse(): Boolean = true
+
     /** A short, spoken-style answer researched on the web (used by the live voice host as a tool). */
     suspend fun webAnswer(question: String, language: String, area: AreaLabel?): String = "Web search is not available."
 

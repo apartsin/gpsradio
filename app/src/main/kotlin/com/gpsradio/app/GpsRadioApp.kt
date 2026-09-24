@@ -211,6 +211,8 @@ open class GpsRadioApp : Application(), coil.ImageLoaderFactory {
             updater.rememberResume(wasOn)
             if (wasOn) com.gpsradio.app.service.RadioService.stop(this)
         })
+        // One phone voice for both roles: the chosen voice and the free fallback.
+        val phoneVoice = fallbackSpeech()
         session = RadioSession(
             places = DiscoveryService(
                 wikipedia,
@@ -221,7 +223,11 @@ open class GpsRadioApp : Application(), coil.ImageLoaderFactory {
                 openverse = com.gpsradio.core.discovery.OpenverseClient(http, userAgent),
             ),
             narrator = RadioAgent(openAi, models),
-            speech = OpenAiSpeech(openAi, models),
+            speech = phoneVoice.let { phone ->
+                val cloud = OpenAiSpeech(openAi, models)
+                // Providers (spec A §70): the phone's voice reads everything when chosen.
+                if (phone == null) cloud else com.gpsradio.app.platform.RoutedSpeech(cloud, phone) { settings.current.voiceOnDevice }
+            },
             audio = audibleWhilePlaying(audioOutput()),
             historyStore = FileHistoryStore(this),
             config = {
@@ -231,7 +237,7 @@ open class GpsRadioApp : Application(), coil.ImageLoaderFactory {
                         interests = it.interests,
                         style = it.hostStyle,
                         // "On this phone" speech recognition replaces the OpenAI live voice (free & offline).
-                        liveVoice = it.liveVoice && !it.asrOnDevice && micGranted() && it.hasApiKey,
+                        liveVoice = it.liveVoice && !it.asrOnDevice && !it.assistantOnDevice && micGranted() && it.hasApiKey,
                         handsFree = it.alwaysListening,
                         voice = it.models.ttsVoice,
                         liveModel = it.models.realtimeModel,
@@ -244,9 +250,11 @@ open class GpsRadioApp : Application(), coil.ImageLoaderFactory {
                         askPreferences = true,
                         localEvents = it.localEvents,
                         // With the mic closed the listener can't answer: no teasers, offers or questions.
-                        canReply = it.alwaysListening && it.liveVoice && !it.asrOnDevice && micGranted() && it.hasApiKey,
+                        canReply = it.alwaysListening && it.liveVoice && !it.asrOnDevice && !it.assistantOnDevice && micGranted() && it.hasApiKey,
                         // Over the daily limit: free on-device notes until tomorrow or until the limit is raised.
                         budgetReached = it.dailyBudgetUsd > 0 && meter.todayUsd() >= it.dailyBudgetUsd,
+                        storiesOnDevice = it.storyOnDevice,
+                        assistantOnDevice = it.assistantOnDevice,
                     )
                 }
             },
@@ -258,7 +266,7 @@ open class GpsRadioApp : Application(), coil.ImageLoaderFactory {
             onPersistLanguage = { tag -> settings.update { it.copy(languageAuto = false, preferredLanguage = tag) } },
             onNavigate = ::openInMaps,
             fallbackNarrator = localWriter()?.let { com.gpsradio.core.ai.LocalNarrator(it) } ?: NarrationFallback(),
-            fallbackSpeech = fallbackSpeech(),
+            fallbackSpeech = phoneVoice,
             isOnline = online,
             stings = stingPlayer()?.let { inner ->
                 // A sting is the radio playing too: the always-open mic must not take it for the listener.

@@ -41,7 +41,7 @@ class FreeOfflineSettingsTest {
             }
         }
         compose.onNodeWithText("Free & offline").performScrollTo()
-        compose.onNodeWithText("OpenAI (best)").performScrollTo()
+        compose.onNodeWithTag("asrEngine").performScrollTo()
         compose.onNodeWithText("System default").performScrollTo()
         compose.onNodeWithText("Install voice data").performScrollTo().performClick()
         assertTrue(installClicked)

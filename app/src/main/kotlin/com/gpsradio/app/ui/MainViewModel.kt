@@ -213,7 +213,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      */
     fun useOnDeviceMic(): Boolean {
         val s = graph.settings.current
-        if (s.asrOnDevice || !s.hasApiKey) return true
+        if (s.asrOnDevice || s.assistantOnDevice || !s.hasApiKey) return true
         if (radio.value.quotaExhausted) return true
         if (runCatching { graph.budgetReached() }.getOrDefault(false)) return true
         return !runCatching { graph.onlineNow() }.getOrDefault(true)

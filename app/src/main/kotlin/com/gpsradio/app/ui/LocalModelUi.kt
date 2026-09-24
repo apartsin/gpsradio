@@ -26,6 +26,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gpsradio.app.R
+import com.gpsradio.app.platform.DeviceInfo
 import com.gpsradio.app.platform.LocalModelCatalog
 import com.gpsradio.app.platform.LocalModels
 import com.gpsradio.app.platform.ModelDownload
@@ -39,6 +40,7 @@ data class LocalAiUi(
     val onDownload: (String) -> Unit = {},
     val onCancel: (String) -> Unit = {},
     val onDelete: (String) -> Unit = {},
+    val device: DeviceInfo? = null,
 )
 
 @Composable
@@ -46,14 +48,33 @@ fun rememberLocalAi(models: LocalModels): LocalAiUi {
     val nano by models.nano.collectAsStateWithLifecycle()
     val installed by models.installed.collectAsStateWithLifecycle()
     val downloads by models.downloads.collectAsStateWithLifecycle()
-    LaunchedEffect(models) { models.refreshNano() }
-    return LocalAiUi(nano, installed, downloads, models::download, models::cancel, models::delete)
+    var device by remember { mutableStateOf<DeviceInfo?>(null) }
+    LaunchedEffect(models) {
+        device = runCatching { models.deviceInfo() }.getOrNull()
+        models.refreshNano()
+    }
+    return LocalAiUi(nano, installed, downloads, models::download, models::cancel, models::delete, device)
 }
 
 /** "Stories without OpenAI": which on-device model writes them, and its download. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LocalModelPicker(choice: String, onChoice: (String) -> Unit, ai: LocalAiUi) {
+    ai.device?.let { d ->
+        Text(stringResource(R.string.device_check_title), style = MaterialTheme.typography.titleSmall)
+        Text(
+            stringResource(R.string.device_check_line, d.android, "%.1f".format(java.util.Locale.US, d.ramGb), "%.1f".format(java.util.Locale.US, d.freeGb)),
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Text(
+            stringResource(if (d.aiCore) R.string.device_check_aicore_yes else R.string.device_check_aicore_no),
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Text(
+            stringResource(R.string.device_check_recommend, "${d.recommended.label} (${gb(d.recommended.sizeMb)})"),
+            style = MaterialTheme.typography.bodySmall,
+        )
+    }
     val autoLabel = stringResource(R.string.local_model_auto)
     val offLabel = stringResource(R.string.local_model_off)
     fun label(id: String): String = when (id) {
@@ -103,7 +124,7 @@ fun LocalModelPicker(choice: String, onChoice: (String) -> Unit, ai: LocalAiUi) 
 
     // A downloadable open model: the chosen one, or under "auto" the recommended one while Nano isn't there.
     val spec = LocalModelCatalog.byId(choice)
-        ?: LocalModelCatalog.all.first().takeIf { choice == "auto" && ai.nano != NanoState.AVAILABLE && ai.installed.isEmpty() }
+        ?: (ai.device?.recommended ?: LocalModelCatalog.all.first()).takeIf { choice == "auto" && ai.nano != NanoState.AVAILABLE && ai.installed.isEmpty() }
         ?: LocalModelCatalog.all.firstOrNull { choice == "auto" && it.id in ai.installed }
         ?: return
     val download = ai.downloads[spec.id]

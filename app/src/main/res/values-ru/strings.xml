@@ -312,4 +312,21 @@
     <string name="local_model_download_hint">Бесплатно, работает без интернета. Используйте Wi-Fi и не закрывайте приложение до конца загрузки.</string>
     <string name="local_model_download">Скачать %1$s (%2$s)</string>
     <string name="local_model_cancel">Отмена</string>
+    <string name="providers_hint">Выберите, кто выполняет каждую задачу. Если выбранное недоступно (нет интернета, ключа или исчерпан лимит), работу берёт следующий.</string>
+    <string name="provider_stories">Истории</string>
+    <string name="provider_stories_fallback">Затем: модель на телефоне, затем факты как есть.</string>
+    <string name="provider_voice">Голос</string>
+    <string name="provider_voice_fallback">Затем: голос телефона.</string>
+    <string name="provider_assistant">Голосовой ассистент (вопросы)</string>
+    <string name="provider_assistant_fallback">Затем: отвечает модель на телефоне; без неё вопросы ждут интернета.</string>
+    <string name="provider_openai_best">OpenAI (лучшее)</string>
+    <string name="provider_openai_voice">Голос OpenAI (естественный)</string>
+    <string name="provider_phone_model">На телефоне (бесплатно, офлайн)</string>
+    <string name="provider_phone_voice">Голос телефона (бесплатно, офлайн)</string>
+    <string name="provider_phone_assistant">На телефоне (бесплатно, офлайн)</string>
+    <string name="device_check_title">Этот телефон</string>
+    <string name="device_check_line">Android %1$s · память %2$s ГБ · свободно %3$s ГБ</string>
+    <string name="device_check_aicore_yes">Gemini Nano (AICore): телефон поддерживает.</string>
+    <string name="device_check_aicore_no">Gemini Nano (AICore): на этом телефоне нет.</string>
+    <string name="device_check_recommend">Рекомендуемая открытая модель: %1$s</string>
 </resources>
