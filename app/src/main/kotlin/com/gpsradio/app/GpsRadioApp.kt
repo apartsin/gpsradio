@@ -218,7 +218,13 @@ open class GpsRadioApp : Application() {
             fallbackNarrator = NarrationFallback(),
             fallbackSpeech = fallbackSpeech(),
             isOnline = online,
-            stings = stingPlayer(),
+            stings = stingPlayer()?.let { inner ->
+                // A sting is the radio playing too: the always-open mic must not take it for the listener.
+                com.gpsradio.core.session.StingPlayer { kind ->
+                    livePcm?.setRadioAudible(true)
+                    try { inner.play(kind) } finally { livePcm?.setRadioAudible(false) }
+                }
+            },
             journalStore = FileJournalStore(this),
             onThisDay = OnThisDayClient(http, userAgent, ep.onThisDay),
             areaInfo = AreaInfoSource { lang, title -> wikipedia.articleByTitle(lang, title) },

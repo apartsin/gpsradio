@@ -428,6 +428,7 @@ class RadioSession(
     }
 
     fun skip() = scope.launch {
+        steerJob?.cancel()
         closeLive()
         clearOffer()
         val wasSpeaking = speechJob?.isActive == true
@@ -456,6 +457,7 @@ class RadioSession(
     }
 
     fun repeat() = scope.launch {
+        steerJob?.cancel()
         closeLive()
         val bytes = lastAudio ?: return@launch
         speechJob?.cancel()
@@ -465,16 +467,15 @@ class RadioSession(
             runCatching { audio.play(bytes) }.onFailure { if (it is CancellationException) throw it }
             lastSpeechEndMs = clock()
             setRadioState(
-                when (previous) {
-                    RadioState.CONVERSING, RadioState.PAUSED -> previous
-                    else -> RadioState.RADIO
-                },
+                // Back to where it was; an exchange ended when "repeat" was asked, so that means the radio.
+                if (previous == RadioState.PAUSED) previous else RadioState.RADIO,
             )
         }
     }
 
     /** User picked a place in the UI: narrate it now, even if heard before. */
     fun tellAbout(placeId: String) = scope.launch {
+        steerJob?.cancel()
         val c = ranked.firstOrNull { it.place.id == placeId } ?: return@launch
         closeLive()
         clearOffer()
@@ -571,6 +572,7 @@ class RadioSession(
 
     /** Answer to "want the full story?" from the on-screen buttons. */
     fun answerOffer(yes: Boolean) = scope.launch {
+        steerJob?.cancel()
         val offer = pendingOffer ?: return@launch
         closeLive()
         speechJob?.cancel()
@@ -614,7 +616,8 @@ class RadioSession(
 
     private fun tick() {
         val s = _state.value
-        val speaking = speechJob?.isActive == true
+        // The live host still talking (or its answer still coming out of the speaker) counts as speaking.
+        val speaking = speechJob?.isActive == true || live?.isAudible == true
         val now = clock()
         if (s.radioState == RadioState.CONVERSING && !speaking && now >= engagedUntilMs) {
             // No answer to an offer means "not now": keep the story for later, just less novel.
@@ -1057,6 +1060,7 @@ class RadioSession(
         closeLive()
         clearOffer()
         engagedUntilMs = 0
+        afterExchange = RadioState.RADIO
         setRadioState(RadioState.RADIO)
     }
 
@@ -1238,6 +1242,7 @@ class RadioSession(
             // Always listening: already connected; just start an exchange (and ask, if there's a question).
             if (current.persistent) {
                 engagedUntilMs = Long.MAX_VALUE
+                afterExchange = RadioState.RADIO
                 setRadioState(RadioState.CONVERSING)
                 if (opening != null) current.prompt(opening) else current.beginExchange()
             }
@@ -1302,7 +1307,6 @@ class RadioSession(
                 clearOffer()
                 endConversation()
                 requestNextNow()
-                scope.launch { sting(Sting.STATION) }
             }
             ConversationAction.RESUME_RADIO -> { interrupted = null; endConversation() }
             else -> doPause()
@@ -1334,6 +1338,10 @@ class RadioSession(
         val l = live ?: return
         if (l.persistent && l.isOpen && handsFreeActive) {
             l.quiet()
+            // The exchange is over (the caller plays something or moves on): drop its hold, or the radio would
+            // wait for an exchange end that never comes (the host went quiet, so no idle callback follows).
+            if (engagedUntilMs == Long.MAX_VALUE) engagedUntilMs = 0
+            afterExchange = RadioState.RADIO
             return
         }
         live = null
@@ -1402,8 +1410,16 @@ class RadioSession(
             if (state == LiveState.LISTENING && previous == LiveState.CONNECTING) standbyFailures = 0
             // Barge-in over the radio: the listener just started talking, so the story stops and the host listens.
             if (state == LiveState.USER_SPEAKING && _state.value.radioState != RadioState.CONVERSING) live?.let { startExchange(it) }
+            // Already waiting for an answer with a deadline (a non-stop quiz): the listener is answering, so hold
+            // until the exchange ends instead of starting the radio over the host after the deadline.
+            else if (state == LiveState.USER_SPEAKING && engagedUntilMs != Long.MAX_VALUE) {
+                engagedUntilMs = Long.MAX_VALUE
+                live?.beginExchange()
+            }
             if (state == null) {
                 live = null
+                // A steered story is still being researched: keep holding for it (it plays when ready).
+                if (steerJob?.isActive == true) return
                 if (_state.value.radioState == RadioState.CONVERSING) {
                     clearOffer()
                     endConversation()
@@ -1786,11 +1802,19 @@ class RadioSession(
     /** An explicit "next": the next segment airs as soon as it's ready, not after the usual gap. */
     private fun requestNextNow() {
         nextNowUntilMs = clock() + NEXT_NOW_WINDOW_MS
+        // Seen at once, whatever asked for it (voice, notification, headset); heard as the next story's station sting.
+        // (Never over a note that asks the listener to act, like "Add key".)
+        if (_state.value.radioState != RadioState.IDLE && _state.value.radioState != RadioState.PAUSED && _state.value.status?.needsKey != true) {
+            setStatus(NEXT_STATUS, StatusLevel.WORKING)
+        }
         wake.trySend(Unit)
     }
 
     private fun setRadioState(s: RadioState) {
-        if (s == RadioState.NARRATING) nextNowUntilMs = 0
+        if (s == RadioState.NARRATING) {
+            nextNowUntilMs = 0
+            if (_state.value.status?.text == NEXT_STATUS) setStatus(null)
+        }
         val before = _state.value.radioState
         _state.update { it.copy(radioState = s) }
         // Non-stop: when a segment ends, look for the next one right after the gap, not at the next 3 s tick.
@@ -1885,11 +1909,15 @@ class RadioSession(
     private fun announceText(text: String) {
         val previous = speechJob
         // Stored as the speech job: the scheduler waits for it, so a story never starts over a notice.
-        speechJob = scope.launch {
+        val job = scope.launch {
             previous?.join()
             if (_state.value.radioState == RadioState.IDLE || _state.value.radioState == RadioState.PAUSED) return@launch
             speakNotice(text)
         }
+        // Cancelling the speech job (skip, pause, the listener talking) must also stop what the notice waits behind,
+        // or that story would play on under whatever comes next.
+        job.invokeOnCompletion { cause -> if (cause is CancellationException) previous?.cancel() }
+        speechJob = job
     }
 
     /**
@@ -1955,6 +1983,7 @@ class RadioSession(
 
     /** "Tell me again" from the journal: re-narrate a place still around, otherwise ask the host about it. */
     fun retell(placeId: String, name: String) = scope.launch {
+        steerJob?.cancel()
         if (_state.value.radioState == RadioState.IDLE) return@launch
         val place = candidates[placeId]
         val loc = _state.value.location
@@ -1974,6 +2003,7 @@ class RadioSession(
     fun endTour() = scope.launch { clearTour() }
 
     private fun beginTour(minutes: Int) {
+        steerJob?.cancel()
         if (_state.value.radioState == RadioState.IDLE) return
         val loc = _state.value.location ?: processor.current
         if (loc == null) {
@@ -2572,7 +2602,8 @@ class RadioSession(
             // One voice at a time: let the host finish its sentence ("let me dig into that…") first.
             var waited = 0L
             while (live?.isAudible == true && waited < STEER_MAX_WAIT_MS) { delay(200); waited += 200 }
-            if (_state.value.radioState == RadioState.IDLE || _state.value.radioState == RadioState.PAUSED) return@launch
+            // Only while the radio is still holding for it: anything else the listener did since wins.
+            if (_state.value.radioState != RadioState.CONVERSING) return@launch
             if (facet == null) {
                 // Still holding the radio for the steer: the host says so, and the idle exchange then hands back.
                 live?.takeIf { it.isOpen }?.prompt(
@@ -2600,6 +2631,9 @@ class RadioSession(
         return heard.wasHeard("subject:$key", subject, clock()) ||
             researchedFacets.any { it.subject?.let(com.gpsradio.core.editorial.HeardHistory::normalizeName) == key }
     }
+
+    /** Shown the moment "next" is heard, until the next story starts. */
+    private val NEXT_STATUS = "Next story…"
 
     /** How long an explicit "next" waives the pacing gap (the next segment may still be being written). */
     private val NEXT_NOW_WINDOW_MS = 60_000L

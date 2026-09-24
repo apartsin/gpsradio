@@ -603,6 +603,56 @@ class LiveVoiceTest {
     }
 
     @Test
+    fun aLateAnswerIsCancelledAndNeverPlaysOverTheNextStory() = runTest {
+        // The server starts its answer when the listener stops talking; "next" arrives in the transcript before any
+        // of that answer's audio. The answer must be cancelled, and audio that still arrives must not play.
+        val r = Radio(listOf(place("a", Geo.destination(here, 0.0, 100.0)), place("b", Geo.destination(here, 90.0, 120.0))))
+        val conns = mutableListOf<FakeConnection>()
+        val pcm = FakePcm()
+        val s = session(r, conns, pcm, handsFree = { true }, audio = AudioOutput { delay(30_000) })
+        running(s) {
+            s.onLocation(LocationSample(here.lat, here.lon, 5f, 1_000_000, 0f)); runCurrent()
+            advanceTimeBy(3_000); runCurrent()
+            val c = conns.single()
+            c.server.trySend(RealtimeEvent.SessionReady); runCurrent()
+            c.server.trySend(RealtimeEvent.SpeechStarted); runCurrent()
+            c.server.trySend(RealtimeEvent.SpeechStopped); runCurrent()
+            c.server.trySend(RealtimeEvent.UserTranscript("Дальше")); runCurrent()
+            assertTrue("response.cancel" in c.types(), c.types().toString())
+            val before = pcm.played
+            c.server.trySend(RealtimeEvent.AudioDelta(ByteArray(4_800), "late")); runCurrent()
+            assertEquals(before, pcm.played, "the cut answer's audio is dropped")
+            advanceTimeBy(2_000); runCurrent()
+            assertEquals(com.gpsradio.core.model.RadioState.NARRATING, s.state.value.radioState)
+        }
+    }
+
+    @Test
+    fun tellAboutDuringAnExchangeNeverWedgesTheRadio() = runTest {
+        // Always listening: the listener talks over a story, then taps a place. After that story the radio goes on
+        // (the exchange's hold is dropped even though the host just went quiet and never reports idle).
+        val r = Radio(listOf(place("a", Geo.destination(here, 0.0, 100.0)), place("b", Geo.destination(here, 90.0, 120.0)),
+            place("c", Geo.destination(here, 180.0, 140.0)), place("d", Geo.destination(here, 270.0, 160.0))))
+        val conns = mutableListOf<FakeConnection>()
+        val pcm = FakePcm()
+        val played = mutableListOf<String>()
+        val s = session(r, conns, pcm, handsFree = { true }, audio = AudioOutput { played += String(it); delay(5_000) })
+        running(s) {
+            s.onLocation(LocationSample(here.lat, here.lon, 5f, 1_000_000, 0f)); runCurrent()
+            advanceTimeBy(3_000); runCurrent()
+            val c = conns.single()
+            c.server.trySend(RealtimeEvent.SessionReady); runCurrent()
+            c.server.trySend(RealtimeEvent.SpeechStarted); runCurrent()
+            assertEquals(com.gpsradio.core.model.RadioState.CONVERSING, s.state.value.radioState)
+            val target = r.list.first { p -> played.none { p.name in it } }
+            s.tellAbout(target.id); runCurrent()
+            advanceTimeBy(4 * 60_000L); runCurrent()
+            val after = played.dropWhile { target.name !in it }
+            assertTrue(after.size >= 2, "the radio carried on after the requested story: $played")
+        }
+    }
+
+    @Test
     fun aSlowSteerHoldsTheRadioAndNeverTalksOverTheHost() = runTest {
         // Research slower than the live idle timeout (20 s here): nothing else may start meanwhile, and the steered
         // story then waits until the host's own words have finished playing.

@@ -77,6 +77,13 @@ class LiveConversation(
     /** After a barge-in, drop leftover audio from the interrupted response until it is done. */
     private var dropStaleAudio = false
     private var toolRunning = false
+    /**
+     * A response is on its way but no audio has arrived yet (the server creates one when the listener stops talking,
+     * or we asked for one). [quiet] must cancel it too, or its audio would start over whatever the radio plays next.
+     */
+    private var responsePending = false
+    /** The response that called a tool has already finished (the tool ran in its own job). */
+    private var responseDoneSinceCall = false
     /** A tool result was sent: ask for the host's follow-up once the current response is done. */
     private var followUpDue = false
     /** The assistant message being played and how much of its audio arrived (24 kHz 16-bit mono = 48 bytes/ms). */
@@ -166,6 +173,7 @@ class LiveConversation(
         }
         conn.send(RealtimeProtocol.userText(text))
         conn.send(RealtimeProtocol.responseCreate())
+        responsePending = true
     }
 
     /** The host asks or says something now (e.g. an offer's question) and listens for the answer. */
@@ -173,7 +181,12 @@ class LiveConversation(
         val conn = connection ?: return
         lastActivityMs = clock()
         inConversation = true
-        if (ready) conn.send(RealtimeProtocol.responseCreate(instructions)) else pendingOpening = instructions
+        if (ready) {
+            conn.send(RealtimeProtocol.responseCreate(instructions))
+            responsePending = true
+        } else {
+            pendingOpening = instructions
+        }
     }
 
     /** The listener is expected to answer (e.g. after an offer): count this as an exchange. */
@@ -185,10 +198,11 @@ class LiveConversation(
     /** Stop the host talking (radio controls, a new story) but keep listening. */
     fun quiet() {
         val conn = connection ?: return
-        if (speaking) {
+        if (speaking || responsePending) {
             conn.send(RealtimeProtocol.cancelResponse())
-            truncateHeard(conn)
+            if (speaking) truncateHeard(conn)
             speaking = false
+            responsePending = false
             dropStaleAudio = true
         }
         audio.stopPlayback()
@@ -230,7 +244,7 @@ class LiveConversation(
                 }
                 ready = true
                 host.onLiveState(LiveState.LISTENING)
-                pendingOpening?.let { conn.send(RealtimeProtocol.responseCreate(it)) }
+                pendingOpening?.let { conn.send(RealtimeProtocol.responseCreate(it)); responsePending = true }
                 pendingOpening = null
             }
             RealtimeEvent.SpeechStarted -> {
@@ -241,16 +255,23 @@ class LiveConversation(
                 if (speaking || audio.pendingPlaybackMs() > 0) truncateHeard(conn)
                 if (speaking) dropStaleAudio = true
                 speaking = false
+                responsePending = false // the server cancels it (interrupt_response)
                 audio.stopPlayback()
                 host.onLiveState(LiveState.USER_SPEAKING)
             }
             RealtimeEvent.SpeechStopped -> {
                 lastActivityMs = clock()
+                // The server now creates the answer on its own (turn_detection.create_response).
+                responsePending = true
                 host.onLiveState(LiveState.LISTENING)
             }
             is RealtimeEvent.UserTranscript -> host.onUserSaid(e.text)
             is RealtimeEvent.AudioDelta -> {
                 if (dropStaleAudio) return
+                // Always listening, outside an exchange the host has nothing to say: a late answer that was cut
+                // (quiet) must not start over the radio.
+                if (persistent && !inConversation) return
+                responsePending = false
                 if (e.itemId != null && e.itemId != currentItemId) {
                     currentItemId = e.itemId
                     receivedBytes = 0
@@ -267,32 +288,45 @@ class LiveConversation(
                 lastActivityMs = clock()
                 val args = runCatching { json.parseToJsonElement(e.arguments).jsonObject }.getOrElse { buildJsonObject { } }
                 toolRunning = true
-                val output = try {
-                    host.callTool(e.name, args)
-                } catch (ex: CancellationException) {
-                    throw ex
-                } catch (ex: Exception) {
-                    "error: ${ex.message}"
-                } finally {
-                    toolRunning = false
-                    lastActivityMs = clock()
-                }
-                // A tool may have ended the conversation (e.g. "back to the radio").
-                if (isOpen) {
+                responseDoneSinceCall = false
+                // In its own job: a web search can take many seconds, and meanwhile "stop", "next" or a barge-in
+                // must still be heard at once (events keep flowing).
+                scope.launch {
+                    val output = try {
+                        host.callTool(e.name, args)
+                    } catch (ex: CancellationException) {
+                        throw ex
+                    } catch (ex: Exception) {
+                        "error: ${ex.message}"
+                    } finally {
+                        toolRunning = false
+                        lastActivityMs = clock()
+                    }
+                    // A tool may have ended the conversation (e.g. "back to the radio").
+                    if (!isOpen) return@launch
                     conn.send(RealtimeProtocol.functionOutput(e.callId, output))
-                    // Only one response may be active: the one that called the tool ends with response.done,
-                    // then the host continues with the tool's result. Not when the tool went back to the radio
-                    // (quiet()): the host would talk over the resumed story.
-                    followUpDue = inConversation
+                    // Only one response may be active: the host continues with the tool's result once the response
+                    // that called it is done. Not when the tool went back to the radio (quiet()): the host would talk
+                    // over the resumed story.
+                    if (!inConversation) return@launch
+                    if (responseDoneSinceCall) {
+                        conn.send(RealtimeProtocol.responseCreate())
+                        responsePending = true
+                    } else {
+                        followUpDue = true
+                    }
                 }
             }
             RealtimeEvent.ResponseDone -> {
                 lastActivityMs = clock()
                 speaking = false
                 dropStaleAudio = false
+                responsePending = false
+                responseDoneSinceCall = true
                 if (followUpDue && isOpen) {
                     followUpDue = false
                     conn.send(RealtimeProtocol.responseCreate())
+                    responsePending = true
                 } else if (isOpen) {
                     host.onLiveState(LiveState.LISTENING)
                 }

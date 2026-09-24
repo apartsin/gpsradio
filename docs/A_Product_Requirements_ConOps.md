@@ -875,3 +875,28 @@ The photo panel is a slideshow that follows the story being told.
   - Then come the people, buildings and views the story names: the story model returns `pictures` (up to 3 English Wikipedia titles), and research returns `related` (up to 4). Their Wikipedia lead photos are added as they arrive, each captioned with what it shows ("Franz Joseph I of Austria") and credited (§45).
 - **How it plays.** While a story is on air, the photo advances every 6 s. Swiping by hand is respected. When the radio is quiet, the slideshow holds.
 - **Photo stops on the road.** A photo tip that is due (a viewpoint just ahead, at most one every 15 min) now goes before the next story while driving or in non-stop. Before, a steady stream of stories drove right past the lookout. Detour stories (worth a stop, §47) are unchanged. `DrivingExtrasTest` drives past both.
+
+## 56. Race Review: One Voice, Never Stuck, Instant Feedback
+
+A review of the two voice paths found these problems. All are fixed.
+
+1. **The live answer is cancelled even before it speaks.**
+   - The server starts an answer when the listener stops talking. "Next" can arrive in the transcript before any of that answer's audio.
+   - The pending answer is now cancelled too.
+   - Outside an exchange, late live audio is dropped, so it can't start over the next story.
+2. **The radio can't stay silent after a request mid-exchange.**
+   - Tapping a place, "tell me again" or "repeat" during an always-listening exchange left the exchange's hold in place, and the radio stayed silent.
+   - Going quiet now drops the hold. Repeat never returns to "conversing".
+3. **The radio returns to where it should.**
+   - Talking while paused, then resuming, left "return to paused" behind, and a later offer ended paused.
+   - That is now reset whenever an exchange ends or starts.
+4. **The non-stop quiz waits for a spoken answer.** Answering by voice holds the radio until the exchange ends. The scheduler also treats a live host that is still audible as "speaking".
+5. **Notices don't keep stories alive.** Cancelling a notice now cancels the story it was waiting behind, so no two stories play at once.
+6. **Steers are cancelled by the listener's other actions** (skip, tap a place, repeat, retell, offer answers, tour). A steered story only plays while the radio is still holding for it.
+7. **Web searches don't block the conversation.** Tool calls run in their own job, so "stop", "next" and interruptions are handled while a web search runs.
+8. **Cut-off audio stays cut.** Live audio chunks carry a generation, so audio queued before a cut is never played after it.
+9. **Stings.**
+   - Stings raise the mic gate like any radio audio, so the phone doesn't take its own jingle for the listener.
+   - "Next" shows "Next story…" at once instead of a separate sting that could overlap the next story's own sting.
+
+Regression tests reproduce #1 and #2 on the old code.

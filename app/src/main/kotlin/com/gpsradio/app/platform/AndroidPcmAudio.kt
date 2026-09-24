@@ -35,7 +35,7 @@ class AndroidPcmAudio(private val context: Context) : PcmAudio {
     private var echo: AcousticEchoCanceler? = null
     private var noise: NoiseSuppressor? = null
 
-    private val queue = LinkedBlockingQueue<ByteArray>()
+    private val queue = LinkedBlockingQueue<Pair<Int, ByteArray>>()
     private val audioManager = context.getSystemService(AudioManager::class.java)
     @Volatile private var focus: AudioFocusRequest? = null
 
@@ -117,7 +117,8 @@ class AndroidPcmAudio(private val context: Context) : PcmAudio {
         // 24 kHz mono 16-bit = 48 bytes per ms; extend the "host audible" window by this chunk.
         val now = System.currentTimeMillis()
         playingUntilMs = maxOf(playingUntilMs, now) + pcm.size / 48 + 250
-        queue.offer(pcm)
+        // Tagged with the current generation: audio queued before a cut is never played after it.
+        queue.offer(generation to pcm)
     }
 
     override fun pendingPlaybackMs(): Long = (playingUntilMs - System.currentTimeMillis()).coerceAtLeast(0)
@@ -164,15 +165,15 @@ class AndroidPcmAudio(private val context: Context) : PcmAudio {
         player = thread(name = "live-speaker", isDaemon = true) {
             try {
                 while (true) {
-                    val chunk = queue.poll(500, java.util.concurrent.TimeUnit.MILLISECONDS)
-                    if (chunk == null) {
+                    val item = queue.poll(500, java.util.concurrent.TimeUnit.MILLISECONDS)
+                    if (item == null) {
                         // The host has finished speaking: give audio focus back so other apps' music resumes.
                         if (focus != null && System.currentTimeMillis() > playingUntilMs) abandonFocus()
                         continue
                     }
                     // Written in ~40 ms slices so a barge-in or "next" silences the host at once, instead of
                     // after the rest of a long chunk (two voices at once).
-                    val gen = generation
+                    val (gen, chunk) = item
                     var off = 0
                     while (off < chunk.size && gen == generation) {
                         val n = minOf(SLICE_BYTES, chunk.size - off)
