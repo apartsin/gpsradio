@@ -17,6 +17,29 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Temporary: prints the public API of Google's on-device AI libraries (Gemini Nano via ML Kit GenAI), which the
+  # dev sandbox can't download, so the app code is written against the real signatures (spec A §69).
+  inspect-ondevice-ai:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Dump ML Kit GenAI Prompt API
+        run: |
+          set +e
+          for art in genai-prompt genai-common; do
+            meta=$(curl -sfL "https://dl.google.com/dl/android/maven2/com/google/mlkit/$art/maven-metadata.xml")
+            echo "== $art versions: $(echo "$meta" | grep -o '<version>[^<]*' | sed 's/<version>//' | tr '\n' ' ')"
+            ver=$(echo "$meta" | grep -o '<latest>[^<]*' | sed 's/<latest>//')
+            [ -z "$ver" ] && ver=$(echo "$meta" | grep -o '<version>[^<]*' | tail -1 | sed 's/<version>//')
+            curl -sfL -o $art.aar "https://dl.google.com/dl/android/maven2/com/google/mlkit/$art/$ver/$art-$ver.aar" || continue
+            curl -sfL "https://dl.google.com/dl/android/maven2/com/google/mlkit/$art/$ver/$art-$ver.pom" | grep -A3 '<dependency>' | grep -o '<artifactId>[^<]*\|<groupId>[^<]*\|<version>[^<]*' | paste - - - | head -20
+            mkdir -p $art && (cd $art && unzip -oq ../$art.aar classes.jar && unzip -oq classes.jar)
+            echo "== $art $ver public API"
+            find $art -name '*.class' ! -name '*$*' | sed "s#^$art/##; s#\.class##; s#/#.#g" | sort | while read c; do
+              javap -public -cp $art "$c" 2>/dev/null | grep -v '^Compiled' 
+            done | head -400
+          done
+
   build:
     runs-on: ubuntu-latest
     steps:
