@@ -136,14 +136,17 @@ jobs:
           cp artifact/app-debug.apk "gpsradio-${VERSION}.apk"
           cp "gpsradio-${VERSION}.apk" gpsradio.apk
           # Make sure the versioned release exists (the build job's publish step may have hit a GitHub hiccup).
-          gh release view "$TAG" >/dev/null 2>&1 || retry gh release create "$TAG" --title "GPS Radio ${VERSION}" --notes "GPS Radio ${VERSION} (${GITHUB_SHA::7})" --target "$GITHUB_SHA"
+          # Not fatal: when GitHub refuses a new release (403 seen since 2026-09-24), latest still gets the tested APK.
+          gh release view "$TAG" >/dev/null 2>&1 || retry gh release create "$TAG" --title "GPS Radio ${VERSION}" --notes "GPS Radio ${VERSION} (${GITHUB_SHA::7})" --target "$GITHUB_SHA" || echo "::warning::Could not create release $TAG"
           # The build job usually uploaded it already (same artifact); re-uploading can fail with 422 "already exists".
           # The release's own asset list (the by-tag endpoint can lag and show no assets).
           has_apk() {
             local id; id="$(gh api "repos/${GH_REPO}/releases/tags/${TAG}" --jq '.id' 2>/dev/null)" || return 1
             gh api "repos/${GH_REPO}/releases/${id}/assets" --jq '.[].name' 2>/dev/null | grep -qx "gpsradio-${VERSION}.apk"
           }
-          has_apk || retry gh release upload "$TAG" "gpsradio-${VERSION}.apk" --clobber || has_apk
+          has_apk || retry gh release upload "$TAG" "gpsradio-${VERSION}.apk" --clobber || has_apk || true
+          APK_URL="https://github.com/${GH_REPO}/releases/download/${TAG}/gpsradio-${VERSION}.apk"
+          has_apk || APK_URL="https://github.com/${GH_REPO}/releases/download/latest/gpsradio.apk"
           echo "$VERSION" > version.txt
           OLD=""
           if gh release view latest >/dev/null 2>&1; then
@@ -160,7 +163,7 @@ jobs:
           # Self-update manifest the app polls (spec B §36): version, checksum, what changed.
           SUBJECT="$(gh api "repos/${GH_REPO}/commits/${GITHUB_SHA}" --jq '.commit.message' | head -n1)"
           jq -n --arg v "$VERSION" --argjson b "$GITHUB_RUN_NUMBER" \
-            --arg apk "https://github.com/${GH_REPO}/releases/download/${TAG}/gpsradio-${VERSION}.apk" \
+            --arg apk "$APK_URL" \
             --arg sha "$(sha256sum gpsradio.apk | cut -d' ' -f1)" --argjson size "$(stat -c%s gpsradio.apk)" \
             --arg commit "${GITHUB_SHA::7}" --arg notes "$SUBJECT" \
             '{version:$v, build:$b, apk:$apk, sha256:$sha, size:$size, commit:$commit, notes:$notes}' > update.json
@@ -173,7 +176,7 @@ jobs:
           done
           retry gh release upload latest gpsradio.apk version.txt update.json --clobber
           gh release edit latest --title "GPS Radio – latest tested build" --notes "GPS Radio ${VERSION} (${GITHUB_SHA::7}), passed unit, UI and emulator tests. Install on Android 8.0+ (allow installs from your browser). Any GPS Radio build installs over any other, forward or back, keeping your settings. Previous tested build: https://github.com/${GH_REPO}/releases/download/previous/gpsradio.apk"
-          gh release edit "$TAG" --prerelease=false --title "GPS Radio ${VERSION}"
+          gh release edit "$TAG" --prerelease=false --title "GPS Radio ${VERSION}" || true
 
       - name: Prune old versioned builds (keep 15)
         run: |
