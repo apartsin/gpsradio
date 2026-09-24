@@ -334,8 +334,7 @@ fun RadioContent(
                 RadioMenu(
                     state = state,
                     update = update,
-                    onMode = { actions.onMode(it); closeMenu() },
-                    onPage = { page = it; closeMenu() },
+                        onPage = { page = it; closeMenu() },
                     onSettings = { closeMenu(); actions.onOpenSettings() },
                     onInstallUpdate = onInstallUpdate,
                     onAllowInstalls = onAllowInstalls,
@@ -527,12 +526,11 @@ fun micHint(recording: Boolean, liveMode: Boolean, live: LiveState?): String = w
     else -> "Hold to talk"
 }
 
-/** The menu: travel mode, the secondary pages, an available update, and Settings. */
+/** The menu: the secondary pages, an available update, and Settings. */
 @Composable
 private fun RadioMenu(
     state: RadioUiState,
     update: UpdateState,
-    onMode: (TravelMode?) -> Unit,
     onPage: (RadioPage) -> Unit,
     onSettings: () -> Unit,
     onInstallUpdate: (UpdateInfo) -> Unit,
@@ -540,25 +538,7 @@ private fun RadioMenu(
 ) {
     ModalDrawerSheet(Modifier.testTag("menu")) {
         Column(Modifier.verticalScroll(rememberScrollState()).padding(vertical = 12.dp)) {
-            Text("Mode", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(horizontal = 28.dp, vertical = 8.dp))
-            val detected = state.location?.travelMode?.takeIf { it != TravelMode.UNKNOWN }
-            val modes = listOf(
-                null to (detected?.let { "Auto · ${modeInfo(it).title.lowercase()}" } ?: "Auto"),
-                TravelMode.WALKING to "Walk",
-                TravelMode.CYCLING to "Cycle",
-                TravelMode.DRIVING to "Drive",
-                TravelMode.STATIONARY to "Still",
-            )
-            modes.forEach { (mode, label) ->
-                NavigationDrawerItem(
-                    label = { Text(label) },
-                    icon = { Icon(mode?.let { modeInfo(it).icon } ?: Icons.Default.Explore, null) },
-                    selected = state.modeOverride == mode,
-                    onClick = { onMode(mode) },
-                    modifier = Modifier.padding(horizontal = 12.dp),
-                )
-            }
-            HorizontalDivider(Modifier.padding(vertical = 8.dp))
+            // The travel mode is inferred automatically (speed, activity recognition); it shows in the top bar.
             NavigationDrawerItem(
                 label = { Text(RadioPage.NEARBY.title) }, icon = { Icon(Icons.Default.Explore, null) }, selected = false,
                 onClick = { onPage(RadioPage.NEARBY) }, modifier = Modifier.padding(horizontal = 12.dp),

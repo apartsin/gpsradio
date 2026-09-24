@@ -45,8 +45,8 @@ data class AppSettings(
     val soundEffects: Boolean = true,
     /** Concerts, festivals, markets… today nearby: spoken heads-up and a notification. */
     val localEvents: Boolean = true,
-    /** How often the radio speaks: chatty, balanced, rare or non-stop. */
-    val pacing: Pacing = Pacing.BALANCED,
+    /** How often the radio speaks. Non-stop by default: unless stopped, the stories keep coming (spec A §37). */
+    val pacing: Pacing = Pacing.NONSTOP,
 ) {
     /** The listener's own key if they entered one, otherwise the key built into this app (if any). */
     val effectiveApiKey: String get() = apiKey.ifBlank { EmbeddedKey.value }
@@ -97,7 +97,7 @@ class SettingsRepository(context: Context) {
             putBoolean(KEY_PREVIEW, next.previewMode)
             putBoolean(KEY_SOUND_EFFECTS, next.soundEffects)
             putBoolean(KEY_LOCAL_EVENTS, next.localEvents)
-            putString(KEY_PACING, next.pacing.key)
+            putString(KEY_PACING_V2, next.pacing.key)
         }
         _settings.value = next.copy(apiKey = next.apiKey.trim())
     }
@@ -124,7 +124,8 @@ class SettingsRepository(context: Context) {
             previewMode = plain.getBoolean(KEY_PREVIEW, d.previewMode),
             soundEffects = plain.getBoolean(KEY_SOUND_EFFECTS, d.soundEffects),
             localEvents = plain.getBoolean(KEY_LOCAL_EVENTS, d.localEvents),
-            pacing = Pacing.fromKey(plain.getString(KEY_PACING, null)),
+            // v2: everyone moved to non-stop once; a pacing chosen after that is kept.
+            pacing = plain.getString(KEY_PACING_V2, null)?.let { Pacing.fromKey(it) } ?: d.pacing,
         )
     }
 
@@ -171,6 +172,6 @@ class SettingsRepository(context: Context) {
         const val KEY_PREVIEW = "preview_mode"
         const val KEY_SOUND_EFFECTS = "sound_effects"
         const val KEY_LOCAL_EVENTS = "local_events"
-        const val KEY_PACING = "pacing"
+        const val KEY_PACING_V2 = "pacing_v2"
     }
 }

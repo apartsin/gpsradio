@@ -236,6 +236,8 @@ class RadioSession(
     private val eventScout: EventSource? = null,
     /** Checks today's hours, admission and what a visit involves (web search); null uses OSM tags only. */
     private val visitScout: VisitSource? = null,
+    /** Researches the 50 location angles (web search) so the non-stop radio never runs dry; null leaves it out. */
+    private val angleResearch: com.gpsradio.core.discovery.AngleResearch? = null,
     private val zone: () -> ZoneId = { ZoneId.systemDefault() },
 ) {
     data class Timeouts(
@@ -603,6 +605,7 @@ class RadioSession(
         // Retries and refresh requests must not depend on new fixes: stationary phones get none.
         if (s.radioState != RadioState.IDLE) processor.current?.let { maybeRefresh(it) }
         if (s.radioState != RadioState.IDLE) maybeScoutEvents(now)
+        if (s.radioState != RadioState.IDLE && s.radioState != RadioState.PAUSED) maybeResearchAngle(now)
         maybeStandby(now)
         // During a walking tour only the tour's stops air (on arrival).
         if (tour != null) return tourTick()
@@ -1273,6 +1276,17 @@ class RadioSession(
                 }
             }
             "radio_control" -> {
+                when (arg("action")?.lowercase()) {
+                    "steer" -> return steer(arg("request") ?: arg("theme") ?: return "missing request")
+                    "tell_about" -> {
+                        val id = arg("entity_id") ?: return "missing entity_id"
+                        if (candidates[id] == null) return "unknown place: use steer with a request instead"
+                        closeLive()
+                        endConversation()
+                        tellAbout(id)
+                        return "done"
+                    }
+                }
                 val action = ConversationAction.parse(arg("action"))
                 when (action) {
                     ConversationAction.RESUME_RADIO -> { closeLive(); endConversation() }
@@ -1903,7 +1917,7 @@ class RadioSession(
             dayKey = dayKey(today()),
             themeActive = _state.value.theme != null,
             speakThreshold = ranker.thresholdFor(cfg.pacing),
-            areaFacets = areaFacets,
+            areaFacets = areaFacets + currentResearched(),
             photoSpot = ranked.firstOrNull { it.breakdown.novelty > 0.0 && it.place.id !in mentionedIds && PhotoSpots.suitable(it, loc) },
             // Events have no on-device version: while OpenAI is out they'd be skipped every tick and block stories.
             eventsDue = !onDeviceNow() && eventsToAnnounce(now).isNotEmpty(),
@@ -2137,6 +2151,99 @@ class RadioSession(
     }
 
     /** Searches at most every 3 h per area, and at least 45 min apart even when driving through towns. */
+    // ---- the endless loop: researched angles (spec A §37) ---------------------------------------
+
+    private val researchedFacets = mutableListOf<com.gpsradio.core.discovery.AreaFacet>()
+    private val triedAngles = mutableSetOf<String>()
+    private var angleJob: Job? = null
+    private val angleLookupTimes = ArrayDeque<Long>()
+    private var angleBackoffUntilMs = 0L
+
+    /** Researched facets for where the listener is now (another town's facets are dropped). */
+    private fun currentResearched(): List<com.gpsradio.core.discovery.AreaFacet> {
+        val names = com.gpsradio.core.discovery.AnglePlanner.scopes(_state.value.area).map { it.second }.toSet()
+        return researchedFacets.filter { it.area in names }
+    }
+
+    /**
+     * Non-stop radio: when the nearby places are running out, research the next untold angle for the town, then the
+     * region, then the country, one ahead of time, so there is always something to tell. Rate-limited.
+     */
+    private fun maybeResearchAngle(now: Long) {
+        val research = angleResearch ?: return
+        val cfg = config()
+        if (cfg.pacing != Pacing.NONSTOP || cfg.previewMode || !isOnline() || onDeviceNow() || _state.value.quotaExhausted) return
+        if (angleJob?.isActive == true || now < angleBackoffUntilMs || tour != null) return
+        val area = _state.value.area ?: return
+        // Enough to tell already? Unheard places with facts, or an untold facet.
+        val unheard = ranked.count { it.breakdown.novelty > 0.0 && !(it.place.extract ?: it.place.description).isNullOrBlank() }
+        val told = programme.toldFacets.toSet()
+        val readyFacets = (areaFacets + currentResearched()).count { it.id !in told }
+        if (unheard >= 3 || readyFacets >= 1) return
+        while (angleLookupTimes.isNotEmpty() && now - angleLookupTimes.first() > 3_600_000L) angleLookupTimes.removeFirst()
+        if (angleLookupTimes.size >= ANGLE_LOOKUPS_PER_HOUR) return
+        val avoid = memory.topicWeights().filterValues { it < 0.5 }.keys
+        val target = com.gpsradio.core.discovery.AnglePlanner.next(area, cfg.interests, _state.value.theme, triedAngles, avoid) ?: return
+        triedAngles += target.key
+        angleLookupTimes.addLast(now)
+        val point = _state.value.location?.point
+        angleJob = scope.launch {
+            val facet = try {
+                kotlinx.coroutines.withTimeoutOrNull(ANGLE_TIMEOUT_MS) {
+                    research.research(target, area, point, recentTitles.toList() + researchedFacets.mapNotNull { it.title })
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (isQuota(e)) noteQuota()
+                angleBackoffUntilMs = clock() + 60_000L
+                null
+            }
+            if (facet != null) researchedFacets += facet
+        }
+    }
+
+    /**
+     * The listener steers ("tell me something about the lake's fish"): research exactly that and tell it next.
+     * Returns what the live host should say while it looks (it keeps talking; the story follows).
+     */
+    private fun steer(request: String): String {
+        val research = angleResearch ?: return "not available: answer from what you know or search the web"
+        if (config().previewMode || !isOnline()) return "not available offline: answer from what you know"
+        val area = _state.value.area
+        val (scopeKind, scopeName) = com.gpsradio.core.discovery.AnglePlanner.scopes(area).firstOrNull()
+            ?: return "not available: the location isn't known yet"
+        val target = com.gpsradio.core.discovery.AngleTarget(scopeKind, scopeName, null, custom = request)
+        val point = _state.value.location?.point
+        steerJob?.cancel()
+        steerJob = scope.launch {
+            val facet = try {
+                kotlinx.coroutines.withTimeoutOrNull(ANGLE_TIMEOUT_MS) { research.research(target, area, point, recentTitles.toList()) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                null
+            }
+            if (facet == null) {
+                live?.takeIf { it.isOpen }?.prompt(
+                    "Tell the listener in one short sentence that you couldn't find anything reliable about \"$request\" here, and that the radio carries on.",
+                )
+                return@launch
+            }
+            val loc = _state.value.location ?: return@launch
+            closeLive()
+            clearOffer()
+            engagedUntilMs = 0
+            speechJob?.cancel()
+            if (_state.value.radioState == RadioState.IDLE) return@launch
+            setRadioState(RadioState.RADIO)
+            speakFiller(Programme.Plan.Filler(SegmentFormat.AREA, areaFacet = facet), loc)
+        }
+        return "researching now; say in a few words that you're looking into it (e.g. 'Ooh, let me dig something up about that'), then stop talking: the story follows in a few seconds"
+    }
+
+    private var steerJob: Job? = null
+
     private fun maybeScoutEvents(now: Long) {
         // Drop events that are over.
         val live = _state.value.todayEvents.filter { (it.endMs ?: (it.startMs + 3 * 3_600_000L)) > now }
@@ -2200,6 +2307,9 @@ class RadioSession(
 
         /** Web checks of hours/fees: at most this many per hour, each at most this long; stories wait at most VISIT_WAIT_MS. */
         const val VISIT_LOOKUPS_PER_HOUR = 20
+        /** Researched angles (web search) per hour; ~one every 2–3 minutes when the places have run out. */
+        const val ANGLE_LOOKUPS_PER_HOUR = 24
+        const val ANGLE_TIMEOUT_MS = 30_000L
         const val VISIT_TIMEOUT_MS = 20_000L
         const val VISIT_WAIT_MS = 8_000L
 

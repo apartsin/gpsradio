@@ -34,6 +34,9 @@ class TestGpsRadioApp : GpsRadioApp() {
     /** No visit-info web checks against the fake OpenAI server. */
     override fun visitScout(openAi: com.gpsradio.core.ai.OpenAiClient, models: () -> com.gpsradio.core.ai.ModelConfig): com.gpsradio.core.visit.VisitSource? = null
 
+    /** No angle research against the fake OpenAI server. */
+    override fun angleResearch(openAi: com.gpsradio.core.ai.OpenAiClient, models: () -> com.gpsradio.core.ai.ModelConfig): com.gpsradio.core.discovery.AngleResearch? = null
+
     /** No self-update checks against GitHub during E2E runs. */
     override fun updateClient(http: okhttp3.OkHttpClient): com.gpsradio.core.update.UpdateClient? = null
 

@@ -192,9 +192,15 @@ object RealtimeProtocol {
             "Control the radio: resume_radio (listener wants the stories to continue / is done talking), pause, skip, " +
                 "change_language (set language as BCP-47), set_theme / clear_theme, navigate (entity_id), " +
                 "accept_offer / decline_offer (answer to pending_offer), star_place (save entity_id for later), " +
-                "start_tour (a walking tour; set minutes to 15, 30 or 60), end_tour (stop the walking tour).",
+                "start_tour (a walking tour; set minutes to 15, 30 or 60), end_tour (stop the walking tour), " +
+                "tell_about (tell the story of a nearby place now: entity_id), steer (the listener wants to hear about " +
+                "something specific here that isn't a listed place, e.g. 'the fish in the lake', 'local wine', 'what " +
+                "happened here in the war': put their wish in request; the radio researches it and tells it next).",
             schema(
-                mapOf("action" to "string", "language" to "string", "theme" to "string", "entity_id" to "string", "minutes" to "integer"),
+                mapOf(
+                    "action" to "string", "language" to "string", "theme" to "string", "entity_id" to "string",
+                    "minutes" to "integer", "request" to "string",
+                ),
                 required = listOf("action"),
             ),
         ),

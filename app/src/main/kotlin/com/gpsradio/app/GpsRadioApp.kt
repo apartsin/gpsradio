@@ -81,6 +81,10 @@ open class GpsRadioApp : Application() {
     protected open fun visitScout(openAi: OpenAiClient, models: () -> com.gpsradio.core.ai.ModelConfig): com.gpsradio.core.visit.VisitSource? =
         com.gpsradio.core.visit.VisitScout(openAi, models)
 
+    /** Researches the 50 location angles (OpenAI web search) for the endless loop; tests return null. */
+    protected open fun angleResearch(openAi: OpenAiClient, models: () -> com.gpsradio.core.ai.ModelConfig): com.gpsradio.core.discovery.AngleResearch? =
+        com.gpsradio.core.discovery.AngleScout(openAi, models)
+
     /** Self-update source (the app isn't in a store); tests return null to disable it. */
     protected open fun updateClient(http: OkHttpClient): com.gpsradio.core.update.UpdateClient? =
         com.gpsradio.core.update.UpdateClient(http)
@@ -206,6 +210,7 @@ open class GpsRadioApp : Application() {
             areaInfo = AreaInfoSource { lang, title -> wikipedia.articleByTitle(lang, title) },
             eventScout = eventScout(openAi, models),
             visitScout = visitScout(openAi, models),
+            angleResearch = angleResearch(openAi, models),
         )
     }
 

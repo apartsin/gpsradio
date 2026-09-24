@@ -601,3 +601,29 @@ These are now by voice ("skip", "pause", «следующий», "save this plac
 - no "want the full story?" teasers (the full story is told);
 - no detour offers: a worth-a-stop story describes the detour without offering to navigate;
 - no trip or preference questions.
+
+## 37. Real Non-Stop Radio: 50 Angles, Steering and Instant Replies
+
+- **Non-stop by default.** Unless stopped, the stories keep coming. Existing installs move to non-stop once; a pacing chosen after that is kept.
+- **The endless loop.** When the nearby places run out, the radio researches the next untold angle for the listener's town, then the region, then the country (landscape and culture angles only at country level).
+  - It uses `AngleScout`: the conversation model with web search returns "found / not found", a title and 3–8 sentences of sourced factual notes.
+  - The notes are narrated by the normal story prompt, so the grounding, retelling, language and dignity rules apply unchanged.
+  - One angle is researched ahead of time, so there is no dead air.
+  - At most 24 lookups an hour, each angle once per scope.
+  - Angles matching the listener's interests come first; a theme narrows to it; avoided topics are left out; consecutive angles vary.
+- **The 50 angles** (`StoryAngle`):
+  - History & heritage: origins and the name, turning points, everyday life in the past, work heritage, architecture, castles and defence, religious heritage, Jewish heritage and Israel, war and remembrance, archaeology, borders and rulers, migration and communities, royal links, documented scandals and mysteries, disasters and recovery.
+  - People: famous natives, famous visitors and residents, local characters, inventions and firsts, women who shaped the place.
+  - Arts & culture: literature, film and TV, music, painting, legends and folklore, festivals and customs, dialect and place names, crafts.
+  - Food & drink: signature dishes, wine, beer and spirits, historic cafés and food institutions, food origin stories.
+  - Nature: geology, water and spas, mountains and viewpoints, wildlife, ancient trees and gardens, natural phenomena, climate and seasons, protected areas.
+  - Modern life & quirks: records, quirky facts, transport history, what the place lives from today, sports, science and the sky, street names, links abroad, hidden gems, then and now.
+- **Steering by voice (mic open).** The listener can interrupt at any time; the story stops and the host listens.
+  - "Tell me about that church" → `tell_about` a listed place.
+  - "Tell me about the local wine / the fish in the lake" → `steer`: the host says a few words ("Ooh, let me dig into that") while the radio researches the request, then the story airs.
+  - "Only nature for a while" → theme.
+  - "Shorter stories" → a remembered style.
+- **Instant replies.** As in ChatGPT voice, the live host is a speech-to-speech model that starts talking about half a second after the listener stops.
+  - It opens with a short, varied reaction ("Oh, good one —") and says a brief preamble before any tool.
+  - There are no local canned clips: they would talk over the model.
+- **Travel mode is always automatic** (speed and activity recognition). It is shown in the top bar and can't be chosen in the menu.

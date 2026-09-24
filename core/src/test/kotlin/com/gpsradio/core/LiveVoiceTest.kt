@@ -174,8 +174,17 @@ class LiveVoiceTest {
         override fun save(serialized: String) { hist = serialized }
     }
 
-    private fun TestScope.session(r: Radio, conns: MutableList<FakeConnection>, pcm: FakePcm, handsFree: () -> Boolean = { false }) = RadioSession(
-        places = r, narrator = r, speech = r, audio = AudioOutput { delay(5_000) }, historyStore = r,
+    private fun TestScope.session(
+        r: Radio,
+        conns: MutableList<FakeConnection>,
+        pcm: FakePcm,
+        handsFree: () -> Boolean = { false },
+        angleResearch: com.gpsradio.core.discovery.AngleResearch? = null,
+        audio: AudioOutput = AudioOutput { delay(5_000) },
+    ) = RadioSession(
+        places = r, narrator = r, speech = r, audio = audio, historyStore = r,
+        angleResearch = angleResearch,
+        areaLabeler = com.gpsradio.core.session.AreaLabeler { _ -> com.gpsradio.core.model.AreaLabel("Gmunden", "Upper Austria", "AT") },
         config = { SessionConfig("en-US", setOf(Topic.HISTORY), liveVoice = true, voice = "coral", handsFree = handsFree()) },
         liveFactory = { host, scope ->
             LiveConversation({ FakeConnection().also { conns += it } }, pcm, host, scope, idleTimeoutMs = 20_000, clock = { testScheduler.currentTime })
@@ -515,6 +524,41 @@ class LiveVoiceTest {
             advanceTimeBy(25_000); runCurrent()
             assertTrue(s.state.value.radioState != RadioState.CONVERSING, "not stuck in conversation: ${s.state.value.radioState}")
             assertFalse(c.closed, "the mic stays open (always listening)")
+        }
+    }
+
+    @Test
+    fun listenerSteersTheRadioByVoice() = runTest {
+        val r = Radio(listOf(place("a", Geo.destination(here, 0.0, 100.0)), place("b", Geo.destination(here, 90.0, 120.0))))
+        val conns = mutableListOf<FakeConnection>()
+        val pcm = FakePcm()
+        val asked = mutableListOf<com.gpsradio.core.discovery.AngleTarget>()
+        val research = com.gpsradio.core.discovery.AngleResearch { t, _, _, _ ->
+            asked += t
+            delay(4_000)
+            com.gpsradio.core.discovery.AreaFacet(
+                t.scopeName, com.gpsradio.core.discovery.AreaFacetKind.OVERVIEW, "The Traunsee has char and whitefish. ".repeat(5),
+                angle = "request", title = "Fish of the Traunsee",
+            )
+        }
+        val played = mutableListOf<String>()
+        val s = session(r, conns, pcm, handsFree = { true }, angleResearch = research, audio = AudioOutput { played += String(it); delay(5_000) })
+        running(s) {
+            s.onLocation(LocationSample(here.lat, here.lon, 5f, 1_000_000, 0f)); runCurrent()
+            advanceTimeBy(3_000); runCurrent()
+            val c = conns.single()
+            c.server.trySend(RealtimeEvent.SessionReady); runCurrent()
+            // "Tell me about the fish in the lake": not a listed place, so the host steers.
+            c.server.trySend(RealtimeEvent.SpeechStarted); runCurrent()
+            c.server.trySend(RealtimeEvent.FunctionCall("s1", "radio_control", """{"action":"steer","request":"the fish in the lake"}""")); runCurrent()
+            val out = c.sent.last { it["type"]!!.jsonPrimitive.content == "conversation.item.create" }.toString()
+            assertTrue("researching" in out, out)
+            assertEquals("the fish in the lake", asked.single().custom)
+            assertEquals("Gmunden", asked.single().scopeName)
+            // A few seconds later the researched story airs (the host went quiet for it).
+            advanceTimeBy(6_000); runCurrent()
+            assertTrue(played.any { "char and whitefish" in it }, played.toString())
+            assertEquals(com.gpsradio.core.model.RadioState.NARRATING, s.state.value.radioState)
         }
     }
 

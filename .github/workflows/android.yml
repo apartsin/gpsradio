@@ -199,4 +199,4 @@ jobs:
       - name: Live smoke test + content evals
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        run: ./gradlew :core:test --tests '*LiveSmokeTest' --tests '*LiveEvalTest' --tests '*LiveVoiceToolsTest' --tests '*LiveDriveSimulationTest' --tests '*LiveEventsTest' --no-daemon
+        run: ./gradlew :core:test --tests '*LiveSmokeTest' --tests '*LiveEvalTest' --tests '*LiveVoiceToolsTest' --tests '*LiveDriveSimulationTest' --tests '*LiveEventsTest' --tests '*LiveAngleTest' --no-daemon

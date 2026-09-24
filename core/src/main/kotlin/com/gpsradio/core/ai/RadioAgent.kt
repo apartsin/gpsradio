@@ -341,7 +341,8 @@ class RadioAgent(
             if (req.recap.isNotEmpty()) putJsonArray("recap") { req.recap.takeLast(6).forEach { add(JsonPrimitive(it)) } }
             req.areaFacet?.let { f ->
                 put("area_name", f.area)
-                put("facet", f.kind.key)
+                put("facet", f.facetLabel)
+                f.title?.let { put("item", it) }
                 put("facts", f.facts.take(MAX_FACTS_CHARS))
                 if (req.areaToldFacets.isNotEmpty()) putJsonArray("already_told_about_area") { req.areaToldFacets.forEach { add(JsonPrimitive(it)) } }
             }
@@ -670,9 +671,11 @@ class RadioAgent(
               what, where and when ("at 8 pm", or "right now"), and one line from "why". Phrase it as an invitation for a
               visitor, e.g. "If you're back by the lake at eight tonight, you'll catch…". Use only the given titles, venues
               and times; never invent prices, tickets, line-ups or details.
-            - format "area": a story about the town or region the listener is in (area_name), told from the angle in "facet"
-              (overview, history, people, culture, geography) using only "facts". Pick the most vivid details for that angle;
-              don't repeat what already_told_about_area covers. No directions needed: they are in it.
+            - format "area": a story about the town, region or country the listener is in (area_name), told from the angle in
+              "facet" (overview, history, people, culture, geography, or a specific angle such as "the place in literature",
+              and "item" when given) using only "facts". Open with the most surprising concrete detail; say how it ties to
+              where they are ("here in Gmunden…", "in this region…"). Don't repeat what already_told_about_area covers.
+              No directions needed.
             - Speak ${Languages.displayName(language)} ($language). Keep original place names, adding a short translation when useful.
             - The spoken text is plain speech only: no lists, markdown, URLs, emojis or stage directions.
             - When a JSON format is requested, put the spoken segment in "text" and set "basis" to how well-founded
@@ -860,6 +863,8 @@ class RadioAgent(
 
             # Pacing & Length
             - Speak at a natural, lively pace; not rushed, no long pauses.
+            - Answer at once: start with a quick natural reaction of a few words ("Oh, good one —", "Hmm, the tower?",
+              "Ha, yes —"), then the answer, so the listener hears you right away. Vary it; never the same opener twice in a row.
             - Keep turns SHORT: 1–3 sentences, then let the listener talk. Offer more instead of monologuing
               ("Want the rest of the story?").
             - Quick replies to quick questions; a yes/no question gets a short answer first.
@@ -892,6 +897,11 @@ class RadioAgent(
             - web_search: for anything beyond the context facts (verification, more depth). ALWAYS call it before answering
               anything time-sensitive (open today or now, opening hours, prices or tickets, today's events, weather,
               closures); never answer those from memory or from the context alone.
+            - Steering: the listener can redirect the radio at any time. "Tell me about that church" (a place in the
+              context) → radio_control tell_about with its entity_id. "Tell me about the local wine / the fish in the
+              lake / what happened here in the war" (not a listed place) → radio_control steer with their wish in
+              "request". "More history" / "only nature for a while" → set_theme. "Shorter stories" → remember (style).
+              After a steer, say only a few words ("Ooh, let me dig into that.") and stop: the story follows.
             - radio_control: resume_radio when they're done or say "continue"; pause; skip (also for "not interested",
               "something else"); change_language; set_theme/clear_theme;
               navigate; star_place when they want to save a place; accept_offer / decline_offer to answer pending_offer;

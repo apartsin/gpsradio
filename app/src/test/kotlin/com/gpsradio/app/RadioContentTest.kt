@@ -121,17 +121,12 @@ class RadioContentTest {
     }
 
     @Test
-    fun menuSelectsTheTravelModeAndOpensSettings() {
-        var mode: TravelMode? = TravelMode.UNKNOWN
+    fun menuOpensSettingsAndHasNoManualModes() {
         var settings = false
-        show(
-            RadioUiState(radioState = RadioState.RADIO, location = loc),
-            RadioActions(onMode = { mode = it }, onOpenSettings = { settings = true }),
-        )
+        show(RadioUiState(radioState = RadioState.RADIO, location = loc), RadioActions(onOpenSettings = { settings = true }))
         openMenu()
-        compose.onNodeWithText("Drive").performClick()
-        assertEquals(TravelMode.DRIVING, mode)
-        openMenu()
+        // The travel mode is inferred automatically: no manual mode choices.
+        for (m in listOf("Walk", "Cycle", "Drive", "Still")) compose.onNodeWithText(m).assertDoesNotExist()
         compose.onNodeWithText("Settings").performClick()
         assertTrue(settings)
     }

@@ -40,8 +40,15 @@ data class AreaFacet(
     val kind: AreaFacetKind,
     val facts: String,
     val url: String? = null,
+    /** A researched [StoryAngle] key (or "request" for a listener's own steer); null for Wikipedia facets. */
+    val angle: String? = null,
+    /** Short name of the researched item. */
+    val title: String? = null,
 ) {
-    val id: String get() = "$area#${kind.key}"
+    val id: String get() = if (angle != null) "$area#$angle#${title.orEmpty()}" else "$area#${kind.key}"
+
+    /** The angle label the narration uses ("history", or e.g. "the place in literature"). */
+    val facetLabel: String get() = angle?.let { StoryAngle.fromKey(it)?.label ?: "the listener's request" } ?: kind.key
 }
 
 object AreaFacts {
