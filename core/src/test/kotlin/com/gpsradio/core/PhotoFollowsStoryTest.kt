@@ -52,6 +52,50 @@ class PhotoFollowsStoryTest {
     }
 
     @Test
+    fun picturesAreOrderedByWhenTheyAreSaidAndMatchInflectedQuotes() {
+        val text = "Эрцгерцог Иоганн купил замок. Потом мост длиной 123 метра соединил остров с берегом."
+        val raw = """{"pictures":[
+            {"caption":"Мост к замку","wikipedia":"","search":"Schloss Ort bridge Gmunden","quote":"мост длиной"},
+            {"caption":"Эрцгерцог Иоганн Орт","wikipedia":"Johann Orth","search":"Johann Orth","quote":"Эрцгерцог Иоганн"},
+            {"caption":"","wikipedia":"","search":"","quote":"x"}]}"""
+        val refs = com.gpsradio.core.ai.PictureScout.parse(raw, text)
+        assertEquals(listOf("Эрцгерцог Иоганн Орт", "Мост к замку"), refs.map { it.caption }, "in spoken order, empty ones dropped")
+        assertEquals(0, com.gpsradio.core.ai.PictureScout.position(text, "Эрцгерцогу Иоганну"), "inflected quote still found")
+        assertNull(com.gpsradio.core.ai.PictureScout.position(text, "Salzburg"))
+        assertEquals("Schloss Ort from the lake", com.gpsradio.core.session.PhotoCaptions.fromUrl("https://upload.wikimedia.org/wikipedia/commons/a/ab/Schloss_Ort_from_the_lake.jpg"))
+        assertNull(com.gpsradio.core.session.PhotoCaptions.fromUrl("https://upload.wikimedia.org/wikipedia/commons/a/ab/IMG_4711.jpg"))
+    }
+
+    @Test
+    fun aStorysPicturesAreCaptionedAndTimedToTheirMention() = runTest {
+        val castle = place("castle", Geo.destination(here, 0.0, 150.0), name = "Castle").copy(imageUrl = "https://img/castle.jpg")
+        val r = Radio(listOf(castle))
+        val finder = com.gpsradio.core.ai.PictureFinder { text, _, _ ->
+            listOf(com.gpsradio.core.ai.PictureRef("Kaiser Franz Joseph", "Franz Joseph I of Austria", "Franz Joseph", text.substring(6, 12)))
+        }
+        val s = RadioSession(
+            places = r, narrator = r, speech = r, audio = r, historyStore = r,
+            config = { SessionConfig("en-US", setOf(Topic.HISTORY)) },
+            clock = { testScheduler.currentTime + 1_000_000 },
+            dispatcher = StandardTestDispatcher(testScheduler),
+            pictureFinder = finder,
+        )
+        try {
+            s.start(); runCurrent()
+            s.onLocation(LocationSample(here.lat, here.lon, 5f, 1_000_000, 0f)); runCurrent()
+            advanceTimeBy(5_000); runCurrent()
+            val f = s.state.value.focus!!
+            assertEquals("Kaiser Franz Joseph", f.captions["https://upload.wikimedia.org/x/FJ.jpg"], f.captions.toString())
+            assertTrue("https://upload.wikimedia.org/x/FJ.jpg" in f.gallery)
+            val at = f.timeline["https://upload.wikimedia.org/x/FJ.jpg"]
+            assertTrue(at != null && at > 1_000_000, "timed to when it's said: $at")
+            assertEquals("Castle", f.captions["https://img/castle.jpg"], "the place's own photo is captioned too")
+        } finally {
+            s.stop(); runCurrent()
+        }
+    }
+
+    @Test
     fun storiesNameThePeopleAndBuildingsToShow() {
         assertEquals(listOf("Franz Joseph I of Austria", "Kaiservilla"),
             com.gpsradio.core.ai.RadioAgent.parsePictures("""{"text":"t","basis":"documented","pictures":[" Franz Joseph I of Austria ","Kaiservilla",""]}"""))

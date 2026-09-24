@@ -88,6 +88,10 @@ open class GpsRadioApp : Application(), coil.ImageLoaderFactory {
     protected open fun angleResearch(openAi: OpenAiClient, models: () -> com.gpsradio.core.ai.ModelConfig): com.gpsradio.core.discovery.AngleResearch? =
         com.gpsradio.core.discovery.AngleScout(openAi, models)
 
+    /** Picks photos for what's being said (fast model); tests return null (no extra model calls). */
+    protected open fun pictureFinder(openAi: OpenAiClient, models: () -> com.gpsradio.core.ai.ModelConfig): com.gpsradio.core.ai.PictureFinder? =
+        com.gpsradio.core.ai.PictureScout(openAi, models)
+
     /** Self-update source (the app isn't in a store); tests return null to disable it. */
     protected open fun updateClient(http: OkHttpClient): com.gpsradio.core.update.UpdateClient? =
         com.gpsradio.core.update.UpdateClient(http)
@@ -165,9 +169,10 @@ open class GpsRadioApp : Application(), coil.ImageLoaderFactory {
         val costPrefs = getSharedPreferences("cost", MODE_PRIVATE)
         meter = com.gpsradio.core.cost.CostMeter(onChange = { costPrefs.edit().putString("meter", it).apply() })
             .also { it.restore(costPrefs.getString("meter", null)) }
-        // OpenStreetMap tile servers require an identifying user agent.
+        // OpenStreetMap tile servers refuse clients that don't identify themselves (a grey map): the same full
+        // User-Agent as every other request.
         Configuration.getInstance().apply {
-            userAgentValue = BuildConfig.APPLICATION_ID
+            userAgentValue = "GpsRadio/${BuildConfig.VERSION_NAME} (Android; https://github.com/apartsin/gpsradio)"
             // Keep the tile cache in app-private storage (no storage permission needed).
             osmdroidBasePath = java.io.File(filesDir, "osmdroid")
             osmdroidTileCache = java.io.File(cacheDir, "osmdroid-tiles")
@@ -246,6 +251,7 @@ open class GpsRadioApp : Application(), coil.ImageLoaderFactory {
             eventScout = eventScout(openAi, models),
             visitScout = visitScout(openAi, models),
             angleResearch = angleResearch(openAi, models),
+            pictureFinder = pictureFinder(openAi, models),
         )
     }
 

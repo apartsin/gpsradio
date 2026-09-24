@@ -8,8 +8,10 @@ import kotlin.math.sqrt
  *
  * - Opens after [onsetMs] of speech-level energy, and then sends the last [prerollMs] too, so the first
  *   word isn't clipped.
- * - While the radio or the host is audible, the listener must be clearly louder than the playback
- *   ([loudRms]) to open it: the phone must not "hear itself".
+ * - While the radio or the host is audible, the listener must be clearly louder than what the mic picks up
+ *   of the playback: the phone must not "hear itself". That echo level is measured while the listener is
+ *   quiet (spec A §62), so at a normal volume a normal voice gets through at once; [loudRms] is the ceiling
+ *   (and the start value until the echo has been measured).
  * - Stays open through short pauses and closes after [hangoverMs] of quiet, sending that trailing quiet so
  *   the server's turn detection sees the end of the turn.
  *
@@ -28,6 +30,9 @@ class SpeechGate(
     private var prerollBytes = 0L
     private var voicedMs = 0L
     private var quietMs = 0L
+    /** What the mic picks up of the playback while the listener is quiet (moving average), and for how long. */
+    private var echoRms = 0.0
+    private var echoMs = 0L
 
     var isOpen: Boolean = false
         private set
@@ -37,9 +42,14 @@ class SpeechGate(
     /** Feed one captured chunk; returns what to send now (possibly nothing, or preroll + this chunk). */
     fun process(chunk: ByteArray, playbackAudible: Boolean): List<ByteArray> {
         val level = rms(chunk)
-        val threshold = if (playbackAudible) loudRms else quietRms
-        val voiced = level >= threshold
         val len = ms(chunk.size)
+        val threshold = if (playbackAudible) playbackThreshold() else quietRms
+        val voiced = level >= threshold
+        // Learn the echo only from quiet moments (the listener's own voice must not raise it).
+        if (playbackAudible && !voiced && !isOpen) {
+            echoRms = if (echoMs == 0L) level else echoRms * 0.9 + level * 0.1
+            echoMs += len
+        }
         if (isOpen) {
             quietMs = if (voiced) 0 else quietMs + len
             if (quietMs >= hangoverMs) {
@@ -64,6 +74,13 @@ class SpeechGate(
         return emptyList()
     }
 
+    /**
+     * During playback: clearly above the measured echo ([ECHO_MARGIN] times), never below a real voice level
+     * and never above [loudRms]; until the echo is known, [loudRms].
+     */
+    fun playbackThreshold(): Double =
+        if (echoMs < ECHO_LEARN_MS) loudRms else (echoRms * ECHO_MARGIN).coerceIn(quietRms * 1.3, loudRms)
+
     /** Forget partial state (e.g. after the mic was switched off). */
     fun reset() {
         preroll.clear()
@@ -74,6 +91,11 @@ class SpeechGate(
     }
 
     companion object {
+        /** How much louder than the echo the listener must be. */
+        const val ECHO_MARGIN = 2.5
+        /** Echo measured for this long before it's trusted. */
+        const val ECHO_LEARN_MS = 600L
+
         fun rms(pcm: ByteArray): Double {
             val n = pcm.size / 2
             if (n == 0) return 0.0

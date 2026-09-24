@@ -6,6 +6,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.background
+import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.Icons
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
@@ -57,7 +59,9 @@ import org.osmdroid.views.overlay.Polygon
 fun PlacePanel(state: RadioUiState, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val focus = state.focus
-    val photos = focus?.gallery.orEmpty()
+    // Photos that failed to load are dropped, so the panel never shows an empty grey slide.
+    val failed = remember(focus?.id) { androidx.compose.runtime.mutableStateListOf<String>() }
+    val photos = focus?.gallery.orEmpty().filter { it !in failed }
     var mapExpanded by remember(focus?.id) { mutableStateOf(false) }
     Card(modifier.fillMaxWidth()) {
         Box(Modifier.fillMaxSize()) {
@@ -78,22 +82,46 @@ fun PlacePanel(state: RadioUiState, modifier: Modifier = Modifier) {
                 }
             } else {
                 val pager = rememberPagerState(pageCount = { photos.size })
-                // A slideshow while a story plays (spec A §55): the next photo every few seconds, unless the
-                // listener is swiping through them.
-                val onAir = state.radioState == com.gpsradio.core.model.RadioState.NARRATING
-                androidx.compose.runtime.LaunchedEffect(photos.size, onAir) {
+                // A slideshow in step with what's said (spec A §62): a photo whose mention is being spoken comes up
+                // then; between those, the next photo every few seconds, unless the listener is swiping.
+                val onAir = state.radioState == com.gpsradio.core.model.RadioState.NARRATING ||
+                    state.live == com.gpsradio.core.session.LiveState.ASSISTANT_SPEAKING
+                val timeline = focus?.timeline.orEmpty()
+                androidx.compose.runtime.LaunchedEffect(photos, timeline, onAir) {
+                    var lastTimed: String? = null
+                    var lastChange = System.currentTimeMillis()
                     while (onAir && photos.size > 1) {
-                        kotlinx.coroutines.delay(SLIDE_MS)
-                        if (!pager.isScrollInProgress) pager.animateScrollToPage((pager.currentPage + 1) % photos.size)
+                        kotlinx.coroutines.delay(400)
+                        if (pager.isScrollInProgress) { lastChange = System.currentTimeMillis(); continue }
+                        val now = System.currentTimeMillis()
+                        val due = timeline.filter { (url, at) -> at <= now && url in photos }.maxByOrNull { it.value }?.key
+                        if (due != null && due != lastTimed) {
+                            lastTimed = due
+                            lastChange = now
+                            pager.animateScrollToPage(photos.indexOf(due))
+                        } else if (now - lastChange >= SLIDE_MS) {
+                            lastChange = now
+                            pager.animateScrollToPage((pager.currentPage + 1) % photos.size)
+                        }
                     }
                 }
                 HorizontalPager(state = pager, modifier = Modifier.fillMaxSize()) { page ->
-                    AsyncImage(
-                        model = photos[page],
-                        contentDescription = stringResource(R.string.photo_of, page + 1, photos.size, focus?.name.orEmpty()),
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize(),
-                    )
+                    val url = photos[page]
+                    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant)) {
+                        // Shown while the photo loads (never a bare grey box).
+                        androidx.compose.material3.Icon(
+                            Icons.Default.PhotoCamera, null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                            modifier = Modifier.align(Alignment.Center).size(48.dp),
+                        )
+                        AsyncImage(
+                            model = url,
+                            contentDescription = focus?.captions?.get(url) ?: stringResource(R.string.photo_of, page + 1, photos.size, focus?.name.orEmpty()),
+                            contentScale = ContentScale.Crop,
+                            onError = { failed += url },
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
                 }
                 // What this slide shows (a person, building or view named in the story).
                 photos.getOrNull(pager.currentPage)?.let { focus?.captions?.get(it) }?.let { caption ->

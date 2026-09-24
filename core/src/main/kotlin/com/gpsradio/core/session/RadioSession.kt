@@ -117,6 +117,8 @@ data class FocusPlace(
     val credits: Map<String, String> = emptyMap(),
     /** What a slideshow photo shows (a person, building or view the story names), per photo URL (spec A §55). */
     val captions: Map<String, String> = emptyMap(),
+    /** When to show a photo (epoch ms): as its mention is spoken (spec A §62). Photos without a time just rotate. */
+    val timeline: Map<String, Long> = emptyMap(),
 ) {
     companion object {
         fun of(p: PlaceCandidate) = FocusPlace(p.id, p.name, p.point, p.imageUrl, p.url)
@@ -248,6 +250,8 @@ class RadioSession(
     private val visitScout: VisitSource? = null,
     /** Researches the 50 location angles (web search) so the non-stop radio never runs dry; null leaves it out. */
     private val angleResearch: com.gpsradio.core.discovery.AngleResearch? = null,
+    /** Picks the photos for what's being said (spec A §62); null keeps the simpler per-story pictures. */
+    private val pictureFinder: com.gpsradio.core.ai.PictureFinder? = null,
     private val zone: () -> ZoneId = { ZoneId.systemDefault() },
 ) {
     /**
@@ -778,7 +782,7 @@ class RadioSession(
                 // Always listening: the host knows which story is on, so "tell me more about that" works.
                 live?.takeIf { it.persistent && !it.inConversation }?.updateInstructions()
                 loadGallery(c.place)
-                addSlides(c.place.id, segment.pictures)
+                illustrateOrSlides(c.place.id, segment, STING_LEAD_MS)
                 sting(Sting.STATION)
                 // A teaser that failed over to on-device notes is told as a plain story instead.
                 if (format == SegmentFormat.TEASER && !fallbackGate.degraded) {
@@ -1155,6 +1159,7 @@ class RadioSession(
             _state.update { it.copy(focus = FocusPlace.of(place)) }
             loadGallery(place)
         } ?: focusOnMention(reply.reply)
+        if (reply.reply.isNotBlank()) illustrateAnswer(reply.reply)
         reply.tripContext?.let { trip ->
             tripContext = trip
             _state.update { it.copy(tripContext = trip) }
@@ -1404,8 +1409,9 @@ class RadioSession(
         }
 
         override fun onAssistantSaid(text: String) {
-            // The photo follows the place the host is talking about (spec A §51).
+            // The photo follows the place the host is talking about (spec A §51), and shows what it names (§62).
             focusOnMention(text)
+            illustrateAnswer(text)
             addTranscript(TranscriptEntry(Speaker.RADIO, text, clock(), activeId))
             history += ConversationTurn(false, text)
             lastSpeechEndMs = clock()
@@ -1687,11 +1693,13 @@ class RadioSession(
             _state.update { it.copy(focus = FocusPlace.of(mentioned)) }
             loadGallery(mentioned)
             addSlides(mentioned.id, facet.related)
+            illustrate(mentioned.id, segment.text, 0)
             return
         }
         // Until a photo is found: the map of where the listener is, titled with the story.
         val id = "area:${facet.id}"
         _state.update { it.copy(focus = FocusPlace(id, facet.title ?: facet.area, loc.point, null, facet.url)) }
+        illustrate(id, segment.text, 0)
         scope.launch {
             val lang = langBase(sessionLanguage)
             val wikiTitle = facet.url?.takeIf { "wikipedia.org/wiki/" in it }?.substringAfter("/wiki/")?.replace('_', ' ')
@@ -1728,6 +1736,52 @@ class RadioSession(
     /** Photo credits per place id (spec A §45). */
     private val photoCredits = HashMap<String, Map<String, String>>()
 
+    /** When each slide is due (epoch ms), per focus id (spec A §62). */
+    private val timelines = HashMap<String, LinkedHashMap<String, Long>>()
+
+    /** Pictures for a segment: the synced finder when there is one, else the story's own "pictures" list. */
+    private fun illustrateOrSlides(id: String, segment: Segment, leadMs: Long) {
+        if (pictureFinder != null) illustrate(id, segment.text, leadMs) else addSlides(id, segment.pictures)
+    }
+
+    /** Pictures for an answer (live or typed): on the current focus, or a new one where the listener is. */
+    private fun illustrateAnswer(text: String) {
+        if (pictureFinder == null || text.length < 40) return
+        val id = _state.value.focus?.id ?: run {
+            val point = _state.value.location?.point ?: return
+            val fid = "answer:${clock()}"
+            _state.update { it.copy(focus = FocusPlace(fid, _state.value.area?.city ?: "", point, null, null)) }
+            fid
+        }
+        illustrate(id, text, 0)
+    }
+
+    /**
+     * Finds photos of the people, buildings, objects, views and scenes [text] names (spec A §62), each with a caption,
+     * and schedules each for when its mention is spoken ([leadMs] from now, then by where it is in the text).
+     */
+    private fun illustrate(id: String, text: String, leadMs: Long) {
+        val finder = pictureFinder ?: return
+        val startMs = clock() + leadMs
+        scope.launch {
+            val refs = runCatching { finder.find(text, sessionLanguage, _state.value.area) }.getOrDefault(emptyList())
+            for (ref in refs) {
+                val url = ref.wikipedia?.let { t -> runCatching { places.articlePhoto("en", t) }.getOrNull()?.second }
+                    ?: ref.search.takeIf { it.isNotBlank() }?.let { q -> runCatching { places.photosOf(q) }.getOrDefault(emptyList()).firstOrNull() }
+                    ?: continue
+                slides.getOrPut(id) { LinkedHashMap() }[url] = ref.caption
+                val at = com.gpsradio.core.ai.PictureScout.position(text, ref.quote)
+                if (at != null) timelines.getOrPut(id) { LinkedHashMap() }[url] = startMs + at * 1000L / SPOKEN_CHARS_PER_SEC - 300
+                updateFocusGallery(id)
+                val credit = runCatching { places.photoCredits(listOf(url)) }.getOrDefault(emptyMap())
+                if (credit.isNotEmpty()) {
+                    photoCredits[id] = photoCredits[id].orEmpty() + credit
+                    updateFocusGallery(id)
+                }
+            }
+        }
+    }
+
     /** Slideshow photos per focus id: people, buildings and views the story names (URL to caption), spec A §55. */
     private val slides = HashMap<String, LinkedHashMap<String, String>>()
 
@@ -1754,7 +1808,9 @@ class RadioSession(
         val own = galleries[id] ?: listOfNotNull(s.focus.imageUrl)
         val extra = slides[id].orEmpty()
         val gallery = (own + extra.keys).distinct()
-        s.copy(focus = s.focus.copy(gallery = gallery, credits = photoCredits[id].orEmpty(), captions = extra.toMap()))
+        // Every photo has a caption: the story's own, else what the file says it shows, else the place's name.
+        val captions = gallery.associateWith { url -> extra[url] ?: PhotoCaptions.fromUrl(url) ?: s.focus.name }.filterValues { it.isNotBlank() }
+        s.copy(focus = s.focus.copy(gallery = gallery, credits = photoCredits[id].orEmpty(), captions = captions, timeline = timelines[id].orEmpty().toMap()))
     }
 
     private fun persistFavorites() {
@@ -2191,7 +2247,7 @@ class RadioSession(
                     lastStory = segment
                     _state.update { it.copy(radioState = RadioState.NARRATING, nowPlaying = segment, focus = FocusPlace.of(c.place)) }
                     loadGallery(c.place)
-                    addSlides(c.place.id, segment.pictures)
+                    illustrateOrSlides(c.place.id, segment, STING_LEAD_MS)
                     sting(Sting.STATION)
                     audio.play(bytes)
                     tourStopInFlight = null
@@ -2385,9 +2441,11 @@ class RadioSession(
                 _state.update { s ->
                     s.copy(radioState = RadioState.NARRATING, nowPlaying = segment, focus = c?.let { FocusPlace.of(it.place) } ?: s.focus)
                 }
-                c?.let { loadGallery(it.place); addSlides(it.place.id, segment.pictures) }
+                c?.let { loadGallery(it.place); illustrateOrSlides(it.place.id, segment, 0) }
                 // An area story shows what it is about, never the previous place's photo (spec A §51).
                 if (c == null) plan.areaFacet?.let { facet -> focusOnSubject(segment, facet, loc) }
+                // Any other segment without a place (events, on this day…): pictures for what it says.
+                if (c == null && plan.areaFacet == null) illustrateAnswer(segment.text)
                 // Non-stop: prepare the next story while this one plays (a place if there is one, else the next area story).
                 if (cfg.pacing == Pacing.NONSTOP) {
                     prefetchNext(excludeId = c?.place?.id ?: "", leadMs = spokenMs(segment.text))
@@ -2697,6 +2755,12 @@ class RadioSession(
 
     /** From Start until the first story airs: the listener is waiting for it. */
     private var firstStoryPending = false
+
+    /** About how fast the host speaks (characters per second), to time the photos to the words. */
+    private val SPOKEN_CHARS_PER_SEC = 14L
+
+    /** The station sting plays before a story's words start. */
+    private val STING_LEAD_MS = 700L
 
     /** Shown the moment "next" is heard, until the next story starts. */
     private val NEXT_STATUS = "Next story…"

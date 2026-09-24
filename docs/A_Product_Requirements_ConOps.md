@@ -945,3 +945,20 @@ The slideshow (§55) adds free, licensed photos from Wikimedia Commons, the arch
   - Google Image Search: its API is paid, closed to new sign-ups, and returns copyrighted images the app may not show.
   - OpenAI web search: returns pages, not images.
   - AI-generated illustrations remain possible (for example, historical scenes that have no photos), clearly labelled; they are not used by default.
+
+## 62. Pictures in Step with the Words; Voice Requests Heard over the Radio
+
+- **Pictures for everything said.**
+  - After any spoken text (a place story, an area story, events, a typed answer or a live-voice answer), `PictureScout` lists up to 5 things worth seeing, in the order they're said: people, buildings, objects, views and scenes. It uses the fast research model and only reads the text.
+  - Each item has a caption in the session language ("Эрцгерцог Иоганн Орт"), an English Wikipedia title (or none), Commons search words, and the phrase where it's mentioned.
+  - Its photo comes from the article's lead image, or else the best Commons match. It is credited (§45).
+- **Timed to the words.**
+  - Each picture is scheduled for when its phrase is spoken: story start, plus the sting, plus its position in the text at about 14 characters per second, 0.3 s early.
+  - The slideshow jumps to it then. Between timed pictures it rotates every 6 s. Swiping by hand wins.
+  - The same applies while the live host speaks.
+- **Every photo has a caption:** the story's own, else what the Commons file name says (not camera numbers), else the place name.
+- **No grey panel.**
+  - A photo that fails to load is dropped.
+  - A loading photo shows a camera icon on the panel colour.
+  - The map (shown when there's no photo) now sends a full identifying User-Agent to OpenStreetMap. Its tile servers refuse clients that don't identify themselves, which showed as a grey map.
+- **Voice requests during a story.** The speech gate no longer needs the listener to be louder than a fixed high level while the radio plays. It measures how much of the playback the mic picks up while the listener is quiet, and needs 2.5× that, between a normal speaking voice and the old ceiling. At normal volume, a normal voice now interrupts at once.
