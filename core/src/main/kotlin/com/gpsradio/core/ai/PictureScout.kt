@@ -43,7 +43,7 @@ class PictureScout(
     private val models: () -> ModelConfig,
 ) : PictureFinder {
     override suspend fun find(text: String, language: String, area: AreaLabel?): List<PictureRef> {
-        if (text.length < 40) return emptyList()
+        if (text.length < 12) return emptyList()
         val input = buildJsonObject {
             put("language", language)
             area?.let { put("area", listOfNotNull(it.city, it.region, it.countryCode).joinToString(", ")) }
@@ -66,8 +66,8 @@ class PictureScout(
         private val json = Json { ignoreUnknownKeys = true }
 
         const val INSTRUCTIONS = """
-You pick photos for a radio story as it is spoken. From "text", list up to 5 concrete things a listener would like to
-SEE, in the order the text mentions them: named people, buildings, monuments, objects, views, landscapes, historical
+You pick photos for a radio story or a listener's question as it is spoken. From "text", list up to 5 concrete things
+a listener would like to SEE, in the order the text mentions them: named people, buildings, monuments, objects, views, landscapes, historical
 scenes or events. Skip vague or generic things ("history", "the town" when no specific view is meant).
 For each:
 - "caption": 2 to 6 words in the "language" of the text, saying exactly what the photo shows ("Эрцгерцог Иоганн Орт").

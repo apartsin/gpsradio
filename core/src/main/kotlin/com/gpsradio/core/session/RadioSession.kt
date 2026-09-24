@@ -545,6 +545,7 @@ class RadioSession(
     /** Always listening is on and possible right now. */
     private val handsFreeActive: Boolean get() = liveVoiceEnabled && config().handsFree
 
+    private val STANDBY_RETRY_MS = longArrayOf(2_000, 5_000, 15_000, 30_000, 60_000)
     private var standbyFailures = 0
     private var standbyRetryAtMs = 0L
 
@@ -1403,6 +1404,8 @@ class RadioSession(
         override fun onUserSaid(text: String) {
             addTranscript(TranscriptEntry(Speaker.USER, text, clock()))
             if (liveLocalCommand(text)) return
+            // Pictures of what the listener asked about come up while the host answers (spec A §64).
+            illustrateAnswer(text, minChars = 12)
             history += ConversationTurn(true, text)
             while (history.size > 24) history.removeAt(0)
             programme.onQuizResolved() // the live host has the quiz in context and answers it
@@ -1464,9 +1467,11 @@ class RadioSession(
             if (QuotaErrors.matches(message)) noteQuota()
             if (l != null && l.persistent && !l.inConversation) {
                 // Background listening failed: retry later, quietly (1, 2, 4… up to 10 minutes).
+                // Background listening failed: retry soon (2 s, 5 s, 15 s, 30 s, then every minute), so an open mic is
+                // never deaf for long (spec A §64).
                 standbyFailures++
-                standbyRetryAtMs = clock() + (60_000L shl (standbyFailures - 1).coerceAtMost(4)).coerceAtMost(600_000L)
-                if (standbyFailures == 3) setStatus("Always listening is paused: the voice connection keeps failing. Tap the mic to talk.")
+                standbyRetryAtMs = clock() + STANDBY_RETRY_MS[(standbyFailures - 1).coerceAtMost(STANDBY_RETRY_MS.lastIndex)]
+                if (standbyFailures == 5) setStatus("Always listening is struggling: the voice connection keeps failing. Tap the mic to talk.")
                 return
             }
             fail("Voice conversation unavailable: $message. You can type your question instead.")
@@ -1746,8 +1751,8 @@ class RadioSession(
     }
 
     /** Pictures for an answer (live or typed): on the current focus, or a new one where the listener is. */
-    private fun illustrateAnswer(text: String) {
-        if (pictureFinder == null || text.length < 40) return
+    private fun illustrateAnswer(text: String, minChars: Int = 40) {
+        if (pictureFinder == null || text.length < minChars) return
         val id = _state.value.focus?.id ?: run {
             val point = _state.value.location?.point ?: return
             val fid = "answer:${clock()}"

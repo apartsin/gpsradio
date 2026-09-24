@@ -186,9 +186,11 @@ class LiveVoiceTest {
         handsFree: () -> Boolean = { false },
         angleResearch: com.gpsradio.core.discovery.AngleResearch? = null,
         audio: AudioOutput = AudioOutput { delay(5_000) },
+        pictureFinder: com.gpsradio.core.ai.PictureFinder? = null,
     ) = RadioSession(
         places = r, narrator = r, speech = r, audio = audio, historyStore = r,
         angleResearch = angleResearch,
+        pictureFinder = pictureFinder,
         areaLabeler = com.gpsradio.core.session.AreaLabeler { _ -> com.gpsradio.core.model.AreaLabel("Gmunden", "Upper Austria", "AT") },
         config = { SessionConfig("en-US", setOf(Topic.HISTORY), liveVoice = true, voice = "coral", handsFree = handsFree()) },
         liveFactory = { host, scope ->
@@ -521,8 +523,9 @@ class LiveVoiceTest {
         )
         running(s) {
             s.onLocation(LocationSample(here.lat, here.lon, 5f, 1_000_000, 0f)); runCurrent()
-            advanceTimeBy(3_000); runCurrent()
+            advanceTimeBy(1_000); runCurrent()
             assertTrue(attempts >= 1)
+            // (It retries within seconds now, spec A §64; the tap comes before that.)
             assertTrue(conns.isEmpty(), "background connection failed and is backing off")
             // The listener taps the mic, then says nothing: after the idle timeout the radio carries on.
             s.toggleLive(); runCurrent()
@@ -599,6 +602,26 @@ class LiveVoiceTest {
             // The interrupted story never airs again.
             advanceTimeBy(120_000); runCurrent()
             assertEquals(1, played.count { it == first }, played.toString())
+        }
+    }
+
+    @Test
+    fun askingTheLiveHostShowsPicturesOfWhatWasAskedAndAnswered() = runTest {
+        val r = Radio(listOf(place("a", Geo.destination(here, 0.0, 100.0))))
+        val conns = mutableListOf<FakeConnection>()
+        val asked = mutableListOf<String>()
+        val finder = com.gpsradio.core.ai.PictureFinder { text, _, _ -> asked += text; emptyList() }
+        val s = session(r, conns, FakePcm(), handsFree = { true }, pictureFinder = finder)
+        running(s) {
+            s.onLocation(LocationSample(here.lat, here.lon, 5f, 1_000_000, 0f)); runCurrent()
+            advanceTimeBy(3_000); runCurrent()
+            val c = conns.single()
+            c.server.trySend(RealtimeEvent.SessionReady); runCurrent()
+            c.server.trySend(RealtimeEvent.SpeechStarted); runCurrent()
+            c.server.trySend(RealtimeEvent.UserTranscript("Кто такой Иоганн Орт?")); runCurrent()
+            c.server.trySend(RealtimeEvent.AssistantTranscript("Иоганн Орт — эрцгерцог, который отказался от титула и купил замок на Траунзее.")); runCurrent()
+            // (The story that was on is illustrated too; then the question, then the answer.)
+            assertEquals(listOf("Кто такой Иоганн Орт?", "Иоганн Орт — эрцгерцог, который отказался от титула и купил замок на Траунзее."), asked.takeLast(2))
         }
     }
 

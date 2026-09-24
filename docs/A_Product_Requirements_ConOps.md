@@ -992,3 +992,14 @@ In Settings → Models, every model and the voice are chosen from a dropdown ins
   - Before Android installs an update, the app stops the radio (service, mic, audio, location), so nothing holds on to the app while it's replaced.
   - Whether it was on is remembered. After the update, the "updated, tap to open" notification opens the app, and the radio starts again if it was on.
   - While installing, the banner says the radio will come back, and what to do if Play Protect keeps "scanning" (Install anyway, or Install manually). The app can't control Play Protect's own dialog.
+
+## 64. A Mic That Stays Awake; Pictures for Live Answers
+
+- **The deaf-mic bug.**
+  - The live voice connection used the app's HTTP settings: a 90 s read timeout and no keep-alive. In always-listening mode, 90 s with nobody talking dropped the connection. That counted as a failure, and the retry then waited 1, 2, 4… up to 10 minutes, while the mic still looked on.
+  - Now the voice connection has no read or call timeout and pings every 15 s, so a connection lost on a network change is noticed within seconds.
+  - Failed background connections retry after 2 s, 5 s, 15 s, 30 s, then every minute.
+- **Pictures for live answers.**
+  - The listener's own question (from its transcript) is illustrated as soon as it's heard, so pictures of what was asked come up while the host answers.
+  - The answer is illustrated too (§62).
+  - Short texts count: questions from 12 characters.

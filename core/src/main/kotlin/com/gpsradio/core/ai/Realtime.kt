@@ -257,6 +257,9 @@ private class WebSocketConnection(private val socket: WebSocket, override val ev
     }
 }
 
+/** Keep-alive ping interval for the voice connection. */
+private const val PING_SECONDS = 15L
+
 /** Connects directly to the OpenAI Realtime API with the user's key (app-only architecture). */
 class RealtimeClient(
     private val http: OkHttpClient,
@@ -265,13 +268,26 @@ class RealtimeClient(
     /** Estimated spend: each response.done reports its token usage. */
     private val meter: com.gpsradio.core.cost.CostMeter? = null,
 ) {
+    /**
+     * The voice connection stays open for a long time with nothing said (always listening): no read or call
+     * timeout (the app's 90 s read timeout silently dropped it after a quiet minute and a half), and a ping every
+     * 15 s so a connection lost on a network change is noticed within seconds and reopened (spec A §64).
+     */
+    private val socketClient: OkHttpClient by lazy {
+        http.newBuilder()
+            .readTimeout(0, java.util.concurrent.TimeUnit.MILLISECONDS)
+            .callTimeout(0, java.util.concurrent.TimeUnit.MILLISECONDS)
+            .pingInterval(PING_SECONDS, java.util.concurrent.TimeUnit.SECONDS)
+            .build()
+    }
+
     fun connect(model: String): RealtimeConnection {
         val channel = Channel<RealtimeEvent>(Channel.UNLIMITED)
         val request = Request.Builder()
             .url("$baseUrl?model=$model")
             .header("Authorization", "Bearer ${apiKey()}")
             .build()
-        val socket = http.newWebSocket(request, object : WebSocketListener() {
+        val socket = socketClient.newWebSocket(request, object : WebSocketListener() {
             override fun onMessage(webSocket: WebSocket, text: String) {
                 if (meter != null && "\"response.done\"" in text) RealtimeProtocol.usage(text)?.let { meter.recordRealtime(it) }
                 RealtimeProtocol.parse(text)?.let { channel.trySend(it) }
