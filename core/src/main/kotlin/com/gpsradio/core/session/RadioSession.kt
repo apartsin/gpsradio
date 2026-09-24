@@ -84,6 +84,7 @@ import com.gpsradio.core.discovery.OnThisDayClient
 import com.gpsradio.core.discovery.OnThisDaySource
 import com.gpsradio.core.editorial.Pacing
 import com.gpsradio.core.lang.Notices
+import com.gpsradio.core.lang.SourceLines
 import com.gpsradio.core.lang.Notice
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Deferred
@@ -110,6 +111,8 @@ data class FocusPlace(
     val url: String?,
     /** More real photos of the place, loaded after it comes into focus. */
     val gallery: List<String> = listOfNotNull(imageUrl),
+    /** Author and licence per photo URL (Wikimedia Commons), shown under the photo. */
+    val credits: Map<String, String> = emptyMap(),
 ) {
     companion object {
         fun of(p: PlaceCandidate) = FocusPlace(p.id, p.name, p.point, p.imageUrl, p.url)
@@ -745,6 +748,7 @@ class RadioSession(
                 activeId = c.place.id
                 lastAudio = bytes
                 addTranscript(TranscriptEntry(Speaker.RADIO, segment.text, clock(), c.place.id, segment.sources))
+                lastStory = segment
                 _state.update { it.copy(radioState = RadioState.NARRATING, nowPlaying = segment, nowPlayingReason = reasonFor(c), focus = FocusPlace.of(c.place)) }
                 // Always listening: the host knows which story is on, so "tell me more about that" works.
                 live?.takeIf { it.persistent && !it.inConversation }?.updateInstructions()
@@ -1053,6 +1057,15 @@ class RadioSession(
                 false -> { declineOffer(offer); return }
                 null -> Unit
             }
+        }
+        // "Where's that from?": answered on the device, instantly and for free (spec A §45).
+        if (isSourcesQuestion(text)) {
+            val line = SourceLines.spoken(sessionLanguage, lastStory)
+            addTranscript(TranscriptEntry(Speaker.RADIO, line, clock(), lastStory?.entityId, lastStory?.sources.orEmpty()))
+            speakNotice(line)
+            lastSpeechEndMs = clock()
+            endConversation()
+            return
         }
         when (localCommand(text)) {
             ConversationAction.SKIP -> {
@@ -1533,11 +1546,19 @@ class RadioSession(
             if (g.isEmpty()) return@launch
             galleries[place.id] = g
             updateFocusGallery(place.id, g)
+            val c = runCatching { places.photoCredits(g) }.getOrDefault(emptyMap())
+            if (c.isEmpty()) return@launch
+            photoCredits[place.id] = c
+            updateFocusGallery(place.id, g)
         }
     }
 
-    private fun updateFocusGallery(id: String, gallery: List<String>) =
-        _state.update { s -> if (s.focus?.id == id) s.copy(focus = s.focus.copy(gallery = gallery)) else s }
+    /** Photo credits per place id (spec A §45). */
+    private val photoCredits = HashMap<String, Map<String, String>>()
+
+    private fun updateFocusGallery(id: String, gallery: List<String>) = _state.update { s ->
+        if (s.focus?.id == id) s.copy(focus = s.focus.copy(gallery = gallery, credits = photoCredits[id].orEmpty())) else s
+    }
 
     private fun persistFavorites() {
         runCatching { favoritesStore?.save(favorites.serialize()) }
@@ -1679,6 +1700,9 @@ class RadioSession(
     // ---- spoken notices: voice is the main channel (spec A §32) ------------------------------------
 
     /** Speaks [notice] after whatever is playing now; skipped while stopped or paused. */
+    /** The last story aired, for "where's that from?" (spec A §45). */
+    private var lastStory: Segment? = null
+
     private fun announce(notice: Notice) = announceText(Notices.text(notice, sessionLanguage))
 
     private fun announceText(text: String) {
@@ -1938,6 +1962,7 @@ class RadioSession(
                     activeId = c.place.id
                     lastAudio = bytes
                     addTranscript(TranscriptEntry(Speaker.RADIO, segment.text, clock(), c.place.id, segment.sources))
+                    lastStory = segment
                     _state.update { it.copy(radioState = RadioState.NARRATING, nowPlaying = segment, focus = FocusPlace.of(c.place)) }
                     loadGallery(c.place)
                     sting(Sting.STATION)
@@ -2129,6 +2154,7 @@ class RadioSession(
                 val bytes = ready?.second ?: timed(timeouts.speechMs, "Speech") { speech.synthesize(segment.text, lang, cfg.style) }
                 lastAudio = bytes
                 addTranscript(TranscriptEntry(Speaker.RADIO, segment.text, clock(), segment.entityId, segment.sources))
+                lastStory = segment
                 _state.update { s ->
                     s.copy(radioState = RadioState.NARRATING, nowPlaying = segment, focus = c?.let { FocusPlace.of(it.place) } ?: s.focus)
                 }
@@ -2481,6 +2507,21 @@ class RadioSession(
          * Radio controls said in so many words, handled on the device: instant, and they work offline. Anything
          * longer or less direct goes to the model, which calls the same actions.
          */
+        /** "Sources?", "where's that from?" said in so many words; "is that true?" goes to the model, which can verify. */
+        fun isSourcesQuestion(text: String): Boolean =
+            text.lowercase().replace('ё', 'е').replace(Regex("[,.!?¡¿]+"), " ").replace(Regex("\\s+"), " ").trim() in SOURCES_WORDS
+
+        private val SOURCES_WORDS = setOf(
+            "sources", "source", "what's the source", "what is the source", "where's that from", "where is that from",
+            "where did you get that", "where did that come from",
+            "источник", "источники", "какой источник", "откуда это", "откуда ты это знаешь", "откуда информация",
+            "откуда ты это взял", "откуда",
+            "מקור", "מקורות", "מאיפה זה",
+            "quelle", "quellen", "woher ist das", "woher weißt du das",
+            "fuente", "fuentes", "de dónde es eso", "de donde es eso",
+            "d'où ça vient", "d'où vient ça",
+        )
+
         fun localCommand(text: String): ConversationAction? {
             var t = text.lowercase().replace('ё', 'е').replace(Regex("[,.!?¡¿]+"), " ").replace(Regex("\\s+"), " ").trim()
             // Politeness and fillers around the command: "ok, skip please", "ну, дальше", "стоп, пожалуйста".

@@ -21,6 +21,9 @@ interface PlacesProvider {
 
     /** Real photos of a place for the gallery; by default just its main image. */
     suspend fun gallery(place: PlaceCandidate): List<String> = listOfNotNull(place.imageUrl)
+
+    /** Author and licence per photo URL, shown under the photo (spec A §45); none by default. */
+    suspend fun photoCredits(urls: List<String>): Map<String, String> = emptyMap()
 }
 
 /**
@@ -140,6 +143,9 @@ class DiscoveryService(
         val more = runCatching { wikipedia.articleImages(lang, place.name) }.getOrDefault(emptyList())
         return (listOfNotNull(place.imageUrl) + more).distinctBy { it.substringAfterLast('/').substringAfter("px-") }.take(8)
     }
+
+    override suspend fun photoCredits(urls: List<String>): Map<String, String> =
+        runCatching { wikipedia.photoCredits(urls) }.getOrDefault(emptyMap())
 
     internal fun merge(wiki: List<PlaceCandidate>, osm: List<OverpassClient.Element>, languageBase: String): List<PlaceCandidate> {
         // Prefer the narration-language article when the same entity appears in several editions.

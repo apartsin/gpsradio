@@ -6,6 +6,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 
@@ -123,6 +124,36 @@ class WikipediaClient(
             .take(limit)
     }
 
+    @Serializable private data class CreditsResponse(val query: CreditsQuery? = null)
+    @Serializable private data class CreditsQuery(val pages: List<CreditsPage> = emptyList())
+    @Serializable private data class CreditsPage(val title: String = "", val imageinfo: List<CreditsInfo> = emptyList())
+    @Serializable private data class CreditsInfo(val extmetadata: Map<String, MetaValue> = emptyMap())
+    @Serializable private data class MetaValue(val value: String? = null)
+
+    /**
+     * Author and licence of Wikimedia Commons photos (spec A §45), keyed by the image URL: "Photo: Jane Doe · CC BY-SA 4.0 ·
+     * Wikimedia Commons". Photos whose file can't be identified, or that have no metadata, are left out.
+     */
+    suspend fun photoCredits(urls: List<String>, lang: String = "en"): Map<String, String> {
+        val byTitle = urls.mapNotNull { u -> fileTitle(u)?.let { "File:$it" to u } }.toMap()
+        if (byTitle.isEmpty()) return emptyMap()
+        val url = baseUrl(lang).newBuilder()
+            .addQueryParameter("action", "query")
+            .addQueryParameter("titles", byTitle.keys.take(50).joinToString("|"))
+            .addQueryParameter("prop", "imageinfo")
+            .addQueryParameter("iiprop", "extmetadata")
+            .addQueryParameter("iiextmetadatafilter", "Artist|LicenseShortName")
+            .addQueryParameter("format", "json")
+            .addQueryParameter("formatversion", "2")
+            .build()
+        val body = http.fetchString(request(url))
+        return json.decodeFromString(CreditsResponse.serializer(), body).query?.pages.orEmpty().mapNotNull { p ->
+            val meta = p.imageinfo.firstOrNull()?.extmetadata ?: return@mapNotNull null
+            val source = byTitle[p.title] ?: byTitle[p.title.replace(' ', '_')] ?: return@mapNotNull null
+            credit(meta["Artist"]?.value, meta["LicenseShortName"]?.value)?.let { source to it }
+        }.toMap()
+    }
+
     /** A whole article as plain text, with `== Section ==` headings kept (for area stories); null if missing. */
     suspend fun articleByTitle(lang: String, title: String): Article? {
         val url = baseUrl(lang).newBuilder()
@@ -154,6 +185,25 @@ class WikipediaClient(
             "(icon|logo|flag|coat[ _]of[ _]arms|wappen|map|karte|locator|symbol|signature|diagram|plan|commons-|wiki|edit|question|stub|pictogram)",
             RegexOption.IGNORE_CASE,
         )
+
+        /** "Photo: Jane Doe · CC BY-SA 4.0 · Wikimedia Commons" from the raw (HTML) metadata; null when neither is known. */
+        fun credit(artistHtml: String?, license: String?): String? {
+            val artist = artistHtml?.replace(Regex("<[^>]*>"), "")?.replace("&amp;", "&")?.replace("&nbsp;", " ")
+                ?.replace(Regex("\\s+"), " ")?.trim()?.take(80)?.ifBlank { null }
+            val lic = license?.trim()?.ifBlank { null }
+            if (artist == null && lic == null) return null
+            return "Photo: " + listOfNotNull(artist, lic, "Wikimedia Commons").joinToString(" · ")
+        }
+
+        /** The Commons file name in an upload.wikimedia.org URL (original or thumbnail), with spaces; null otherwise. */
+        fun fileTitle(url: String): String? {
+            val u = url.toHttpUrlOrNull() ?: return null
+            if (u.host != "upload.wikimedia.org") return null
+            val seg = u.pathSegments
+            val i = seg.indexOf("thumb")
+            val name = if (i >= 0) seg.getOrNull(i + 3) else seg.lastOrNull()
+            return name?.takeIf { it.contains('.') }?.replace('_', ' ')
+        }
 
         fun isPhoto(fileTitle: String): Boolean {
             val t = fileTitle.lowercase()

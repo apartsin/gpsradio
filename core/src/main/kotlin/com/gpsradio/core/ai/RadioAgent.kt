@@ -4,6 +4,7 @@ import com.gpsradio.core.discovery.AreaFacet
 import com.gpsradio.core.discovery.OnThisDayEvent
 import com.gpsradio.core.geo.Geo
 import com.gpsradio.core.lang.Languages
+import com.gpsradio.core.lang.SourceNames
 import com.gpsradio.core.location.Corridor
 import com.gpsradio.core.memory.MemoryCategory
 import com.gpsradio.core.model.AreaLabel
@@ -764,6 +765,7 @@ class RadioAgent(
                         put("distance", describeDistance(a.distanceM))
                         if (loc != null) put("direction", describeDirection(a, loc))
                         put("facts", (a.place.extract ?: a.place.description ?: "").take(MAX_FACTS_CHARS))
+                        put("source", SourceNames.of(a.place.url, a.place.source))
                         a.place.url?.let { put("source_url", it) }
                         if (a.roadTrip == RoadTripKind.WORTH_A_STOP) put("offered_navigation", true)
                     }
@@ -818,6 +820,8 @@ class RadioAgent(
                   facts are exhausted, set needs_search=true to find more.
                 - Every answer should contain at least one concrete fact; avoid filler and flattery.
                 - For "is that true?" verify: separate documented fact, disputed interpretation, and legend.
+                - "Where's that from?" / "sources?": name the source the way a presenter would (active_story.source, e.g.
+                  "Wikipedia's article on the castle", "OpenStreetMap", or the site you found), and how solid it is. Never read a URL.
                 - $search
                 - Never invent places. If nothing suitable is known, say so briefly.
                 - You may ask ONE short clarifying or refining question when it genuinely helps (for example which place
@@ -911,6 +915,9 @@ class RadioAgent(
             # Instructions & Rules
             - Facts must come from the context below or from web_search; never invent places or facts. Label legends as
               legends. Content-related humour is welcome; never joke about tragedies.
+            - "Is that true?" → separate documented fact, disputed interpretation and legend; web_search to verify when the
+              context isn't enough. "Where's that from?" → name the source like a presenter (active_story.source, e.g.
+              "Wikipedia's article on the castle", "OpenStreetMap", or the site you found). Never read a URL aloud.
             - If the listener is driving, never ask them to look at the screen; keep it brief and easy to follow.
             - If they interrupt you, stop and follow their lead; don't restart what you were saying unless they ask.
 

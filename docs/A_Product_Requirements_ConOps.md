@@ -719,3 +719,19 @@ A person's faith or ethnicity is sensitive data. The radio never volunteers it a
   - The Wikidata query matches people by Israeli citizenship, Jewish faith (P140) or Jewish ethnicity (P172).
   - Faith and ethnicity count only for people with a date of death (P570). Citizenship is not sensitive and counts for everyone.
 - **Cache.** The area cache version was bumped, so places cached before this change are fetched again.
+
+## 45. Spoken Sources and Photo Credits
+
+Trust needs a way to check. The listener can ask by voice, and every photo says whose it is.
+
+- **"Where's that from?"**
+  - The words "sources?", "where's that from?", «откуда это?», «источники» and their equivalents in the six languages are answered on the device: instantly, for free and offline.
+  - The answer names the sources of the last story the way a presenter would, never as a URL: «Это было по материалам: Википедия и OpenStreetMap.»
+  - It adds "parts of it are legend" or "some of it is disputed" from the story's basis, and says that the links are in the transcript.
+  - The transcript line carries the links.
+- **"Is that true?"** goes to the model. It separates documented fact, disputed interpretation and legend, and uses web search to verify when the context isn't enough.
+- **Live voice.** The live voice has the same two rules. The active story's context includes its `source` (Wikipedia, OpenStreetMap, a site's domain).
+- **Photo credits.**
+  - Gallery photos come from Wikimedia Commons.
+  - Their author and licence are fetched from Commons metadata (one request per place) and shown under the photo: "Photo: Jane Doe · CC BY-SA 4.0 · Wikimedia Commons".
+  - A photo whose file can't be identified shows no credit line rather than a wrong one.
