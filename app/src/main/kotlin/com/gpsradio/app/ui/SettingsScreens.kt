@@ -152,6 +152,7 @@ private fun SettingsForm(
     var interests by remember { mutableStateOf(initial.interests) }
     var narrationModel by remember { mutableStateOf(initial.models.narrationModel) }
     var conversationModel by remember { mutableStateOf(initial.models.conversationModel) }
+    var researchModel by remember { mutableStateOf(initial.models.researchModel) }
     var ttsModel by remember { mutableStateOf(initial.models.ttsModel) }
     var ttsVoice by remember { mutableStateOf(initial.models.ttsVoice) }
     var sttModel by remember { mutableStateOf(initial.models.transcriptionModel) }
@@ -294,12 +295,25 @@ private fun SettingsForm(
 
         if (showAdvanced) {
             Text(stringResource(R.string.models), style = MaterialTheme.typography.titleSmall)
-            ModelField(stringResource(R.string.model_narration), narrationModel) { narrationModel = it }
-            ModelField(stringResource(R.string.model_conversation), conversationModel) { conversationModel = it }
-            ModelField(stringResource(R.string.model_speech), ttsModel) { ttsModel = it }
-            ModelField(stringResource(R.string.model_voice), ttsVoice) { ttsVoice = it }
-            ModelField(stringResource(R.string.model_transcription), sttModel) { sttModel = it }
-            ModelField(stringResource(R.string.model_realtime), realtimeModel) { realtimeModel = it }
+            ModelPicker(stringResource(R.string.model_narration), narrationModel, narrationOptions(), "modelNarration") { narrationModel = it }
+            ModelPicker(stringResource(R.string.model_conversation), conversationModel, conversationOptions(), "modelConversation") { conversationModel = it }
+            ModelPicker(stringResource(R.string.model_research), researchModel, researchOptions(), "modelResearch") { researchModel = it }
+            ModelPicker(stringResource(R.string.model_speech), ttsModel, ttsOptions(), "modelSpeech") { ttsModel = it }
+            val voiceWarning = if (ttsModel.trim() in TTS1_MODELS && ttsVoice.trim().lowercase() !in TTS1_VOICES) {
+                stringResource(R.string.voice_tts1_warning, ttsVoice.trim(), ttsModel.trim())
+            } else {
+                null
+            }
+            ModelPicker(
+                stringResource(R.string.model_voice),
+                ttsVoice,
+                voiceOptions(),
+                "modelVoice",
+                note = stringResource(R.string.voice_note),
+                warning = voiceWarning,
+            ) { ttsVoice = it }
+            ModelPicker(stringResource(R.string.model_transcription), sttModel, transcriptionOptions(), "modelTranscription") { sttModel = it }
+            ModelPicker(stringResource(R.string.model_realtime), realtimeModel, realtimeOptions(), "modelRealtime") { realtimeModel = it }
             extra()
         }
 
@@ -320,6 +334,7 @@ private fun SettingsForm(
             models = initial.models.copy(
                 narrationModel = narrationModel.trim().ifBlank { initial.models.narrationModel },
                 conversationModel = conversationModel.trim().ifBlank { initial.models.conversationModel },
+                researchModel = researchModel.trim().ifBlank { initial.models.researchModel },
                 ttsModel = ttsModel.trim().ifBlank { initial.models.ttsModel },
                 ttsVoice = ttsVoice.trim().ifBlank { initial.models.ttsVoice },
                 transcriptionModel = sttModel.trim().ifBlank { initial.models.transcriptionModel },
@@ -390,9 +405,122 @@ private fun LanguagePicker(selected: String, onSelect: (String) -> Unit) {
     }
 }
 
+/** One choice in a model or voice picker: the id sent to OpenAI and an optional short human label. */
+private data class ModelOption(val id: String, val hint: String? = null)
+
+private val TTS1_MODELS = setOf("tts-1", "tts-1-hd")
+private val TTS1_VOICES = setOf("alloy", "ash", "coral", "echo", "fable", "onyx", "nova", "sage", "shimmer")
+
 @Composable
-private fun ModelField(label: String, value: String, onChange: (String) -> Unit) {
-    OutlinedTextField(value = value, onValueChange = onChange, label = { Text(label) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+private fun narrationOptions() = listOf(
+    ModelOption("gpt-5.1", stringResource(R.string.model_hint_best_default)),
+    ModelOption("gpt-5", stringResource(R.string.model_hint_strong)),
+    ModelOption("gpt-4.1", stringResource(R.string.model_hint_faster)),
+    ModelOption("gpt-5-mini", stringResource(R.string.model_hint_cheaper)),
+    ModelOption("gpt-4.1-mini", stringResource(R.string.model_hint_cheapest)),
+)
+
+@Composable
+private fun conversationOptions() = listOf(
+    ModelOption("gpt-4.1", stringResource(R.string.model_hint_default_fast)),
+    ModelOption("gpt-5.1", stringResource(R.string.model_hint_best_slower)),
+    ModelOption("gpt-5", stringResource(R.string.model_hint_strong_slower)),
+    ModelOption("gpt-4.1-mini", stringResource(R.string.model_hint_cheaper)),
+)
+
+@Composable
+private fun researchOptions() = listOf(
+    ModelOption("gpt-4.1-mini", stringResource(R.string.model_hint_default_fast)),
+    ModelOption("gpt-5-mini", stringResource(R.string.model_hint_reasoning_cheap)),
+    ModelOption("gpt-4.1", stringResource(R.string.model_hint_higher_quality)),
+    ModelOption("gpt-5.1", stringResource(R.string.model_hint_best_slower)),
+)
+
+@Composable
+private fun ttsOptions() = listOf(
+    ModelOption("gpt-4o-mini-tts", stringResource(R.string.model_hint_tts_default)),
+    ModelOption("tts-1-hd", stringResource(R.string.model_hint_tts_hd)),
+    ModelOption("tts-1", stringResource(R.string.model_hint_tts_fast)),
+)
+
+@Composable
+private fun voiceOptions(): List<ModelOption> {
+    val storiesOnly = stringResource(R.string.voice_hint_stories_only)
+    return listOf(
+        ModelOption("marin", stringResource(R.string.voice_hint_default)),
+        ModelOption("cedar", stringResource(R.string.voice_hint_natural)),
+    ) + listOf("alloy", "ash", "ballad", "coral", "echo", "sage", "shimmer", "verse").map { ModelOption(it) } +
+        listOf("fable", "nova", "onyx").map { ModelOption(it, storiesOnly) }
+}
+
+@Composable
+private fun transcriptionOptions() = listOf(
+    ModelOption("gpt-4o-mini-transcribe", stringResource(R.string.model_hint_default_fast)),
+    ModelOption("gpt-4o-transcribe", stringResource(R.string.model_hint_more_accurate)),
+    ModelOption("whisper-1", stringResource(R.string.model_hint_classic)),
+)
+
+@Composable
+private fun realtimeOptions() = listOf(
+    ModelOption("gpt-realtime", stringResource(R.string.model_hint_default)),
+    ModelOption("gpt-realtime-mini", stringResource(R.string.model_hint_cheaper)),
+)
+
+/**
+ * A dropdown of known models (or voices). A saved value that is not in the list (an older or hand-picked id)
+ * is shown first and stays selectable, so choosing nothing never loses it.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ModelPicker(
+    label: String,
+    selected: String,
+    options: List<ModelOption>,
+    tag: String,
+    note: String? = null,
+    warning: String? = null,
+    onSelect: (String) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val current = selected.trim()
+    val savedHint = stringResource(R.string.model_hint_saved)
+    val all = if (current.isNotEmpty() && options.none { it.id == current }) listOf(ModelOption(current, savedHint)) + options else options
+    val shown = all.firstOrNull { it.id == current }
+    val value = when {
+        shown == null -> current
+        shown.hint == null -> shown.id
+        else -> "${shown.id} · ${shown.hint}"
+    }
+    Column {
+        ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+            OutlinedTextField(
+                value = value,
+                onValueChange = {},
+                readOnly = true,
+                singleLine = true,
+                label = { Text(label) },
+                supportingText = if (note != null) { { Text(note) } } else null,
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
+                modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable).testTag(tag),
+            )
+            ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                all.forEach { option ->
+                    DropdownMenuItem(
+                        text = {
+                            Column {
+                                Text(option.id)
+                                option.hint?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                            }
+                        },
+                        onClick = { onSelect(option.id); expanded = false },
+                    )
+                }
+            }
+        }
+        warning?.let {
+            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+        }
+    }
 }
 
 /** e.g. "GPS Radio 0.5.142 · build a1b2c3d · 2026-09-23". */

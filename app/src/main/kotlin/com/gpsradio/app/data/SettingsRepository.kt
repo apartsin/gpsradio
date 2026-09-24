@@ -93,6 +93,7 @@ class SettingsRepository(context: Context) {
             putInt(KEY_INTERESTS_VERSION, INTERESTS_VERSION)
             putString(KEY_NARRATION_MODEL, next.models.narrationModel)
             putString(KEY_CONVERSATION_MODEL, next.models.conversationModel)
+            putString(KEY_RESEARCH_MODEL, next.models.researchModel)
             putString(KEY_TTS_MODEL, next.models.ttsModel)
             putString(KEY_TTS_VOICE, next.models.ttsVoice)
             putInt(KEY_VOICE_VERSION, VOICE_VERSION)
@@ -129,6 +130,8 @@ class SettingsRepository(context: Context) {
                 // Models saved before v3 were older defaults: move to the new defaults once (spec A §38, §53).
                 narrationModel = plain.getString(KEY_NARRATION_MODEL, null)?.takeIf { modelsCurrent } ?: m.narrationModel,
                 conversationModel = plain.getString(KEY_CONVERSATION_MODEL, null)?.takeIf { modelsCurrent } ?: m.conversationModel,
+                // Not touched by the models_version migration: it was never saved before v3.
+                researchModel = plain.getString(KEY_RESEARCH_MODEL, null) ?: m.researchModel,
                 ttsModel = plain.getString(KEY_TTS_MODEL, null) ?: m.ttsModel,
                 // v2: one voice for stories and conversation; the old story default (coral) moves to it once.
                 ttsVoice = plain.getString(KEY_TTS_VOICE, null)
@@ -193,6 +196,7 @@ class SettingsRepository(context: Context) {
             setOf(Topic.HISTORY, Topic.NATURE, Topic.ARCHITECTURE, Topic.CULTURE),
         )
         const val KEY_CONVERSATION_MODEL = "conversation_model"
+        const val KEY_RESEARCH_MODEL = "research_model"
         const val KEY_TTS_MODEL = "tts_model"
         const val KEY_TTS_VOICE = "tts_voice"
         const val KEY_STT_MODEL = "stt_model"

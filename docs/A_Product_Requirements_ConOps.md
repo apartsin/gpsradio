@@ -945,3 +945,19 @@ The slideshow (§55) adds free, licensed photos from Wikimedia Commons, the arch
   - Google Image Search: its API is paid, closed to new sign-ups, and returns copyrighted images the app may not show.
   - OpenAI web search: returns pages, not images.
   - AI-generated illustrations remain possible (for example, historical scenes that have no photos), clearly labelled; they are not used by default.
+
+## 61. Model and Voice Pickers
+
+In Settings → Models, every model and the voice are chosen from a dropdown instead of typed:
+
+- **Lists.** Each option shows the model id and a short label (e.g. "gpt-5.1 · best, default"):
+  - Narration: gpt-5.1 (default), gpt-5, gpt-4.1, gpt-5-mini, gpt-4.1-mini.
+  - Conversation: gpt-4.1 (default), gpt-5.1, gpt-5, gpt-4.1-mini.
+  - Research (web search for angles, events, visit checks): gpt-4.1-mini (default), gpt-5-mini, gpt-4.1, gpt-5.1. Now saved like the other models.
+  - Story voice model: gpt-4o-mini-tts (default), tts-1-hd, tts-1.
+  - Voice: marin (default), cedar, alloy, ash, ballad, coral, echo, sage, shimmer, verse, fable, nova, onyx.
+  - Transcription: gpt-4o-mini-transcribe (default), gpt-4o-transcribe, whisper-1.
+  - Realtime conversation: gpt-realtime (default), gpt-realtime-mini.
+- **Defaults unchanged.** The defaults are the current ones (§38, §48, §53).
+- **Nothing lost.** A saved value not in the list is shown first, marked "your saved choice", and stays selectable.
+- **Voice.** Conversations use the same voice when the realtime model has it; otherwise marin. With tts-1 or tts-1-hd, a voice those models lack shows a one-line warning.
