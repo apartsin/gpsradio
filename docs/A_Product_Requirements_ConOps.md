@@ -661,3 +661,13 @@ These are now by voice ("skip", "pause", «следующий», "save this plac
 - **Fast reaction to steering.**
   - The live host answers straight away with a short reaction.
   - Research for a steer runs on the fast model, and the story follows in a few seconds.
+
+## 39. The Listener's Voice Is Always High Quality
+
+The listener's own voice is always sent at full quality: 16-bit PCM at 24 kHz. Russian is the default language, and accurate recognition of it, with foreign place names mixed in and in noisy cars, matters more than the data saved.
+
+- **Nothing may lower it.** No setting, including any future data saver, may downsample it or switch it to telephone codecs (G.711).
+- **Data is saved elsewhere.**
+  - The mic already sends audio only while the listener speaks (on-device speech gate, §33).
+  - Recognition gets the session language as a hint (Russian by default).
+  - Any data saver works on the downstream side: story voice format, photos and map tiles.
