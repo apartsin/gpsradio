@@ -137,18 +137,12 @@ class TourJournalUiTest {
     fun menuPagesShowTourBannerChipsAndJournal() {
         val started = mutableListOf<Int>()
         var ended = false
-        val exported = mutableListOf<String>()
-        val actions = RadioActions(
-            onStartTour = { started += it },
-            onEndTour = { ended = true },
-            journal = JournalActions(onExportDay = { exported += it }),
-        )
+        val actions = RadioActions(onStartTour = { started += it }, onEndTour = { ended = true })
         var state by androidx.compose.runtime.mutableStateOf(
             RadioUiState(radioState = RadioState.RADIO, location = loc, tour = tour, journal = journal),
         )
-        compose.setContent { GpsRadioTheme { RadioContent(state, false, actions, placePanel = { _, _ -> }) } }
+        compose.setContent { GpsRadioTheme { RadioContent(state, false, actions, placePanel = { _, _ -> }, menuOpen = true) } }
         // Nearby (from the menu): the running tour's banner, and chips only when no tour is running.
-        compose.onNodeWithContentDescription("Menu").performClick()
         compose.onNodeWithText("Nearby").performClick()
         compose.onNodeWithTag("tourBanner").assertIsDisplayed()
         compose.onNodeWithText("End tour").performClick()
@@ -157,11 +151,16 @@ class TourJournalUiTest {
         state = state.copy(tour = null)
         compose.onNodeWithText("30 min").performClick()
         assertEquals(listOf(30), started)
+    }
 
-        // Saved & journal: the journal section with its GPX export.
-        compose.onNodeWithContentDescription("Back").performClick()
-        compose.onNodeWithContentDescription("Menu").performClick()
-        compose.onNodeWithText("Saved & journal").performClick()
+    @Test
+    fun savedPageShowsTheJournalWithExport() {
+        val exported = mutableListOf<String>()
+        val actions = RadioActions(journal = JournalActions(onExportDay = { exported += it }))
+        val state = RadioUiState(radioState = RadioState.RADIO, location = loc, journal = journal)
+        compose.setContent {
+            GpsRadioTheme { RadioContent(state, false, actions, placePanel = { _, _ -> }, initialPage = com.gpsradio.app.ui.RadioPage.SAVED) }
+        }
         compose.onNodeWithText("Journal").assertIsDisplayed()
         assertEquals(2, compose.onAllNodesWithTextCount("Tell me again"))
         compose.onAllNodes(androidx.compose.ui.test.hasText("Export GPX"))[0].performClick()
@@ -170,8 +169,7 @@ class TourJournalUiTest {
 
     @Test
     fun journalIsReachableWhileOffAir() {
-        compose.setContent { GpsRadioTheme { RadioContent(RadioUiState(journal = journal), false, RadioActions(), placePanel = { _, _ -> }) } }
-        compose.onNodeWithContentDescription("Menu").performClick()
+        compose.setContent { GpsRadioTheme { RadioContent(RadioUiState(journal = journal), false, RadioActions(), placePanel = { _, _ -> }, menuOpen = true) } }
         compose.onNodeWithText("Saved & journal").performClick()
         compose.onNodeWithText("Journal").assertIsDisplayed()
         assertEquals(0, compose.onAllNodesWithTextCount("Tell me again"))

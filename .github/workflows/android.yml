@@ -34,7 +34,7 @@ jobs:
         run: ./gradlew :core:test --no-daemon
 
       - name: Android unit + UI tests (Robolectric)
-        run: ./gradlew :app:testDebugUnitTest --no-daemon
+        run: ./gradlew :app:testDebugUnitTest --no-daemon || { find app/build/test-results -name '*.xml' -exec grep -h -B1 -A6 '<failure' {} \; ; exit 1; }
 
       - name: Build debug APK
         env:

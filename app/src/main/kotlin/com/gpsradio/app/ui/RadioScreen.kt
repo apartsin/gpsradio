@@ -317,11 +317,13 @@ fun RadioContent(
     alwaysListening: Boolean = false,
     /** Opens this secondary page right away (tests). */
     initialPage: RadioPage? = null,
+    /** Starts with the menu open (tests). */
+    menuOpen: Boolean = false,
 ) {
     val running = state.radioState != RadioState.IDLE
     val micOpen = liveMode && alwaysListening
     val starredIds = remember(state.favorites) { state.favorites.map { it.id }.toSet() }
-    val drawer = rememberDrawerState(DrawerValue.Closed)
+    val drawer = rememberDrawerState(if (menuOpen) DrawerValue.Open else DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     var page by remember { mutableStateOf(initialPage) }
     val closeMenu = { scope.launch { drawer.close() } }

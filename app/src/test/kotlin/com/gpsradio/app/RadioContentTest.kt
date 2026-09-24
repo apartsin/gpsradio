@@ -61,15 +61,14 @@ class RadioContentTest {
         page: RadioPage? = null,
         liveMode: Boolean = false,
         alwaysListening: Boolean = false,
+        menuOpen: Boolean = false,
     ) = compose.setContent {
         GpsRadioTheme {
-            RadioContent(state, recording, actions, placePanel = { _, _ -> }, liveMode = liveMode, alwaysListening = alwaysListening, initialPage = page)
+            RadioContent(
+                state, recording, actions, placePanel = { _, _ -> }, liveMode = liveMode, alwaysListening = alwaysListening,
+                initialPage = page, menuOpen = menuOpen,
+            )
         }
-    }
-
-    private fun openMenu() {
-        compose.onNodeWithContentDescription("Menu").performClick()
-        compose.waitForIdle()
     }
 
     @Test
@@ -123,8 +122,8 @@ class RadioContentTest {
     @Test
     fun menuOpensSettingsAndHasNoManualModes() {
         var settings = false
-        show(RadioUiState(radioState = RadioState.RADIO, location = loc), RadioActions(onOpenSettings = { settings = true }))
-        openMenu()
+        show(RadioUiState(radioState = RadioState.RADIO, location = loc), RadioActions(onOpenSettings = { settings = true }), menuOpen = true)
+        compose.onNodeWithTag("menu").assertIsDisplayed()
         // The travel mode is inferred automatically: no manual mode choices.
         for (m in listOf("Walk", "Cycle", "Drive", "Still")) compose.onNodeWithText(m).assertDoesNotExist()
         compose.onNodeWithText("Settings").performClick()
@@ -165,8 +164,7 @@ class RadioContentTest {
     @Test
     fun nearbyFromTheMenuListsPlacesAndTapTellsAboutThem() {
         var told: String? = null
-        show(RadioUiState(radioState = RadioState.RADIO, location = loc, nearby = listOf(ranked)), RadioActions(onTellAbout = { told = it }))
-        openMenu()
+        show(RadioUiState(radioState = RadioState.RADIO, location = loc, nearby = listOf(ranked)), RadioActions(onTellAbout = { told = it }), menuOpen = true)
         compose.onNodeWithText("Nearby").performClick()
         compose.onNodeWithText("Ort Castle").performClick()
         assertEquals(castle.id, told)
