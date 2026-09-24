@@ -87,6 +87,7 @@ class SettingsRepository(context: Context) {
         plain.edit {
             putBoolean(KEY_LANG_AUTO, next.languageAuto)
             putString(KEY_LANG, next.preferredLanguage)
+            putInt(KEY_LANG_VERSION, LANG_VERSION)
             putStringSet(KEY_INTERESTS, next.interests.map { it.key }.toSet())
             putInt(KEY_MODELS_VERSION, MODELS_VERSION)
             putInt(KEY_INTERESTS_VERSION, INTERESTS_VERSION)
@@ -94,6 +95,7 @@ class SettingsRepository(context: Context) {
             putString(KEY_CONVERSATION_MODEL, next.models.conversationModel)
             putString(KEY_TTS_MODEL, next.models.ttsModel)
             putString(KEY_TTS_VOICE, next.models.ttsVoice)
+            putInt(KEY_VOICE_VERSION, VOICE_VERSION)
             putString(KEY_STT_MODEL, next.models.transcriptionModel)
             putString(KEY_REALTIME_MODEL, next.models.realtimeModel)
             putString(KEY_HOST_STYLE, next.hostStyle.key)
@@ -112,10 +114,13 @@ class SettingsRepository(context: Context) {
         val d = AppSettings()
         val m = d.models
         val modelsCurrent = plain.getInt(KEY_MODELS_VERSION, 1) >= MODELS_VERSION
+        val langCurrent = plain.getInt(KEY_LANG_VERSION, 1) >= LANG_VERSION
         return AppSettings(
             apiKey = secure.getString(KEY_API, "").orEmpty(),
-            languageAuto = plain.getBoolean(KEY_LANG_AUTO, d.languageAuto),
-            preferredLanguage = plain.getString(KEY_LANG, null) ?: d.preferredLanguage,
+            // v2: Russian is the default (spec A §49). Installs saved under the old default (Auto, which follows an
+            // English phone) move to Russian once; a language chosen after that is kept.
+            languageAuto = if (langCurrent) plain.getBoolean(KEY_LANG_AUTO, d.languageAuto) else d.languageAuto,
+            preferredLanguage = (if (langCurrent) plain.getString(KEY_LANG, null) else null) ?: d.preferredLanguage,
             interests = plain.getStringSet(KEY_INTERESTS, null)?.mapNotNull { Topic.fromKey(it) }?.toSet()
                 // v2: the old default had Jewish & Israel on; an untouched old default moves to the opt-in one.
                 ?.takeUnless { plain.getInt(KEY_INTERESTS_VERSION, 1) < INTERESTS_VERSION && it == OLD_DEFAULT_INTERESTS }
@@ -125,7 +130,9 @@ class SettingsRepository(context: Context) {
                 narrationModel = plain.getString(KEY_NARRATION_MODEL, null)?.takeIf { modelsCurrent } ?: m.narrationModel,
                 conversationModel = plain.getString(KEY_CONVERSATION_MODEL, null)?.takeIf { modelsCurrent } ?: m.conversationModel,
                 ttsModel = plain.getString(KEY_TTS_MODEL, null) ?: m.ttsModel,
-                ttsVoice = plain.getString(KEY_TTS_VOICE, null) ?: m.ttsVoice,
+                // v2: one voice for stories and conversation; the old story default (coral) moves to it once.
+                ttsVoice = plain.getString(KEY_TTS_VOICE, null)
+                    ?.takeUnless { plain.getInt(KEY_VOICE_VERSION, 1) < VOICE_VERSION && it == "coral" } ?: m.ttsVoice,
                 transcriptionModel = plain.getString(KEY_STT_MODEL, null) ?: m.transcriptionModel,
                 realtimeModel = plain.getString(KEY_REALTIME_MODEL, null) ?: m.realtimeModel,
             ),
@@ -175,6 +182,10 @@ class SettingsRepository(context: Context) {
         const val KEY_NARRATION_MODEL = "narration_model"
         const val KEY_MODELS_VERSION = "models_version"
         const val MODELS_VERSION = 2
+        const val KEY_LANG_VERSION = "language_version"
+        const val LANG_VERSION = 2
+        const val KEY_VOICE_VERSION = "voice_version"
+        const val VOICE_VERSION = 2
         const val KEY_INTERESTS_VERSION = "interests_version"
         const val INTERESTS_VERSION = 2
         val OLD_DEFAULT_INTERESTS = setOf(Topic.HISTORY, Topic.NATURE, Topic.ARCHITECTURE, Topic.CULTURE, Topic.JEWISH)

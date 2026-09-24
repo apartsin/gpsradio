@@ -230,7 +230,8 @@ data class ModelConfig(
     val researchModel: String = "gpt-4.1-mini",
     val ttsModel: String = "gpt-4o-mini-tts",
     /** Used by both speech and the live voice (supported by gpt-4o-mini-tts and gpt-realtime). */
-    val ttsVoice: String = "coral",
+    /** One voice for the whole show (spec A §48): stories and the live conversation both use it. */
+    val ttsVoice: String = "marin",
     val transcriptionModel: String = "gpt-4o-mini-transcribe",
     /** Speech-to-speech model for natural, interruptible voice conversation. */
     val realtimeModel: String = "gpt-realtime",

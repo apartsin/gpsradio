@@ -28,6 +28,9 @@ class TestGpsRadioApp : GpsRadioApp() {
 
     override fun areaLabeler(): AreaLabeler? = null
 
+    /** The tests match English text: keep the emulator's locale. */
+    override fun uiLanguage(): String? = null
+
     /** No event search against the fake OpenAI server. */
     override fun eventScout(openAi: com.gpsradio.core.ai.OpenAiClient, models: () -> com.gpsradio.core.ai.ModelConfig): com.gpsradio.core.events.EventScout? = null
 

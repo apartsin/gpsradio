@@ -770,3 +770,26 @@ Both still air in the default non-stop mode.
   - A photo tip for a photogenic spot nearby airs at most once every 15 minutes, never twice for the same place. It uses the sun's position for the light.
   - While driving, only viewpoints just off the road ahead qualify.
   - In non-stop, a due photo tip now goes before the researched area stories. Before this change, the endless loop always had an area story ready, so it crowded photo tips out.
+
+## 48. One Voice for the Whole Show
+
+Stories and the live conversation are the same host, so they use the same voice.
+
+- **Why two engines.** They are still produced two ways, for good reasons:
+  - Stories are researched, written and voiced ahead (gpt-4.1 text, then gpt-4o-mini-tts), so the next one is ready the moment the last ends. Voicing them this way is about ten times cheaper than speech-to-speech.
+  - Conversation needs speech-to-speech (gpt-realtime) to answer in about half a second.
+- **One voice, one setting.**
+  - The default voice is now `marin`, which both engines have. It was `coral` for stories and `marin` for conversation, set in two unrelated places.
+  - The Settings voice drives both.
+  - A voice only the story engine has falls back to `marin` for conversation.
+  - Installs that saved the old story default move to `marin` once.
+- **One personality.** The host style (persona) is the same in both prompts.
+
+## 49. Russian by Default, Everywhere
+
+- **Spoken language.** Russian is the default narration language.
+  - Installs whose saved setting predates this (the old default, Auto, follows an English phone) move to Russian once.
+  - A language chosen after that is kept.
+- **Interface language.** The interface follows the narration language, not the phone's, so the app reads in the language it speaks.
+  - Russian and English strings exist; other languages show English.
+  - Changing the language in Settings switches the interface at once.

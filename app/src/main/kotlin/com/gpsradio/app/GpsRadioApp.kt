@@ -95,6 +95,12 @@ open class GpsRadioApp : Application() {
     protected open fun endpoints(): Endpoints = Endpoints()
 
     /**
+     * The interface language: the narration language (Russian by default, spec A §49), not the phone's, so the
+     * app reads in the language it speaks. Null = the phone's locale (instrumentation tests match English text).
+     */
+    open fun uiLanguage(): String? = runCatching { settings.current.resolvedLanguage() }.getOrNull()
+
+    /**
      * A focus loss pauses the radio (phone call, another app), except when our own live host took focus to
      * answer: the story has already stopped for the exchange, and pausing would cut the answer.
      */

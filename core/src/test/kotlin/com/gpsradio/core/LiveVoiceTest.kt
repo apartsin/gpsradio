@@ -219,6 +219,8 @@ class LiveVoiceTest {
             assertEquals(LiveState.LISTENING, s.state.value.live)
             val update = c.sent.first { it["type"]!!.jsonPrimitive.content == "session.update" }
             assertTrue("Context (JSON)" in update["session"]!!.jsonObject["instructions"]!!.jsonPrimitive.content)
+            // The same voice as the stories (spec A §48).
+            assertEquals("coral", update["session"]!!.jsonObject["audio"]!!.jsonObject["output"]!!.jsonObject["voice"]!!.jsonPrimitive.content)
             // Mic audio is streamed to the model.
             pcm.onChunk!!(ByteArray(480))
             assertTrue("input_audio_buffer.append" in c.types())
@@ -374,6 +376,7 @@ class LiveVoiceTest {
     @Test
     fun ttsOnlyVoicesFallBackForTheLiveModel() {
         assertEquals("marin", RealtimeProtocol.liveVoice("onyx"))
+        assertEquals("marin", com.gpsradio.core.ai.ModelConfig().ttsVoice, "one voice for stories and conversation by default")
         assertEquals("marin", RealtimeProtocol.liveVoice("Marin"))
     }
 

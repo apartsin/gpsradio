@@ -1,6 +1,8 @@
 package com.gpsradio.app.ui
 
+import android.content.Context
 import android.content.Intent
+import android.content.res.Configuration
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -12,9 +14,25 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.gpsradio.app.GpsRadioApp
+import java.util.Locale
 
 class MainActivity : ComponentActivity() {
     private val vm: MainViewModel by viewModels()
+
+    /** The interface language this activity was created with (spec A §49); a change recreates it. */
+    private var uiLanguage: String? = null
+
+    override fun attachBaseContext(newBase: Context) {
+        uiLanguage = (newBase.applicationContext as? GpsRadioApp)?.uiLanguage()
+        val tag = uiLanguage
+        if (tag == null) {
+            super.attachBaseContext(newBase)
+            return
+        }
+        val config = Configuration(newBase.resources.configuration).apply { setLocale(Locale.forLanguageTag(tag)) }
+        super.attachBaseContext(newBase.createConfigurationContext(config))
+    }
 
     /** Set by the "out of OpenAI credit" notification: open Settings so the listener can add a key. */
     private val openSettingsRequest = mutableStateOf(false)
@@ -26,6 +44,11 @@ class MainActivity : ComponentActivity() {
         setContent {
             GpsRadioTheme {
                 val settings by vm.settings.collectAsStateWithLifecycle()
+                // A new narration language also switches the interface.
+                LaunchedEffect(settings) {
+                    val now = (application as GpsRadioApp).uiLanguage()
+                    if (uiLanguage != null && now != null && now != uiLanguage) recreate()
+                }
                 val radio by vm.radio.collectAsStateWithLifecycle()
                 val update by vm.update.collectAsStateWithLifecycle()
                 val cost by vm.cost.collectAsStateWithLifecycle()

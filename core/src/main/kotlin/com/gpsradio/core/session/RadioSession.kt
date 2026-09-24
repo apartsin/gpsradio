@@ -1297,7 +1297,10 @@ class RadioSession(
 
     private val liveHost = object : LiveHost {
         override fun liveInstructions() = RadioAgent.liveInstructions(conversationRequest(""))
-        override fun liveVoice() = com.gpsradio.core.ai.RealtimeProtocol.liveVoice(config().realtimeVoice)
+        // The same voice as the stories (spec A §48), when the live model has it; otherwise the live default.
+        override fun liveVoice() = config().let { c ->
+            com.gpsradio.core.ai.RealtimeProtocol.liveVoice(c.voice.takeIf { it.lowercase() in com.gpsradio.core.ai.RealtimeProtocol.voices } ?: c.realtimeVoice)
+        }
         override fun liveModel() = config().liveModel
         override fun transcriptionModel() = config().transcriptionModel
         override fun liveLanguage() = sessionLanguage
