@@ -282,4 +282,17 @@
     <string name="install_manually">Install manually</string>
     <string name="searching">Searching</string>
     <string name="installing_play_protect_hint">The radio stops for the update and comes back when you reopen the app. If Play Protect keeps \"scanning\": tap Install anyway, or use Install manually.</string>
+    <string name="free_offline_title">Free &amp; offline</string>
+    <string name="free_offline_hint">Android\'s own speech engines: no key, no cost, and they work without the internet.</string>
+    <string name="asr_engine_label">Speech recognition</string>
+    <string name="asr_engine_openai">OpenAI (best)</string>
+    <string name="asr_engine_phone">On this phone (free, offline)</string>
+    <string name="asr_engine_hint">On this phone: tap the mic and say one phrase. The mic also uses it by itself when you\'re offline, without a key or over the daily limit.</string>
+    <string name="offline_voice_label">Offline voice</string>
+    <string name="offline_voice_system_default">System default</string>
+    <string name="offline_voice_checking">Checking the phone\'s voices…</string>
+    <string name="offline_voice_installed">An offline voice for %1$s is installed.</string>
+    <string name="offline_voice_missing">No offline voice for %1$s is installed yet.</string>
+    <string name="install_voice_data">Install voice data</string>
+    <string name="phone_asr_unavailable">Speech recognition isn\'t available on this phone.</string>
 </resources>

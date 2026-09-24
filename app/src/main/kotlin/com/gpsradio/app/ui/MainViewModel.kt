@@ -5,11 +5,13 @@ import androidx.lifecycle.AndroidViewModel
 import com.gpsradio.app.GpsRadioApp
 import com.gpsradio.app.R
 import com.gpsradio.app.data.AppSettings
+import com.gpsradio.app.platform.AndroidSpeechAsr
 import com.gpsradio.app.platform.UpdateState
 import com.gpsradio.app.platform.VoiceRecorder
 import com.gpsradio.core.update.UpdateInfo
 import com.gpsradio.app.service.RadioService
 import android.content.Intent
+import android.widget.Toast
 import android.net.Uri
 import com.gpsradio.core.favorites.FavoritePlace
 import com.gpsradio.core.favorites.ShareText
@@ -27,6 +29,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val graph = app as GpsRadioApp
     private val session: RadioSession = graph.session
     private val recorder = VoiceRecorder(app)
+    /** The phone's own speech recognition: the free, offline fallback for the mic. */
+    private val phoneAsr = AndroidSpeechAsr(app)
 
     val settings: StateFlow<AppSettings> = graph.settings.settings
     val radio: StateFlow<RadioUiState> = session.state
@@ -203,7 +207,48 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         if (bytes != null) session.askAudio(bytes, "utterance.m4a", "audio/mp4") else session.resume()
     }
 
+    /**
+     * The mic uses the phone's own speech recognition (one utterance per tap) instead of the OpenAI voice: the
+     * listener chose it, there is no key (preview), the daily limit or the credit is spent, or the phone is offline.
+     */
+    fun useOnDeviceMic(): Boolean {
+        val s = graph.settings.current
+        if (s.asrOnDevice || !s.hasApiKey) return true
+        if (radio.value.quotaExhausted) return true
+        if (runCatching { graph.budgetReached() }.getOrDefault(false)) return true
+        return !runCatching { graph.onlineNow() }.getOrDefault(true)
+    }
+
+    /**
+     * Tap the mic with [useOnDeviceMic]: listen once on the phone and hand the words to [ask] (the session handles
+     * "next", "stop"... itself and answers questions when it can). Tapping again while listening cancels.
+     */
+    fun listenOnDevice() {
+        if (_recording.value || phoneAsr.isListening) {
+            phoneAsr.cancel()
+            return
+        }
+        session.pause()
+        _recording.value = true
+        phoneAsr.listenOnce(
+            languageTag = graph.settings.current.resolvedLanguage(),
+            onPartial = {},
+            onResult = { text ->
+                _recording.value = false
+                if (text.isNullOrBlank()) {
+                    if (!phoneAsr.isAvailable()) {
+                        Toast.makeText(getApplication<Application>(), R.string.phone_asr_unavailable, Toast.LENGTH_LONG).show()
+                    }
+                    session.resume()
+                } else {
+                    ask(text)
+                }
+            },
+        )
+    }
+
     override fun onCleared() {
+        phoneAsr.cancel()
         recorder.cancel()
         super.onCleared()
     }

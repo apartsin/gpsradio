@@ -98,6 +98,8 @@ class MainActivity : ComponentActivity() {
                         },
                     )
                     showSettings -> SettingsScreen(
+                        offlineVoice = rememberOfflineVoiceInfo(settings.offlineTtsEngine, settings.resolvedLanguage()),
+                        onInstallVoiceData = { openInstallVoiceData(this@MainActivity) },
                         settings = settings,
                         onSave = { next -> vm.saveSettings { next }; showSettings = false },
                         onClearHistory = vm::clearHistory,

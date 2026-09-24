@@ -44,6 +44,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import com.gpsradio.app.platform.OfflineVoiceInfo
+import com.gpsradio.app.platform.TtsEngineOption
 import com.gpsradio.app.platform.UpdateState
 import com.gpsradio.core.update.UpdateInfo
 import androidx.compose.ui.semantics.contentDescription
@@ -100,6 +102,10 @@ fun SettingsScreen(
     onInstallUpdate: (UpdateInfo) -> Unit = {},
     onAllowInstalls: () -> Unit = {},
     cost: CostMeter.Totals = CostMeter.Totals(),
+    /** The phone's TextToSpeech engines and whether an offline voice for the language is installed. */
+    offlineVoice: OfflineVoiceInfo = OfflineVoiceInfo(),
+    /** Opens the engine's "install voice data" screen. */
+    onInstallVoiceData: () -> Unit = {},
 ) {
     Scaffold(
         topBar = {
@@ -119,6 +125,8 @@ fun SettingsScreen(
             // In the keyless preview, other settings can be saved before a key is added.
             requireKey = !settings.previewMode,
             budget = true,
+            offlineVoice = offlineVoice,
+            onInstallVoiceData = onInstallVoiceData,
             extra = {
                 CostSection(cost, settings.dailyBudgetUsd)
                 MemorySection(memory, onForgetMemory, onForgetAllMemory)
@@ -146,8 +154,12 @@ private fun SettingsForm(
     secondaryLabel: String? = null,
     secondaryHint: String? = null,
     onSecondary: (AppSettings) -> Unit = {},
+    offlineVoice: OfflineVoiceInfo = OfflineVoiceInfo(),
+    onInstallVoiceData: () -> Unit = {},
 ) {
     var apiKey by remember { mutableStateOf(initial.apiKey) }
+    var asrOnDevice by remember { mutableStateOf(initial.asrOnDevice) }
+    var offlineTtsEngine by remember { mutableStateOf(initial.offlineTtsEngine) }
     var language by remember { mutableStateOf(if (initial.languageAuto) AUTO else initial.preferredLanguage) }
     var interests by remember { mutableStateOf(initial.interests) }
     var narrationModel by remember { mutableStateOf(initial.models.narrationModel) }
@@ -314,6 +326,15 @@ private fun SettingsForm(
             ) { ttsVoice = it }
             ModelPicker(stringResource(R.string.model_transcription), sttModel, transcriptionOptions(), "modelTranscription") { sttModel = it }
             ModelPicker(stringResource(R.string.model_realtime), realtimeModel, realtimeOptions(), "modelRealtime") { realtimeModel = it }
+            FreeOfflineSection(
+                asrOnDevice = asrOnDevice,
+                onAsrOnDevice = { asrOnDevice = it },
+                engine = offlineTtsEngine,
+                onEngine = { offlineTtsEngine = it },
+                info = offlineVoice,
+                languageTag = initial.resolvedLanguage(),
+                onInstallVoiceData = onInstallVoiceData,
+            )
             extra()
         }
 
@@ -328,6 +349,8 @@ private fun SettingsForm(
             soundEffects = soundEffects,
             localEvents = localEvents,
             pacing = pacing,
+            asrOnDevice = asrOnDevice,
+            offlineTtsEngine = offlineTtsEngine,
             dailyBudgetUsd = if (budget) budgetText.replace(',', '.').toDoubleOrNull()?.coerceAtLeast(0.0) ?: 0.0 else initial.dailyBudgetUsd,
             // Adding a key ends the keyless preview.
             previewMode = initial.previewMode && apiKey.isBlank(),
@@ -550,4 +573,89 @@ private fun CostSection(cost: CostMeter.Totals, limit: Double) {
     }
     if (parts.isNotEmpty()) Text(parts.joinToString(" · "), style = MaterialTheme.typography.bodySmall)
     Text(stringResource(R.string.cost_disclaimer), style = MaterialTheme.typography.bodySmall)
+}
+
+/**
+ * Free & offline: Android's own speech engines. Speech recognition on the phone instead of OpenAI (the mic
+ * listens once per tap), and which installed TextToSpeech engine reads stories when OpenAI can't.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun FreeOfflineSection(
+    asrOnDevice: Boolean,
+    onAsrOnDevice: (Boolean) -> Unit,
+    engine: String?,
+    onEngine: (String?) -> Unit,
+    info: OfflineVoiceInfo,
+    languageTag: String,
+    onInstallVoiceData: () -> Unit,
+) {
+    Text(stringResource(R.string.free_offline_title), style = MaterialTheme.typography.titleSmall)
+    Text(stringResource(R.string.free_offline_hint), style = MaterialTheme.typography.bodySmall)
+
+    val openAiLabel = stringResource(R.string.asr_engine_openai)
+    val phoneLabel = stringResource(R.string.asr_engine_phone)
+    var asrExpanded by remember { mutableStateOf(false) }
+    ExposedDropdownMenuBox(expanded = asrExpanded, onExpandedChange = { asrExpanded = it }) {
+        OutlinedTextField(
+            value = if (asrOnDevice) phoneLabel else openAiLabel,
+            onValueChange = {},
+            readOnly = true,
+            singleLine = true,
+            label = { Text(stringResource(R.string.asr_engine_label)) },
+            supportingText = { Text(stringResource(R.string.asr_engine_hint)) },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(asrExpanded) },
+            modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable).testTag("asrEngine"),
+        )
+        ExposedDropdownMenu(expanded = asrExpanded, onDismissRequest = { asrExpanded = false }) {
+            DropdownMenuItem(text = { Text(openAiLabel) }, onClick = { onAsrOnDevice(false); asrExpanded = false })
+            DropdownMenuItem(text = { Text(phoneLabel) }, onClick = { onAsrOnDevice(true); asrExpanded = false })
+        }
+    }
+
+    val defaultLabel = stringResource(R.string.offline_voice_system_default)
+    // A saved engine that is no longer listed (uninstalled) stays visible, so choosing nothing never loses it.
+    val engines = info.engines.let { list ->
+        if (engine != null && list.none { it.packageName == engine }) list + TtsEngineOption(engine, engine) else list
+    }
+    val engineLabel = engines.firstOrNull { it.packageName == engine }?.label ?: defaultLabel
+    var engineExpanded by remember { mutableStateOf(false) }
+    ExposedDropdownMenuBox(expanded = engineExpanded, onExpandedChange = { engineExpanded = it }) {
+        OutlinedTextField(
+            value = engineLabel,
+            onValueChange = {},
+            readOnly = true,
+            singleLine = true,
+            label = { Text(stringResource(R.string.offline_voice_label)) },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(engineExpanded) },
+            modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable).testTag("offlineTtsEngine"),
+        )
+        ExposedDropdownMenu(expanded = engineExpanded, onDismissRequest = { engineExpanded = false }) {
+            DropdownMenuItem(text = { Text(defaultLabel) }, onClick = { onEngine(null); engineExpanded = false })
+            engines.forEach { option ->
+                DropdownMenuItem(
+                    text = {
+                        Column {
+                            Text(option.label)
+                            Text(option.packageName, style = MaterialTheme.typography.bodySmall)
+                        }
+                    },
+                    onClick = { onEngine(option.packageName); engineExpanded = false },
+                )
+            }
+        }
+    }
+
+    val languageName = Languages.displayName(languageTag)
+    Text(
+        when (info.voiceInstalled) {
+            null -> stringResource(R.string.offline_voice_checking)
+            true -> stringResource(R.string.offline_voice_installed, languageName)
+            false -> stringResource(R.string.offline_voice_missing, languageName)
+        },
+        style = MaterialTheme.typography.bodySmall,
+    )
+    OutlinedButton(onClick = onInstallVoiceData, modifier = Modifier.fillMaxWidth()) {
+        Text(stringResource(R.string.install_voice_data))
+    }
 }

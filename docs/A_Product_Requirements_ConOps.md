@@ -1039,3 +1039,11 @@ Some photos were junk or unrelated to the story on air. The rule now: no photo (
 - **Wikipedia namesakes are rejected.** The article's short description or opening must mention the story's context (the search's specific words, or the place). "Traunstein" the Bavarian town is rejected when the mountain by Gmunden is meant.
 - **A place's own photos.** From its article, only those whose file name names the place, plus the lead image; at most 5. Articles also carry photos of people, neighbouring buildings and maps.
 - **Exchanges get their own slideshow.** Pictures for a question and its answer never mix into the story's slideshow.
+
+## 69. Free & Offline: Android's Own Speech Engines
+
+A free fallback that needs no key, no money and no network, built on the phone's own engines (the owner's Xiaomi included). Russian stays the default language.
+
+- **Speech recognition on the phone.** When the listener taps the mic and the OpenAI voice can't be used (offline, no key / preview, daily limit or credit spent), the phone's own recognizer listens for one phrase in the session language and passes the text on as a typed question: "next", "stop"… are handled locally, questions are answered when possible. The on-device recognizer is used when present (Android 13+), otherwise the phone's default recognizer with "prefer offline". The mic shows the listening state while it hears; tapping again cancels.
+- **Settings → Free & offline → Speech recognition.** "OpenAI (best)" (default) or "On this phone (free, offline)": the latter always uses the phone's recognizer, one phrase per tap, instead of the OpenAI live voice.
+- **Settings → Free & offline → Offline voice.** Picks which installed TextToSpeech engine reads stories when OpenAI can't ("System default" first). A line tells whether an offline voice for the session language is installed, with **Install voice data** to get it. Within the engine, a voice that works without the network and is fully installed is preferred, highest quality first.
