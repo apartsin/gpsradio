@@ -704,6 +704,15 @@ Every OpenAI call reports its usage to an on-device meter, priced at list prices
 
 While the travel mode is driving, the app's alerts (out of credit, events today nearby) post **silently**: no heads-up banner, sound or vibration. The radio already says these things aloud, and a banner draws the driver's eyes off the road. The notification still lands quietly in the shade for later. On foot or on a bike, alerts behave as before. The playback notification was already silent.
 
+## 43. Russian Interface
+
+- **The interface follows the phone's language.** Russian and English are provided; any other phone language gets English.
+- **All on-screen text lives in resources:** `values/strings.xml` (English) and `values-ru/strings.xml` (Russian). This covers labels, buttons, hints, accessibility descriptions, notifications and update messages.
+- **Enum labels are mapped in the app.** Interests, host style, pacing, cost buckets and memory categories keep their English labels in `core` (used in prompts and logs); the app shows a localized string for each entry (`ui/Labels.kt`).
+- **The spoken language is separate.** What the radio says follows the narration language setting (Russian by default), not the interface language. A Russian interface can narrate in English and vice versa.
+- Kept as is in both languages: the app name "GPS Radio", model names, "OpenAI" and "sk-…".
+- **Known gap:** text built in `core` and shown as is (the status line under the place name, the distance and direction in Nearby, detour and "Add key" labels) is still English; it needs per-language strings in `core` in a later round.
+
 ## 44. Jewish & Israel Is Opt-In; Faith and Ethnicity Only of the Dead
 
 A person's faith or ethnicity is sensitive data. The radio never volunteers it about the living, and it tells this theme only to listeners who asked for it.

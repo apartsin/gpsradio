@@ -3,6 +3,7 @@ package com.gpsradio.app.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import com.gpsradio.app.GpsRadioApp
+import com.gpsradio.app.R
 import com.gpsradio.app.data.AppSettings
 import com.gpsradio.app.platform.UpdateState
 import com.gpsradio.app.platform.VoiceRecorder
@@ -128,7 +129,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             .setType("text/plain")
             .putExtra(Intent.EXTRA_SUBJECT, ShareText.subject(place))
             .putExtra(Intent.EXTRA_TEXT, ShareText.build(place))
-        return Intent.createChooser(send, "Share ${place.name}")
+        return Intent.createChooser(send, getApplication<Application>().getString(R.string.share_item, place.name))
     }
 
     /** Hands off to the user's maps app for directions. */
@@ -158,7 +159,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             .setType("text/plain")
             .putExtra(Intent.EXTRA_SUBJECT, JournalText.subject(entry))
             .putExtra(Intent.EXTRA_TEXT, JournalText.share(entry))
-        return Intent.createChooser(send, "Share ${entry.name}")
+        return Intent.createChooser(send, getApplication<Application>().getString(R.string.share_item, entry.name))
     }
 
     /**
@@ -172,7 +173,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             .setType("text/plain")
             .putExtra(Intent.EXTRA_SUBJECT, JournalGpx.fileName(day))
             .putExtra(Intent.EXTRA_TEXT, JournalGpx.build(entries, "GPS Radio journal $day"))
-        return Intent.createChooser(send, "Export $day as GPX")
+        return Intent.createChooser(send, getApplication<Application>().getString(R.string.export_day_gpx, day))
     }
 
     fun forgetMemory(id: String) {

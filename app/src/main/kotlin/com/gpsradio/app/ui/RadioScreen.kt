@@ -133,6 +133,9 @@ import com.gpsradio.core.model.TranscriptEntry
 import com.gpsradio.core.model.TravelMode
 import com.gpsradio.core.session.LiveState
 import com.gpsradio.core.session.RadioUiState
+import androidx.annotation.StringRes
+import androidx.compose.ui.res.stringResource
+import com.gpsradio.app.R
 
 /** Every user action on the radio screen; lets the screen be rendered and tested without a ViewModel. */
 data class RadioActions(
@@ -288,7 +291,7 @@ fun RadioScreen(vm: MainViewModel, onOpenSettings: () -> Unit, autoStart: Boolea
 }
 
 /** Secondary pages reached from the menu (the main screen itself shows only the essentials). */
-enum class RadioPage(val title: String) { NEARBY("Nearby"), SAVED("Saved & journal"), TRANSCRIPT("Transcript") }
+enum class RadioPage(@StringRes val title: Int) { NEARBY(R.string.page_nearby), SAVED(R.string.page_saved), TRANSCRIPT(R.string.page_transcript) }
 
 /**
  * The main screen, voice-first and deliberately minimal (spec A §36): the photo/map of what's on air, and two big
@@ -348,17 +351,17 @@ fun RadioContent(
                     TopAppBar(
                         navigationIcon = {
                             IconButton(onClick = { scope.launch { drawer.open() } }, modifier = Modifier.testTag("menuButton")) {
-                                Icon(Icons.Default.Menu, "Menu")
+                                Icon(Icons.Default.Menu, stringResource(R.string.menu))
                             }
                         },
                         title = {
                             Column {
-                                Text("GPS Radio", fontWeight = FontWeight.Bold)
+                                Text(stringResource(R.string.app_name), fontWeight = FontWeight.Bold)
                                 val mode = (state.modeOverride ?: state.location?.travelMode)?.takeIf { running && it != TravelMode.UNKNOWN }
                                 val sub = listOfNotNull(
                                     state.area?.city,
                                     Languages.displayName(state.sessionLanguage),
-                                    mode?.let { modeInfo(it).title },
+                                    mode?.let { stringResource(modeInfo(it).title) },
                                 ).joinToString(" · ")
                                 Text(sub, style = MaterialTheme.typography.labelMedium)
                             }
@@ -384,7 +387,7 @@ fun RadioContent(
                             Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
                                 Icon(Icons.Default.Radio, null, Modifier.size(96.dp), tint = MaterialTheme.colorScheme.primary)
                                 Text(
-                                    "Stories about the places around you, told as you go.",
+                                    stringResource(R.string.idle_tagline),
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.padding(top = 12.dp),
@@ -436,6 +439,7 @@ private fun NowLine(state: RadioUiState, micOpen: Boolean, onFixKey: () -> Unit)
             )
         }
         val status = state.status
+        val openSettings = stringResource(R.string.open_settings)
         val line = when {
             status != null -> status.text
             state.radioState == RadioState.IDLE -> null
@@ -455,11 +459,11 @@ private fun NowLine(state: RadioUiState, micOpen: Boolean, onFixKey: () -> Unit)
                 color = color,
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis,
-                modifier = if (status?.needsKey == true) Modifier.clickable(onClickLabel = status?.actionLabel ?: "Open Settings", onClick = onFixKey) else Modifier,
+                modifier = if (status?.needsKey == true) Modifier.clickable(onClickLabel = status?.actionLabel ?: openSettings, onClick = onFixKey) else Modifier,
             )
             if (status?.needsKey == true) {
                 Text(
-                    status?.actionLabel ?: "Open Settings",
+                    status?.actionLabel ?: openSettings,
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.clickable(onClick = onFixKey).padding(4.dp),
@@ -478,9 +482,9 @@ private fun RadioOnOffButton(running: Boolean, onStart: () -> Unit, onStop: () -
             modifier = Modifier.size(96.dp),
             shape = CircleShape,
         ) {
-            Icon(if (running) Icons.Default.Stop else Icons.Default.PlayArrow, if (running) "Stop radio" else "Start radio", Modifier.size(56.dp))
+            Icon(if (running) Icons.Default.Stop else Icons.Default.PlayArrow, stringResource(if (running) R.string.stop_radio else R.string.start_radio), Modifier.size(56.dp))
         }
-        Text(if (running) "Stop" else "Start", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 4.dp))
+        Text(stringResource(if (running) R.string.stop else R.string.start), style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 4.dp))
     }
 }
 
@@ -489,6 +493,8 @@ private fun RadioOnOffButton(running: Boolean, onStart: () -> Unit, onStop: () -
 private fun MicSwitch(open: Boolean, running: Boolean, live: LiveState?, recording: Boolean, onToggle: () -> Unit) {
     val haptics = LocalHapticFeedback.current
     val active = open && running && (live == LiveState.USER_SPEAKING || live == LiveState.ASSISTANT_SPEAKING) || recording
+    val micDescription = stringResource(if (open) R.string.mic_turn_off else R.string.mic_turn_on)
+    val micState = stringResource(if (open) R.string.mic_state_open else R.string.mic_state_closed)
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         val colors = if (open) {
             IconButtonDefaults.filledIconButtonColors()
@@ -501,8 +507,8 @@ private fun MicSwitch(open: Boolean, running: Boolean, live: LiveState?, recordi
         FilledIconButton(
             onClick = { haptics.performHapticFeedback(HapticFeedbackType.LongPress); onToggle() },
             modifier = Modifier.size(96.dp).testTag("micSwitch").semantics {
-                contentDescription = if (open) "Turn microphone off" else "Turn microphone on"
-                stateDescription = if (open) "Microphone open" else "Microphone closed"
+                contentDescription = micDescription
+                stateDescription = micState
             },
             shape = CircleShape,
             colors = colors,
@@ -513,20 +519,23 @@ private fun MicSwitch(open: Boolean, running: Boolean, live: LiveState?, recordi
                 Icon(if (open) Icons.Default.Mic else Icons.Default.MicOff, null, Modifier.size(48.dp))
             }
         }
-        Text(if (open) "Mic on" else "Mic off", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 4.dp))
+        Text(stringResource(if (open) R.string.mic_on else R.string.mic_off), style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 4.dp))
     }
 }
 
 /** What the live voice is doing, in a few words (shown under the place name). */
-fun micHint(recording: Boolean, liveMode: Boolean, live: LiveState?): String = when {
-    live == LiveState.CONNECTING -> "Connecting…"
-    live == LiveState.USER_SPEAKING -> "I'm listening…"
-    live == LiveState.ASSISTANT_SPEAKING -> "Talk anytime to interrupt"
-    live == LiveState.LISTENING -> "Just talk"
-    liveMode -> "Tap to talk"
-    recording -> "Listening… release to send"
-    else -> "Hold to talk"
-}
+@Composable
+fun micHint(recording: Boolean, liveMode: Boolean, live: LiveState?): String = stringResource(
+    when {
+        live == LiveState.CONNECTING -> R.string.hint_connecting
+        live == LiveState.USER_SPEAKING -> R.string.hint_listening
+        live == LiveState.ASSISTANT_SPEAKING -> R.string.hint_interrupt
+        live == LiveState.LISTENING -> R.string.hint_just_talk
+        liveMode -> R.string.hint_tap_to_talk
+        recording -> R.string.hint_release_to_send
+        else -> R.string.hint_hold_to_talk
+    },
+)
 
 /** The menu: the secondary pages, an available update, and Settings. */
 @Composable
@@ -542,22 +551,22 @@ private fun RadioMenu(
         Column(Modifier.verticalScroll(rememberScrollState()).padding(vertical = 12.dp)) {
             // The travel mode is inferred automatically (speed, activity recognition); it shows in the top bar.
             NavigationDrawerItem(
-                label = { Text(RadioPage.NEARBY.title) }, icon = { Icon(Icons.Default.Explore, null) }, selected = false,
+                label = { Text(stringResource(RadioPage.NEARBY.title)) }, icon = { Icon(Icons.Default.Explore, null) }, selected = false,
                 onClick = { onPage(RadioPage.NEARBY) }, modifier = Modifier.padding(horizontal = 12.dp),
             )
             NavigationDrawerItem(
-                label = { Text(RadioPage.SAVED.title) }, icon = { Icon(Icons.Default.Star, null) }, selected = false,
+                label = { Text(stringResource(RadioPage.SAVED.title)) }, icon = { Icon(Icons.Default.Star, null) }, selected = false,
                 badge = { if (state.favorites.isNotEmpty()) Text("${state.favorites.size}") },
                 onClick = { onPage(RadioPage.SAVED) }, modifier = Modifier.padding(horizontal = 12.dp),
             )
             NavigationDrawerItem(
-                label = { Text(RadioPage.TRANSCRIPT.title) }, icon = { Icon(Icons.AutoMirrored.Filled.List, null) }, selected = false,
+                label = { Text(stringResource(RadioPage.TRANSCRIPT.title)) }, icon = { Icon(Icons.AutoMirrored.Filled.List, null) }, selected = false,
                 onClick = { onPage(RadioPage.TRANSCRIPT) }, modifier = Modifier.padding(horizontal = 12.dp),
             )
             HorizontalDivider(Modifier.padding(vertical = 8.dp))
             Box(Modifier.padding(horizontal = 16.dp)) { UpdateBanner(update, onInstallUpdate, onAllowInstalls) }
             NavigationDrawerItem(
-                label = { Text("Settings") }, icon = { Icon(Icons.Default.Settings, null) }, selected = false,
+                label = { Text(stringResource(R.string.settings)) }, icon = { Icon(Icons.Default.Settings, null) }, selected = false,
                 onClick = onSettings, modifier = Modifier.padding(horizontal = 12.dp),
             )
         }
@@ -571,8 +580,8 @@ private fun RadioPageScreen(page: RadioPage, onClose: () -> Unit, content: @Comp
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(page.title) },
-                navigationIcon = { IconButton(onClick = onClose) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
+                title = { Text(stringResource(page.title)) },
+                navigationIcon = { IconButton(onClick = onClose) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.back)) } },
             )
         },
     ) { pad ->
@@ -584,8 +593,8 @@ private fun RadioPageScreen(page: RadioPage, onClose: () -> Unit, content: @Comp
 private fun PermissionCard(onOpenAppSettings: () -> Unit) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp)) {
-            Text("GPS Radio needs your location to find stories around you.", style = MaterialTheme.typography.bodyMedium)
-            TextButton(onClick = onOpenAppSettings) { Text("Allow location") }
+            Text(stringResource(R.string.location_needed), style = MaterialTheme.typography.bodyMedium)
+            TextButton(onClick = onOpenAppSettings) { Text(stringResource(R.string.allow_location)) }
         }
     }
 }
@@ -595,11 +604,10 @@ private fun PreciseLocationCard(onRequest: () -> Unit) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp)) {
             Text(
-                "You shared only your approximate location, so stories can drift out of sync with what you pass. " +
-                    "Allow precise location for stories that match the road.",
+                stringResource(R.string.approximate_location),
                 style = MaterialTheme.typography.bodyMedium,
             )
-            TextButton(onClick = onRequest) { Text("Use precise location") }
+            TextButton(onClick = onRequest) { Text(stringResource(R.string.use_precise_location)) }
         }
     }
 }
@@ -611,7 +619,7 @@ private fun Transcript(entries: List<TranscriptEntry>) {
     val listState = rememberLazyListState()
     LaunchedEffect(entries.size) { if (entries.isNotEmpty()) listState.animateScrollToItem(entries.size - 1) }
     if (entries.isEmpty()) {
-        Text("Your stories and questions will show up here as captions.", Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall)
+        Text(stringResource(R.string.transcript_empty), Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall)
         return
     }
     LazyColumn(
@@ -621,9 +629,9 @@ private fun Transcript(entries: List<TranscriptEntry>) {
     ) {
         items(entries) { e ->
             val (who, color) = when (e.speaker) {
-                Speaker.USER -> "You" to MaterialTheme.colorScheme.secondary
-                Speaker.SYSTEM -> "Note" to MaterialTheme.colorScheme.error
-                Speaker.RADIO -> "Radio" to MaterialTheme.colorScheme.primary
+                Speaker.USER -> stringResource(R.string.speaker_you) to MaterialTheme.colorScheme.secondary
+                Speaker.SYSTEM -> stringResource(R.string.speaker_note) to MaterialTheme.colorScheme.error
+                Speaker.RADIO -> stringResource(R.string.speaker_radio) to MaterialTheme.colorScheme.primary
             }
             Column(Modifier.semantics(mergeDescendants = true) {}) {
                 Text(who, style = MaterialTheme.typography.labelSmall, color = color)
@@ -637,17 +645,17 @@ private fun Transcript(entries: List<TranscriptEntry>) {
 private fun Nearby(state: RadioUiState, starredIds: Set<String>, a: RadioActions) {
     val loc = state.location
     if (state.nearby.isEmpty() || loc == null) {
-        Text("Scanning around you…", Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall)
+        Text(stringResource(R.string.nearby_scanning), Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall)
         return
     }
     LazyColumn(modifier = Modifier.padding(top = 8.dp)) {
         if (state.todayEvents.isNotEmpty()) {
             item(key = "events-header") {
-                Text("Today nearby", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(vertical = 4.dp))
+                Text(stringResource(R.string.today_nearby), style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(vertical = 4.dp))
             }
             items(state.todayEvents, key = { "event:" + it.id }) { e -> EventRow(e) }
             item(key = "places-header") {
-                Text("Places", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 12.dp, bottom = 4.dp))
+                Text(stringResource(R.string.places), style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 12.dp, bottom = 4.dp))
             }
         }
         items(state.nearby, key = { it.place.id }) { c ->
@@ -673,14 +681,14 @@ private fun NearbyRow(
         Modifier
             .fillMaxWidth()
             .heightIn(min = 56.dp)
-            .clickable(onClickLabel = "Tell me about ${c.place.name}") { a.onTellAbout(c.place.id) }
+            .clickable(onClickLabel = stringResource(R.string.tell_me_about, c.place.name)) { a.onTellAbout(c.place.id) }
             .padding(vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
             Text(c.place.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(
-                (listOfNotNull("${RadioAgent.describeDistance(c.distanceM)} $direction", detour?.label) + c.place.features.map(::featureLabel))
+                (listOfNotNull("${RadioAgent.describeDistance(c.distanceM)} $direction", detour?.label) + c.place.features.map { featureLabel(it) })
                     .joinToString(" · "),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -688,12 +696,12 @@ private fun NearbyRow(
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        if (photoSpot) Icon(Icons.Default.PhotoCamera, "Photo spot", Modifier.padding(horizontal = 4.dp).size(20.dp), tint = MaterialTheme.colorScheme.tertiary)
+        if (photoSpot) Icon(Icons.Default.PhotoCamera, stringResource(R.string.photo_spot), Modifier.padding(horizontal = 4.dp).size(20.dp), tint = MaterialTheme.colorScheme.tertiary)
         if (detour != null) {
-            IconButton(onClick = { a.onNavigate(c.place.id) }) { Icon(Icons.Default.Directions, "Navigate to ${c.place.name}") }
+            IconButton(onClick = { a.onNavigate(c.place.id) }) { Icon(Icons.Default.Directions, stringResource(R.string.navigate_to, c.place.name)) }
         }
         IconButton(onClick = { a.onToggleStar(c.place.id) }) {
-            Icon(if (starred) Icons.Default.Star else Icons.Default.StarBorder, if (starred) "Remove ${c.place.name} from saved" else "Save ${c.place.name}")
+            Icon(if (starred) Icons.Default.Star else Icons.Default.StarBorder, stringResource(if (starred) R.string.unsave_place else R.string.save_place, c.place.name))
         }
     }
 }
@@ -701,7 +709,7 @@ private fun NearbyRow(
 @Composable
 private fun Saved(favorites: List<FavoritePlace>, a: RadioActions, journal: List<JournalEntry> = emptyList(), canRetell: Boolean = false) {
     if (favorites.isEmpty() && journal.isEmpty()) {
-        Text("Tap ☆ on a story or a nearby place to save it here.", Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall)
+        Text(stringResource(R.string.saved_empty), Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall)
         return
     }
     LazyColumn(modifier = Modifier.padding(top = 8.dp).testTag("saved"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -721,9 +729,9 @@ private fun Saved(favorites: List<FavoritePlace>, a: RadioActions, journal: List
                         Text(f.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         f.summary?.let { Text(it, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis) }
                         Row {
-                            IconButton(onClick = { a.onShare(f.id) }) { Icon(Icons.Default.Share, "Share ${f.name}") }
-                            IconButton(onClick = { a.onNavigate(f.id) }) { Icon(Icons.Default.Directions, "Navigate to ${f.name}") }
-                            IconButton(onClick = { a.onRemoveFavorite(f.id) }) { Icon(Icons.Default.Delete, "Remove ${f.name}") }
+                            IconButton(onClick = { a.onShare(f.id) }) { Icon(Icons.Default.Share, stringResource(R.string.share_item, f.name)) }
+                            IconButton(onClick = { a.onNavigate(f.id) }) { Icon(Icons.Default.Directions, stringResource(R.string.navigate_to, f.name)) }
+                            IconButton(onClick = { a.onRemoveFavorite(f.id) }) { Icon(Icons.Default.Delete, stringResource(R.string.remove_item, f.name)) }
                         }
                     }
                 }
@@ -734,25 +742,28 @@ private fun Saved(favorites: List<FavoritePlace>, a: RadioActions, journal: List
 }
 
 /** Short Nearby-list tag for what makes a place special (spec A §29). */
-fun featureLabel(f: PlaceFeature): String = when (f) {
-    PlaceFeature.FILM_LOCATION -> "🎬 filmed here"
-    PlaceFeature.HISTORIC_EVENT -> "📜 happened here"
-    PlaceFeature.EAT_DRINK -> "🍽 eat & drink"
-    PlaceFeature.SHOP -> "🛍 shop"
-    PlaceFeature.JEWISH_HERITAGE -> "✡ Jewish heritage"
-}
+@Composable
+fun featureLabel(f: PlaceFeature): String = stringResource(
+    when (f) {
+        PlaceFeature.FILM_LOCATION -> R.string.feature_film
+        PlaceFeature.HISTORIC_EVENT -> R.string.feature_historic
+        PlaceFeature.EAT_DRINK -> R.string.feature_eat_drink
+        PlaceFeature.SHOP -> R.string.feature_shop
+        PlaceFeature.JEWISH_HERITAGE -> R.string.feature_jewish
+    },
+)
 
 /** An event today nearby; tapping opens its source page (tickets, programme). */
 @Composable
 private fun EventRow(e: LocalEvent) {
     val uri = LocalUriHandler.current
     val now = System.currentTimeMillis()
-    val time = if (e.startMs <= now) "Now" else EventScout.clock(e.startMs, java.time.ZoneId.systemDefault())
+    val time = if (e.startMs <= now) stringResource(R.string.events_now) else EventScout.clock(e.startMs, java.time.ZoneId.systemDefault())
     Row(
         Modifier
             .fillMaxWidth()
             .heightIn(min = 56.dp)
-            .clickable(onClickLabel = "Open ${e.title}") { runCatching { uri.openUri(e.url) } }
+            .clickable(onClickLabel = stringResource(R.string.open_item, e.title)) { runCatching { uri.openUri(e.url) } }
             .padding(vertical = 6.dp)
             .testTag("event"),
         verticalAlignment = Alignment.CenterVertically,
@@ -761,7 +772,7 @@ private fun EventRow(e: LocalEvent) {
         Column(Modifier.weight(1f)) {
             Text(e.title, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(
-                listOfNotNull(e.venue.ifBlank { null }, e.distanceKm?.let { "%.1f km".format(it) }, e.why.ifBlank { null }).joinToString(" · "),
+                listOfNotNull(e.venue.ifBlank { null }, e.distanceKm?.let { stringResource(R.string.distance_km, it) }, e.why.ifBlank { null }).joinToString(" · "),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 2,

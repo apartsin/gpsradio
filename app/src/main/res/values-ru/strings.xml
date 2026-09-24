@@ -1,0 +1,246 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">GPS Radio</string>
+
+    <!-- Notifications (RadioService) -->
+    <string name="notification_channel">Воспроизведение радио</string>
+    <string name="alerts_channel">Оповещения</string>
+    <string name="events_channel">События сегодня рядом</string>
+    <string name="events_title">Сегодня рядом: стоит вернуться</string>
+    <string name="events_now">Сейчас</string>
+    <string name="quota_title">Кредит OpenAI закончился</string>
+    <string name="quota_text_builtin">Встроенный кредит приложения израсходован. Нажмите, чтобы добавить свой ключ OpenAI; а пока звучат короткие заметки с устройства.</string>
+    <string name="quota_text_own">На вашем ключе OpenAI закончились средства. Пополните счёт на platform.openai.com или нажмите, чтобы добавить другой ключ; а пока звучат короткие заметки с устройства.</string>
+    <string name="add_key">Добавить ключ</string>
+    <string name="notification_text">Слушаю, что вокруг</string>
+    <string name="notification_talking">Разговариваем</string>
+    <string name="notification_city_tap">%1$s · нажмите, чтобы открыть</string>
+    <string name="stop">Стоп</string>
+    <string name="start">Старт</string>
+    <string name="pause">Пауза</string>
+    <string name="resume">Продолжить</string>
+    <string name="skip">Дальше</string>
+
+    <!-- Radio states -->
+    <string name="state_off_air">Не в эфире</string>
+    <string name="state_looking_around">Осматриваюсь…</string>
+    <string name="state_scanning">Ищу истории</string>
+    <string name="state_tuning_in">Настраиваюсь…</string>
+    <string name="state_on_air">В эфире</string>
+    <string name="state_your_call">Решать вам</string>
+    <string name="state_conversation">Разговор</string>
+    <string name="state_paused">Пауза</string>
+    <string name="on_air_badge">В ЭФИРЕ</string>
+    <string name="waiting_for_gps">Жду GPS…</string>
+    <string name="open_settings">Открыть настройки</string>
+
+    <!-- Travel modes -->
+    <string name="mode_auto">Авто</string>
+    <string name="mode_auto_detected">Авто · %1$s</string>
+    <string name="mode_walk">Пешком</string>
+    <string name="mode_cycle">Велосипед</string>
+    <string name="mode_drive">Машина</string>
+    <string name="mode_still">На месте</string>
+    <string name="travel_walking">пешком</string>
+    <string name="travel_cycling">на велосипеде</string>
+    <string name="travel_driving">за рулём</string>
+    <string name="travel_stationary">на месте</string>
+    <string name="travel_unknown">неизвестно</string>
+    <string name="mode_driving_title">Режим «за рулём»</string>
+    <string name="mode_driving_detail">Смотрю вперёд по дороге · меньше и короче истории · без рук</string>
+    <string name="mode_cycling_title">Режим «велосипед»</string>
+    <string name="mode_cycling_detail">Истории чуть дальше впереди · коротко и без рук</string>
+    <string name="mode_walking_title">Режим «пешком»</string>
+    <string name="mode_walking_detail">Истории совсем рядом · то, что вы видите вокруг</string>
+    <string name="mode_stationary_title">На месте</string>
+    <string name="mode_stationary_detail">Подробные истории о том, что вокруг вас</string>
+    <string name="mode_unknown_title">Определяю ваш темп…</string>
+    <string name="mode_unknown_detail">Идите или поезжайте — радио подстроится</string>
+    <string name="mode_set_by_you">выбран вами</string>
+    <string name="mode_auto_short">авто</string>
+    <string name="speed_kmh">%1$d км/ч</string>
+    <string name="theme_stories">Тема: %1$s</string>
+
+    <!-- Main screen -->
+    <string name="menu">Меню</string>
+    <string name="back">Назад</string>
+    <string name="settings">Настройки</string>
+    <string name="page_nearby">Рядом</string>
+    <string name="page_saved">Сохранённое и дневник</string>
+    <string name="page_transcript">Субтитры</string>
+    <string name="idle_tagline">Истории о местах вокруг вас — прямо в пути.</string>
+    <string name="start_radio">Включить радио</string>
+    <string name="stop_radio">Выключить радио</string>
+    <string name="mic_turn_on">Включить микрофон</string>
+    <string name="mic_turn_off">Выключить микрофон</string>
+    <string name="mic_state_open">Микрофон включён</string>
+    <string name="mic_state_closed">Микрофон выключен</string>
+    <string name="mic_on">Микрофон вкл.</string>
+    <string name="mic_off">Микрофон выкл.</string>
+    <string name="hint_connecting">Подключаюсь…</string>
+    <string name="hint_listening">Слушаю…</string>
+    <string name="hint_interrupt">Говорите в любой момент, чтобы перебить</string>
+    <string name="hint_just_talk">Просто говорите</string>
+    <string name="hint_tap_to_talk">Нажмите, чтобы говорить</string>
+    <string name="hint_release_to_send">Слушаю… отпустите, чтобы отправить</string>
+    <string name="hint_hold_to_talk">Удерживайте, чтобы говорить</string>
+    <string name="location_needed">GPS Radio нужно ваше местоположение, чтобы находить истории вокруг.</string>
+    <string name="allow_location">Разрешить доступ к местоположению</string>
+    <string name="approximate_location">Вы разрешили только приблизительное местоположение, поэтому истории могут не совпадать с тем, мимо чего вы проезжаете. Разрешите точное местоположение, чтобы истории шли в такт с дорогой.</string>
+    <string name="use_precise_location">Использовать точное местоположение</string>
+
+    <!-- Transcript, Nearby, Saved -->
+    <string name="transcript_empty">Здесь появятся субтитры ваших историй и вопросов.</string>
+    <string name="speaker_you">Вы</string>
+    <string name="speaker_note">Заметка</string>
+    <string name="speaker_radio">Радио</string>
+    <string name="nearby_scanning">Осматриваюсь вокруг…</string>
+    <string name="today_nearby">Сегодня рядом</string>
+    <string name="places">Места</string>
+    <string name="tell_me_about">Расскажи про %1$s</string>
+    <string name="photo_spot">Место для фото</string>
+    <string name="navigate_to">Маршрут до %1$s</string>
+    <string name="save_place">Сохранить %1$s</string>
+    <string name="unsave_place">Убрать %1$s из сохранённого</string>
+    <string name="saved_empty">Нажмите ☆ у истории или места рядом, чтобы сохранить его здесь.</string>
+    <string name="share_item">Поделиться: %1$s</string>
+    <string name="remove_item">Удалить %1$s</string>
+    <string name="open_item">Открыть %1$s</string>
+    <string name="feature_film">🎬 здесь снимали кино</string>
+    <string name="feature_historic">📜 здесь это случилось</string>
+    <string name="feature_eat_drink">🍽 еда и напитки</string>
+    <string name="feature_shop">🛍 магазин</string>
+    <string name="feature_jewish">✡ еврейское наследие</string>
+    <string name="distance_km">%1$.1f км</string>
+    <string name="distance_m">%1$d м</string>
+
+    <!-- Photos and map -->
+    <string name="show_photos">Показать фото</string>
+    <string name="photo_of">Фото %1$d из %2$d: %3$s</string>
+    <string name="show_map">Показать карту</string>
+    <string name="wikipedia_link">Википедия ↗</string>
+    <string name="osm_attribution">© участники OpenStreetMap</string>
+    <string name="map_you">Вы</string>
+
+    <!-- Walking tour -->
+    <string name="walking_tour">Пешая экскурсия:</string>
+    <string name="minutes_short">%1$d мин</string>
+    <string name="end_tour">Завершить экскурсию</string>
+    <string name="tour_complete">Экскурсия завершена</string>
+    <string name="tour_stop_of">Остановка %1$d из %2$d</string>
+
+    <!-- Journal -->
+    <string name="journal">Дневник</string>
+    <string name="export_gpx">Экспорт GPX</string>
+    <string name="export_day_gpx">Экспорт %1$s в GPX</string>
+    <string name="journal_empty">Здесь день за днём будут собираться истории, которые вы услышали.</string>
+    <string name="tell_me_again">Расскажи ещё раз</string>
+    <string name="today">Сегодня</string>
+    <string name="yesterday">Вчера</string>
+
+    <!-- Setup and Settings -->
+    <string name="setup_title">Добро пожаловать в GPS Radio</string>
+    <string name="setup_intro">Истории о местах вокруг вас — прямо в пути: интересные факты, история, иногда шутка и ответы на любые ваши вопросы.\n\nGPS Radio обращается к OpenAI прямо с этого телефона по вашему собственному API-ключу. Ключ хранится в зашифрованном виде только на этом устройстве. Совет: создайте отдельный ключ с месячным лимитом расходов на platform.openai.com.</string>
+    <string name="setup_save">Сохранить и начать слушать</string>
+    <string name="setup_try_without_key">Попробовать без ключа (голос устройства)</string>
+    <string name="setup_try_without_key_hint">Короткие заметки из Википедии голосом вашего телефона. Для вопросов нужен ключ.</string>
+    <string name="save">Сохранить</string>
+    <string name="forget_heard_stories">Забыть уже услышанные истории</string>
+    <string name="api_key_label">API-ключ OpenAI</string>
+    <string name="api_key_builtin_placeholder">Используется встроенный ключ (можно ввести свой)</string>
+    <string name="hide_key">Скрыть ключ</string>
+    <string name="show_key">Показать ключ</string>
+    <string name="api_key_format_hint">Ключи OpenAI обычно начинаются с \"sk-\"</string>
+    <string name="your_host">Ваш ведущий</string>
+    <string name="pacing">Темп</string>
+    <string name="natural_voice">Живой голосовой разговор</string>
+    <string name="natural_voice_hint">Говорите без рук, как по телефону; перебивать можно в любой момент. Использует OpenAI Realtime API.</string>
+    <string name="always_listening">Всегда слушать</string>
+    <string name="always_listening_hint">Говорите в любой момент, даже во время истории, как в голосовом ChatGPT. Отправляется только речь. Микрофон можно выключить в любой момент на экране радио.</string>
+    <string name="sound_effects">Звуковые эффекты</string>
+    <string name="sound_effects_hint">Короткая заставка перед историями, сигнал перед ответами.</string>
+    <string name="local_events">События сегодня рядом</string>
+    <string name="local_events_hint">Концерты, фестивали, ярмарки и другое, что проходит сегодня; ищется в интернете. Без занятий и собраний.</string>
+    <string name="interests_title">Что вам интересно?</string>
+    <string name="budget_label">Дневной лимит расходов, USD (пусто = без лимита)</string>
+    <string name="budget_hint">Сверх лимита радио читает бесплатные заметки с устройства до завтра.</string>
+    <string name="budget_description">Дневной лимит расходов</string>
+    <string name="models">Модели</string>
+    <string name="model_narration">Модель для историй</string>
+    <string name="model_conversation">Модель для разговора (с веб-поиском)</string>
+    <string name="model_speech">Модель озвучки</string>
+    <string name="model_voice">Голос</string>
+    <string name="model_transcription">Модель распознавания речи</string>
+    <string name="model_realtime">Модель живого голоса</string>
+    <string name="memory_title">Что я о вас помню</string>
+    <string name="memory_empty">Пока ничего. Расскажите радио, что вам нравится, например \"обожаю замки\" или \"покороче, пожалуйста\", и оно запомнит.</string>
+    <string name="memory_item">%1$s: %2$s</string>
+    <string name="forget_item">Забыть: %1$s</string>
+    <string name="forget_all_memory">Забыть всё обо мне</string>
+    <string name="memory_like">нравится</string>
+    <string name="memory_avoid">не нравится</string>
+    <string name="memory_style">стиль</string>
+    <string name="memory_about_me">обо мне</string>
+    <string name="language_auto">Авто (язык телефона)</string>
+    <string name="narration_language">Язык рассказов</string>
+    <string name="version_label">GPS Radio %1$s · сборка %2$s · %3$s</string>
+
+    <!-- Cost -->
+    <string name="cost_title">Расходы (оценка)</string>
+    <string name="cost_today_description">Расходы за сегодня</string>
+    <string name="cost_totals">Сегодня $%1$s · за сеанс $%2$s</string>
+    <string name="cost_limit">лимит $%1$s</string>
+    <string name="cost_part">%1$s $%2$s</string>
+    <string name="cost_disclaimer">По прейскуранту; точный счёт — в вашем кабинете OpenAI.</string>
+    <string name="cost_kind_stories">истории и ответы</string>
+    <string name="cost_kind_research">веб-поиск</string>
+    <string name="cost_kind_voice">озвучка историй</string>
+    <string name="cost_kind_live">живой разговор</string>
+
+    <!-- Interests (core Topic) -->
+    <string name="topic_history">История</string>
+    <string name="topic_legends">Легенды</string>
+    <string name="topic_architecture">Архитектура</string>
+    <string name="topic_nature">Природа</string>
+    <string name="topic_culture">Культура</string>
+    <string name="topic_industry">Промышленность</string>
+    <string name="topic_war">Война</string>
+    <string name="topic_food">Еда</string>
+    <string name="topic_unusual">Необычное</string>
+    <string name="topic_attractions">Достопримечательности</string>
+    <string name="topic_film">Кино</string>
+    <string name="topic_jewish">Еврейское наследие и Израиль</string>
+
+    <!-- Host style and pacing (core HostStyle, Pacing) -->
+    <string name="host_entertaining">Остроумный гид</string>
+    <string name="host_documentary">Документальный</string>
+    <string name="host_kids">Для семьи с детьми</string>
+    <string name="host_chill">Ночной релакс</string>
+    <string name="pacing_chatty">Разговорчиво</string>
+    <string name="pacing_balanced">Сбалансированно</string>
+    <string name="pacing_rare">Изредка</string>
+    <string name="pacing_nonstop">Без пауз</string>
+
+    <!-- Updates -->
+    <string name="updates">Обновления</string>
+    <string name="update_checking">Проверяю обновления…</string>
+    <string name="update_up_to_date">У вас последняя проверенная версия.</string>
+    <string name="update_available_line">Доступно обновление: %1$s</string>
+    <string name="update_downloading">Загрузка %1$s… %2$d%%</string>
+    <string name="update_needs_permission">Чтобы установить обновление, разрешите GPS Radio устанавливать приложения (один раз), затем снова нажмите «Установить».</string>
+    <string name="update_installing_line">Установка %1$s… Android может попросить подтверждение.</string>
+    <string name="allow_installs">Разрешить установку</string>
+    <string name="install_version">Установить %1$s</string>
+    <string name="check_for_updates">Проверить обновления</string>
+    <string name="update_banner_title">Доступно обновление %1$s</string>
+    <string name="installing">Установка…</string>
+    <string name="allow_installs_hint">Разрешите GPS Radio устанавливать приложения (один раз)</string>
+    <string name="install">Установить</string>
+    <string name="allow">Разрешить</string>
+    <string name="update_check_failed">Не удалось проверить обновления: %1$s</string>
+    <string name="update_failed">Не удалось обновить</string>
+    <string name="update_conflict">Это обновление не может заменить установленное приложение (другая подпись). Установите его по ссылке для скачивания.</string>
+    <string name="update_no_storage">Недостаточно места для обновления.</string>
+    <string name="update_not_installed">Обновление не установлено.</string>
+    <string name="update_not_installed_reason">Обновление не установлено: %1$s</string>
+</resources>

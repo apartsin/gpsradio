@@ -26,6 +26,8 @@ import com.gpsradio.core.geo.Geo
 import com.gpsradio.core.model.LocationContext
 import com.gpsradio.core.tour.TourState
 import java.util.Locale
+import androidx.compose.ui.res.stringResource
+import com.gpsradio.app.R
 import kotlin.math.roundToInt
 
 /** Tour lengths offered in the Nearby tab. */
@@ -45,9 +47,9 @@ fun TourChips(tour: TourState?, onStartTour: (Int) -> Unit, modifier: Modifier =
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Text("Walking tour:", style = MaterialTheme.typography.labelLarge)
+        Text(stringResource(R.string.walking_tour), style = MaterialTheme.typography.labelLarge)
         TOUR_MINUTES.forEach { m ->
-            AssistChip(onClick = { onStartTour(m) }, label = { Text("$m min") })
+            AssistChip(onClick = { onStartTour(m) }, label = { Text(stringResource(R.string.minutes_short, m)) })
         }
     }
 }
@@ -58,25 +60,45 @@ fun TourBanner(tour: TourState, location: LocationContext?, onEndTour: () -> Uni
     Card(modifier.fillMaxWidth().testTag("tourBanner")) {
         Row(Modifier.padding(start = 12.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(
-                tourProgress(tour, location),
+                tourProgress(tour, location, tourLabels()),
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f).semantics { liveRegion = LiveRegionMode.Polite },
             )
-            TextButton(onClick = onEndTour) { Text("End tour") }
+            TextButton(onClick = onEndTour) { Text(stringResource(R.string.end_tour)) }
         }
     }
 }
 
-fun tourProgress(tour: TourState, location: LocationContext?): String {
-    val next = tour.next ?: return "Tour complete"
-    val distance = location?.let { shortDistance(Geo.distanceM(it.point, next.point)) }
-    return listOfNotNull("Stop ${tour.nextIndex + 1} of ${tour.stops.size}", next.name, distance).joinToString(" · ")
+/**
+ * Format strings for the tour line. The defaults are the English resources (values/strings.xml), so the
+ * functions below stay plain and testable; the UI passes the localized ones from [tourLabels].
+ */
+data class TourLabels(
+    val stopOf: String = "Stop %1\$d of %2\$d",
+    val complete: String = "Tour complete",
+    val meters: String = "%1\$d m",
+    val kilometers: String = "%1\$.1f km",
+)
+
+@Composable
+fun tourLabels(): TourLabels = TourLabels(
+    stopOf = stringResource(R.string.tour_stop_of),
+    complete = stringResource(R.string.tour_complete),
+    meters = stringResource(R.string.distance_m),
+    kilometers = stringResource(R.string.distance_km),
+)
+
+fun tourProgress(tour: TourState, location: LocationContext?, labels: TourLabels = TourLabels()): String {
+    val next = tour.next ?: return labels.complete
+    val distance = location?.let { shortDistance(Geo.distanceM(it.point, next.point), labels) }
+    val stop = String.format(Locale.getDefault(), labels.stopOf, tour.nextIndex + 1, tour.stops.size)
+    return listOfNotNull(stop, next.name, distance).joinToString(" · ")
 }
 
-fun shortDistance(m: Double): String = when {
-    m < 1000 -> "${((m / 10).roundToInt() * 10)} m"
-    else -> String.format(Locale.getDefault(), "%.1f km", m / 1000)
+fun shortDistance(m: Double, labels: TourLabels = TourLabels()): String = when {
+    m < 1000 -> String.format(Locale.getDefault(), labels.meters, (m / 10).roundToInt() * 10)
+    else -> String.format(Locale.getDefault(), labels.kilometers, m / 1000)
 }

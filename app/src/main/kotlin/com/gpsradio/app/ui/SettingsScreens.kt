@@ -57,6 +57,8 @@ import com.gpsradio.core.editorial.Pacing
 import com.gpsradio.core.lang.Languages
 import com.gpsradio.core.memory.MemoryItem
 import com.gpsradio.core.model.Topic
+import androidx.compose.ui.res.stringResource
+import com.gpsradio.app.R
 
 private const val AUTO = "auto"
 
@@ -68,19 +70,16 @@ fun SetupScreen(
     /** Keyless preview: start listening with Wikipedia facts read by the phone's own voice. */
     onTryWithoutKey: (AppSettings) -> Unit = {},
 ) {
-    Scaffold(topBar = { TopAppBar(title = { Text("Welcome to GPS Radio") }) }) { pad ->
+    Scaffold(topBar = { TopAppBar(title = { Text(stringResource(R.string.setup_title)) }) }) { pad ->
         SettingsForm(
             initial = settings,
             modifier = Modifier.padding(pad),
-            intro = "Stories about the places around you, told as you go — with fun facts, history, the odd joke, " +
-                "and answers to anything you ask.\n\n" +
-                "GPS Radio talks to OpenAI directly from this phone using your own API key. The key stays encrypted " +
-                "on this device only. Tip: create a dedicated key with a monthly spending limit at platform.openai.com.",
-            saveLabel = "Save and start listening",
+            intro = stringResource(R.string.setup_intro),
+            saveLabel = stringResource(R.string.setup_save),
             showAdvanced = false,
             onSave = onSave,
-            secondaryLabel = "Try without a key (on-device voice)",
-            secondaryHint = "Short notes from Wikipedia, read by your phone's voice. Questions need a key.",
+            secondaryLabel = stringResource(R.string.setup_try_without_key),
+            secondaryHint = stringResource(R.string.setup_try_without_key_hint),
             onSecondary = { onTryWithoutKey(it.copy(apiKey = "", previewMode = true)) },
         )
     }
@@ -105,8 +104,8 @@ fun SettingsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Settings") },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
+                title = { Text(stringResource(R.string.settings)) },
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.back)) } },
             )
         },
     ) { pad ->
@@ -114,7 +113,7 @@ fun SettingsScreen(
             initial = settings,
             modifier = Modifier.padding(pad),
             intro = null,
-            saveLabel = "Save",
+            saveLabel = stringResource(R.string.save),
             showAdvanced = true,
             onSave = onSave,
             // In the keyless preview, other settings can be saved before a key is added.
@@ -124,7 +123,7 @@ fun SettingsScreen(
                 CostSection(cost, settings.dailyBudgetUsd)
                 MemorySection(memory, onForgetMemory, onForgetAllMemory)
                 OutlinedButton(onClick = onClearHistory, modifier = Modifier.fillMaxWidth()) {
-                    Text("Forget stories I've already heard")
+                    Text(stringResource(R.string.forget_heard_stories))
                 }
                 UpdatesSection(update, onCheckUpdate, onInstallUpdate, onAllowInstalls)
             },
@@ -165,6 +164,9 @@ private fun SettingsForm(
     var pacing by remember { mutableStateOf(initial.pacing) }
     var budgetText by remember { mutableStateOf(if (initial.dailyBudgetUsd > 0) formatUsd(initial.dailyBudgetUsd) else "") }
     var showKey by remember { mutableStateOf(false) }
+    val alwaysListeningLabel = stringResource(R.string.always_listening)
+    val soundEffectsLabel = stringResource(R.string.sound_effects)
+    val localEventsLabel = stringResource(R.string.local_events)
 
     Column(
         modifier
@@ -179,17 +181,17 @@ private fun SettingsForm(
         OutlinedTextField(
             value = apiKey,
             onValueChange = { apiKey = it },
-            label = { Text("OpenAI API key") },
-            placeholder = { Text(if (initial.usingEmbeddedKey) "Using the built-in key (optional: enter your own)" else "sk-…") },
+            label = { Text(stringResource(R.string.api_key_label)) },
+            placeholder = { Text(if (initial.usingEmbeddedKey) stringResource(R.string.api_key_builtin_placeholder) else "sk-…") },
             singleLine = true,
             visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
             trailingIcon = {
                 IconButton(onClick = { showKey = !showKey }) {
-                    Icon(if (showKey) Icons.Default.VisibilityOff else Icons.Default.Visibility, if (showKey) "Hide key" else "Show key")
+                    Icon(if (showKey) Icons.Default.VisibilityOff else Icons.Default.Visibility, stringResource(if (showKey) R.string.hide_key else R.string.show_key))
                 }
             },
             supportingText = {
-                if (apiKey.isNotBlank() && !apiKey.trim().startsWith("sk-")) Text("OpenAI keys usually start with \"sk-\"")
+                if (apiKey.isNotBlank() && !apiKey.trim().startsWith("sk-")) Text(stringResource(R.string.api_key_format_hint))
             },
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
             modifier = Modifier.fillMaxWidth(),
@@ -197,25 +199,25 @@ private fun SettingsForm(
 
         LanguagePicker(language) { language = it }
 
-        Text("Your host", style = MaterialTheme.typography.titleSmall)
+        Text(stringResource(R.string.your_host), style = MaterialTheme.typography.titleSmall)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             HostStyle.entries.forEach { h ->
-                FilterChip(selected = hostStyle == h, onClick = { hostStyle = h }, label = { Text(h.label) })
+                FilterChip(selected = hostStyle == h, onClick = { hostStyle = h }, label = { Text(hostStyleLabel(h)) })
             }
         }
 
-        Text("Pacing", style = MaterialTheme.typography.titleSmall)
+        Text(stringResource(R.string.pacing), style = MaterialTheme.typography.titleSmall)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Pacing.entries.forEach { p ->
-                FilterChip(selected = pacing == p, onClick = { pacing = p }, label = { Text(p.label) })
+                FilterChip(selected = pacing == p, onClick = { pacing = p }, label = { Text(pacingLabel(p)) })
             }
         }
 
         Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("Natural voice conversation", style = MaterialTheme.typography.titleSmall)
+                Text(stringResource(R.string.natural_voice), style = MaterialTheme.typography.titleSmall)
                 Text(
-                    "Talk hands-free like a phone call; you can interrupt anytime. Uses the OpenAI Realtime API.",
+                    stringResource(R.string.natural_voice_hint),
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
@@ -225,79 +227,79 @@ private fun SettingsForm(
         if (liveVoice) {
             Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("Always listening", style = MaterialTheme.typography.titleSmall)
+                    Text(alwaysListeningLabel, style = MaterialTheme.typography.titleSmall)
                     Text(
-                        "Just talk anytime, even during a story, like ChatGPT voice. Only speech is sent. " +
-                            "Switch the mic off anytime from the radio screen.",
+                        stringResource(R.string.always_listening_hint),
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
                 Switch(
                     checked = alwaysListening,
                     onCheckedChange = { alwaysListening = it },
-                    modifier = Modifier.semantics { contentDescription = "Always listening" },
+                    modifier = Modifier.semantics { contentDescription = alwaysListeningLabel },
                 )
             }
         }
 
         Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("Sound effects", style = MaterialTheme.typography.titleSmall)
-                Text("A short station sting before stories, a chime before answers.", style = MaterialTheme.typography.bodySmall)
+                Text(soundEffectsLabel, style = MaterialTheme.typography.titleSmall)
+                Text(stringResource(R.string.sound_effects_hint), style = MaterialTheme.typography.bodySmall)
             }
             Switch(
                 checked = soundEffects,
                 onCheckedChange = { soundEffects = it },
-                modifier = Modifier.semantics { contentDescription = "Sound effects" },
+                modifier = Modifier.semantics { contentDescription = soundEffectsLabel },
             )
         }
 
         Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("Events today nearby", style = MaterialTheme.typography.titleSmall)
+                Text(localEventsLabel, style = MaterialTheme.typography.titleSmall)
                 Text(
-                    "Concerts, festivals, markets and more happening today, found with web search. No classes or meetings.",
+                    stringResource(R.string.local_events_hint),
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
             Switch(
                 checked = localEvents,
                 onCheckedChange = { localEvents = it },
-                modifier = Modifier.semantics { contentDescription = "Events today nearby" },
+                modifier = Modifier.semantics { contentDescription = localEventsLabel },
             )
         }
 
-        Text("What are you into?", style = MaterialTheme.typography.titleSmall)
+        Text(stringResource(R.string.interests_title), style = MaterialTheme.typography.titleSmall)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Topic.entries.forEach { t ->
                 FilterChip(
                     selected = t in interests,
                     onClick = { interests = if (t in interests) interests - t else interests + t },
-                    label = { Text(t.label) },
+                    label = { Text(topicLabel(t)) },
                 )
             }
         }
 
         if (budget) {
+            val budgetDescription = stringResource(R.string.budget_description)
             OutlinedTextField(
                 value = budgetText,
                 onValueChange = { budgetText = it.filter { c -> c.isDigit() || c == '.' || c == ',' } },
-                label = { Text("Daily spending limit, USD (empty = none)") },
-                supportingText = { Text("Over the limit the radio reads free on-device notes until tomorrow.") },
+                label = { Text(stringResource(R.string.budget_label)) },
+                supportingText = { Text(stringResource(R.string.budget_hint)) },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Daily spending limit" },
+                modifier = Modifier.fillMaxWidth().semantics { contentDescription = budgetDescription },
             )
         }
 
         if (showAdvanced) {
-            Text("Models", style = MaterialTheme.typography.titleSmall)
-            ModelField("Narration model", narrationModel) { narrationModel = it }
-            ModelField("Conversation model (uses web search)", conversationModel) { conversationModel = it }
-            ModelField("Speech model", ttsModel) { ttsModel = it }
-            ModelField("Voice", ttsVoice) { ttsVoice = it }
-            ModelField("Transcription model", sttModel) { sttModel = it }
-            ModelField("Realtime voice model", realtimeModel) { realtimeModel = it }
+            Text(stringResource(R.string.models), style = MaterialTheme.typography.titleSmall)
+            ModelField(stringResource(R.string.model_narration), narrationModel) { narrationModel = it }
+            ModelField(stringResource(R.string.model_conversation), conversationModel) { conversationModel = it }
+            ModelField(stringResource(R.string.model_speech), ttsModel) { ttsModel = it }
+            ModelField(stringResource(R.string.model_voice), ttsVoice) { ttsVoice = it }
+            ModelField(stringResource(R.string.model_transcription), sttModel) { sttModel = it }
+            ModelField(stringResource(R.string.model_realtime), realtimeModel) { realtimeModel = it }
             extra()
         }
 
@@ -343,10 +345,10 @@ private fun SettingsForm(
 /** What the radio has learned about the listener; each item can be removed. */
 @Composable
 private fun MemorySection(memory: List<MemoryItem>, onForget: (String) -> Unit, onForgetAll: () -> Unit) {
-    Text("What I remember about you", style = MaterialTheme.typography.titleSmall)
+    Text(stringResource(R.string.memory_title), style = MaterialTheme.typography.titleSmall)
     if (memory.isEmpty()) {
         Text(
-            "Nothing yet. Tell the radio what you like, e.g. \"I love castles\" or \"keep stories short\", and it will remember.",
+            stringResource(R.string.memory_empty),
             style = MaterialTheme.typography.bodySmall,
         )
         return
@@ -354,32 +356,33 @@ private fun MemorySection(memory: List<MemoryItem>, onForget: (String) -> Unit, 
     memory.forEach { m ->
         Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
             Text(
-                "${m.category.name.lowercase().replace('_', ' ')}: ${m.text}",
+                stringResource(R.string.memory_item, memoryCategoryLabel(m.category), m.text),
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.weight(1f),
             )
-            IconButton(onClick = { onForget(m.id) }) { Icon(Icons.Default.Close, "Forget ${m.text}") }
+            IconButton(onClick = { onForget(m.id) }) { Icon(Icons.Default.Close, stringResource(R.string.forget_item, m.text)) }
         }
     }
-    OutlinedButton(onClick = onForgetAll, modifier = Modifier.fillMaxWidth()) { Text("Forget everything about me") }
+    OutlinedButton(onClick = onForgetAll, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.forget_all_memory)) }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun LanguagePicker(selected: String, onSelect: (String) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
-    val label = if (selected == AUTO) "Auto (phone language)" else Languages.displayName(selected)
+    val autoLabel = stringResource(R.string.language_auto)
+    val label = if (selected == AUTO) autoLabel else Languages.displayName(selected)
     ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
         OutlinedTextField(
             value = label,
             onValueChange = {},
             readOnly = true,
-            label = { Text("Narration language") },
+            label = { Text(stringResource(R.string.narration_language)) },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
             modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable),
         )
         ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            DropdownMenuItem(text = { Text("Auto (phone language)") }, onClick = { onSelect(AUTO); expanded = false })
+            DropdownMenuItem(text = { Text(autoLabel) }, onClick = { onSelect(AUTO); expanded = false })
             Languages.supported.forEach { lang ->
                 DropdownMenuItem(text = { Text(lang.displayName) }, onClick = { onSelect(lang.tag); expanded = false })
             }
@@ -393,22 +396,30 @@ private fun ModelField(label: String, value: String, onChange: (String) -> Unit)
 }
 
 /** e.g. "GPS Radio 0.5.142 · build a1b2c3d · 2026-09-23". */
-fun versionLabel(): String =
-    "GPS Radio ${com.gpsradio.app.BuildConfig.VERSION_NAME} · build ${com.gpsradio.app.BuildConfig.GIT_SHA} · ${com.gpsradio.app.BuildConfig.BUILD_DATE}"
+@Composable
+fun versionLabel(): String = stringResource(
+    R.string.version_label,
+    com.gpsradio.app.BuildConfig.VERSION_NAME,
+    com.gpsradio.app.BuildConfig.GIT_SHA,
+    com.gpsradio.app.BuildConfig.BUILD_DATE,
+)
 
 private fun formatUsd(v: Double): String = String.format(java.util.Locale.US, if (v < 10) "%.2f" else "%.0f", v)
 
 /** Estimated OpenAI spend today and this session (spec A §41). */
 @Composable
 private fun CostSection(cost: CostMeter.Totals, limit: Double) {
-    Text("Cost (estimate)", style = MaterialTheme.typography.titleSmall)
+    Text(stringResource(R.string.cost_title), style = MaterialTheme.typography.titleSmall)
+    val costDescription = stringResource(R.string.cost_today_description)
     Text(
-        "Today \$${formatUsd(cost.today)} · this session \$${formatUsd(cost.session)}" +
-            (if (limit > 0) " · limit \$${formatUsd(limit)}" else ""),
+        stringResource(R.string.cost_totals, formatUsd(cost.today), formatUsd(cost.session)) +
+            (if (limit > 0) " · " + stringResource(R.string.cost_limit, formatUsd(limit)) else ""),
         style = MaterialTheme.typography.bodyMedium,
-        modifier = Modifier.semantics { contentDescription = "Cost today" },
+        modifier = Modifier.semantics { contentDescription = costDescription },
     )
-    val parts = CostMeter.Kind.entries.mapNotNull { k -> cost.todayByKind[k]?.takeIf { it >= 0.005 }?.let { "${k.label} \$${formatUsd(it)}" } }
+    val parts = CostMeter.Kind.entries.mapNotNull { k ->
+        cost.todayByKind[k]?.takeIf { it >= 0.005 }?.let { stringResource(R.string.cost_part, costKindLabel(k), formatUsd(it)) }
+    }
     if (parts.isNotEmpty()) Text(parts.joinToString(" · "), style = MaterialTheme.typography.bodySmall)
-    Text("At list prices; your OpenAI dashboard has the real bill.", style = MaterialTheme.typography.bodySmall)
+    Text(stringResource(R.string.cost_disclaimer), style = MaterialTheme.typography.bodySmall)
 }

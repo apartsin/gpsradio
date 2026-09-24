@@ -26,6 +26,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.gpsradio.core.journal.JournalEntry
 import java.time.Instant
+import androidx.compose.ui.res.stringResource
+import com.gpsradio.app.R
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -47,7 +49,7 @@ fun LazyListScope.journalItems(journal: List<JournalEntry>, canRetell: Boolean, 
     if (journal.isEmpty()) return
     item(key = "journal-header") {
         Text(
-            "Journal",
+            stringResource(R.string.journal),
             style = MaterialTheme.typography.titleMedium,
             modifier = Modifier.padding(top = 12.dp).semantics { heading() },
         )
@@ -56,12 +58,12 @@ fun LazyListScope.journalItems(journal: List<JournalEntry>, canRetell: Boolean, 
         item(key = "journal-day-$day") {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                 Text(
-                    dayLabel(day),
+                    dayLabel(day, todayLabel = stringResource(R.string.today), yesterdayLabel = stringResource(R.string.yesterday)),
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.weight(1f),
                 )
-                TextButton(onClick = { actions.onExportDay(day) }) { Text("Export GPX") }
+                TextButton(onClick = { actions.onExportDay(day) }) { Text(stringResource(R.string.export_gpx)) }
             }
         }
         items(entries, key = { "journal-${it.day}-${it.placeId}" }) { e -> JournalRow(e, canRetell, actions) }
@@ -73,7 +75,7 @@ fun LazyListScope.journalItems(journal: List<JournalEntry>, canRetell: Boolean, 
 fun JournalList(journal: List<JournalEntry>, canRetell: Boolean, actions: JournalActions, modifier: Modifier = Modifier) {
     if (journal.isEmpty()) {
         Text(
-            "Stories you hear will be collected here, day by day.",
+            stringResource(R.string.journal_empty),
             Modifier.padding(12.dp),
             style = MaterialTheme.typography.bodySmall,
         )
@@ -107,16 +109,22 @@ private fun JournalRow(e: JournalEntry, canRetell: Boolean, actions: JournalActi
                 Text(e.firstSentence, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                if (canRetell) TextButton(onClick = { actions.onRetell(e) }) { Text("Tell me again") }
-                IconButton(onClick = { actions.onShare(e) }) { Icon(Icons.Default.Share, "Share ${e.name}") }
+                if (canRetell) TextButton(onClick = { actions.onRetell(e) }) { Text(stringResource(R.string.tell_me_again)) }
+                IconButton(onClick = { actions.onShare(e) }) { Icon(Icons.Default.Share, stringResource(R.string.share_item, e.name)) }
             }
         }
     }
 }
 
-fun dayLabel(day: String, today: LocalDate = LocalDate.now()): String = when (day) {
-    today.toString() -> "Today"
-    today.minusDays(1).toString() -> "Yesterday"
+/** [todayLabel] and [yesterdayLabel] default to the English resources; the UI passes the localized ones. */
+fun dayLabel(
+    day: String,
+    today: LocalDate = LocalDate.now(),
+    todayLabel: String = "Today",
+    yesterdayLabel: String = "Yesterday",
+): String = when (day) {
+    today.toString() -> todayLabel
+    today.minusDays(1).toString() -> yesterdayLabel
     else -> day
 }
 

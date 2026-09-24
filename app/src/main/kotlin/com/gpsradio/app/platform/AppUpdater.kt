@@ -10,6 +10,7 @@ import android.os.Build
 import android.provider.Settings
 import com.gpsradio.app.BuildConfig
 import com.gpsradio.app.GpsRadioApp
+import com.gpsradio.app.R
 import com.gpsradio.core.update.UpdateClient
 import com.gpsradio.core.update.UpdateInfo
 import com.gpsradio.core.update.Updates
@@ -72,7 +73,7 @@ class AppUpdater(
                 throw e
             } catch (e: Exception) {
                 // Automatic checks fail silently (offline, GitHub down); manual ones say why.
-                _state.value = if (manual) UpdateState.Failed("Couldn't check for updates: ${e.message}") else UpdateState.Idle
+                _state.value = if (manual) UpdateState.Failed(context.getString(R.string.update_check_failed, e.message.toString())) else UpdateState.Idle
             }
         }
     }
@@ -104,7 +105,7 @@ class AppUpdater(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _state.value = UpdateState.Failed(e.message ?: "Update failed", info)
+                _state.value = UpdateState.Failed(e.message ?: context.getString(R.string.update_failed), info)
             }
         }
     }
@@ -154,9 +155,9 @@ class AppUpdater(
             else -> _state.value = UpdateState.Failed(
                 when (status) {
                     PackageInstaller.STATUS_FAILURE_CONFLICT, PackageInstaller.STATUS_FAILURE_INCOMPATIBLE ->
-                        "This update can't replace the installed app (different signature). Install it from the download link instead."
-                    PackageInstaller.STATUS_FAILURE_STORAGE -> "Not enough storage for the update."
-                    else -> "Update not installed" + (message?.let { ": $it" } ?: ".")
+                        context.getString(R.string.update_conflict)
+                    PackageInstaller.STATUS_FAILURE_STORAGE -> context.getString(R.string.update_no_storage)
+                    else -> message?.let { context.getString(R.string.update_not_installed_reason, it) } ?: context.getString(R.string.update_not_installed)
                 },
                 info,
             )
