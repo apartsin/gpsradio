@@ -439,12 +439,17 @@ class RadioSession(
         if (wasSpeaking) {
             // Penalize what was actually on air (or being prepared), not the previous story.
             (pendingId ?: activeId)?.let { id -> candidates[id]?.let { penalize(it) } }
+            airingFacetId?.let { interrupted = null to it; dropInterrupted() }
             lastSpeechEndMs = clock()
+        } else if (interrupted != null) {
+            // The listener's voice already stopped the story: drop that one (it was never finished).
+            dropInterrupted()
         }
         pendingId = null
         engagedUntilMs = 0
         if (_state.value.radioState !in setOf(RadioState.IDLE, RadioState.PAUSED)) setRadioState(RadioState.RADIO)
         _state.update { it.copy(nowPlaying = null, nowPlayingReason = null) }
+        requestNextNow()
         rerank()
     }
 
@@ -629,7 +634,8 @@ class RadioSession(
             if (!ranker.holdForManeuver(_state.value.location, now)) revealQuiz(quiz)
             return
         }
-        if (ranker.holdForPacing(_state.value.location, lastSpeechEndMs, now, config().pacing)) return
+        // After an explicit "next" only a junction holds the story back, not the pacing gap.
+        if (ranker.holdForPacing(_state.value.location, lastSpeechEndMs.takeUnless { nextNow() }, now, config().pacing)) return
         if (maybeAskAboutTrip()) return
         if (maybeAskPreferences()) return
         rerank()
@@ -708,7 +714,7 @@ class RadioSession(
                 heard = heard,
                 nowMs = now,
                 mentionedIds = mentionedIds,
-                lastSpeechEndMs = lastSpeechEndMs,
+                lastSpeechEndMs = lastSpeechEndMs.takeUnless { nextNow() },
                 userEngaged = now < engagedUntilMs || _state.value.radioState == RadioState.CONVERSING,
                 theme = _state.value.theme,
                 pacing = config().pacing,
@@ -1073,7 +1079,8 @@ class RadioSession(
             ConversationAction.SKIP -> {
                 // Saying "skip" already stopped the story (the utterance interrupts it), so skip() alone would see
                 // nothing on air and the same story would come back: drop the interrupted one explicitly.
-                (storyPlayback?.first ?: activeId)?.let { id -> candidates[id]?.let { penalize(it) } }
+                if (interrupted == null) (storyPlayback?.first ?: activeId)?.let { id -> candidates[id]?.let { penalize(it) } }
+                dropInterrupted()
                 skip()
                 return
             }
@@ -1244,6 +1251,62 @@ class RadioSession(
         l.start(opening, persistent = handsFreeActive, converse = true)
     }
 
+    /**
+     * What the listener talked over (a place story or an area story), captured before it is stopped: "next" in the
+     * exchange that follows must drop it, or it would simply air again (it was never finished, so never marked told).
+     */
+    private var interrupted: Pair<String?, String?>? = null
+
+    private fun noteInterrupted() {
+        interrupted = null
+        if (speechJob?.isActive != true) return
+        val place = storyPlayback?.first ?: pendingId
+        val facet = airingFacetId
+        if (place != null || facet != null) interrupted = place to facet
+    }
+
+    /** "Next" after talking over a story: that story is done with (spec A §52). */
+    private fun dropInterrupted() {
+        val (place, facet) = interrupted ?: (activeId to null)
+        interrupted = null
+        place?.let { id -> candidates[id]?.let { penalize(it) } }
+        facet?.let { id ->
+            programme.onFillerAired(SegmentFormat.AREA, null, clock(), dayKey(today()), id)
+            heard.markFacetTold(id, clock())
+            persistHeard()
+        }
+    }
+
+    /** A spoken command already handled on the device (so the model's own tool call for it is ignored). */
+    private var localCommandDone: Pair<ConversationAction, Long>? = null
+
+    private fun handledLocally(action: ConversationAction): Boolean =
+        localCommandDone?.let { (a, at) -> a == action && clock() - at < LOCAL_COMMAND_DEDUP_MS } == true
+
+    /**
+     * Radio controls said in so many words during a live exchange run at once on the device (spec A §52): the
+     * model's reply is cut, "next" skips immediately with a sting, and the model's own tool call is then ignored.
+     */
+    private fun liveLocalCommand(text: String): Boolean {
+        val action = localCommand(text) ?: return false
+        if (action !in setOf(ConversationAction.SKIP, ConversationAction.RESUME_RADIO, ConversationAction.PAUSE)) return false
+        localCommandDone = action to clock()
+        steerJob?.cancel()
+        live?.quiet()
+        when (action) {
+            ConversationAction.SKIP -> {
+                dropInterrupted()
+                clearOffer()
+                endConversation()
+                requestNextNow()
+                scope.launch { sting(Sting.STATION) }
+            }
+            ConversationAction.RESUME_RADIO -> { interrupted = null; endConversation() }
+            else -> doPause()
+        }
+        return true
+    }
+
     /** Where an always-listening exchange returns when it goes quiet. */
     private var afterExchange = RadioState.RADIO
 
@@ -1251,6 +1314,7 @@ class RadioSession(
     private fun startExchange(l: LiveConversation) {
         // Talking while paused (e.g. to a passenger) must not un-pause the radio when the exchange ends.
         afterExchange = if (_state.value.radioState == RadioState.PAUSED) RadioState.PAUSED else RadioState.RADIO
+        noteInterrupted()
         speechJob?.cancel()
         pendingId = null
         storyPlayback = null
@@ -1310,6 +1374,7 @@ class RadioSession(
 
         override fun onUserSaid(text: String) {
             addTranscript(TranscriptEntry(Speaker.USER, text, clock()))
+            if (liveLocalCommand(text)) return
             history += ConversationTurn(true, text)
             while (history.size > 24) history.removeAt(0)
             programme.onQuizResolved() // the live host has the quiz in context and answers it
@@ -1396,12 +1461,15 @@ class RadioSession(
                     }
                 }
                 val action = ConversationAction.parse(arg("action"))
+                // Already done on the device from the transcript: don't skip twice.
+                if (handledLocally(action)) return "done"
                 when (action) {
-                    ConversationAction.RESUME_RADIO -> { steerJob?.cancel(); closeLive(); endConversation() }
+                    ConversationAction.RESUME_RADIO -> { steerJob?.cancel(); interrupted = null; closeLive(); endConversation() }
                     ConversationAction.PAUSE -> { closeLive(); doPause() }
                     ConversationAction.SKIP -> {
                         steerJob?.cancel()
-                        activeId?.let { id -> candidates[id]?.let { penalize(it) } }
+                        requestNextNow()
+                        dropInterrupted()
                         closeLive()
                         endConversation()
                     }
@@ -1676,7 +1744,19 @@ class RadioSession(
         runCatching { historyStore.save(heard.serialize(clock())) }
     }
 
+    /** Until then, the listener asked for the next story: no pacing gap before it (spec A §52). */
+    private var nextNowUntilMs = 0L
+
+    private fun nextNow() = clock() < nextNowUntilMs
+
+    /** An explicit "next": the next segment airs as soon as it's ready, not after the usual gap. */
+    private fun requestNextNow() {
+        nextNowUntilMs = clock() + NEXT_NOW_WINDOW_MS
+        wake.trySend(Unit)
+    }
+
     private fun setRadioState(s: RadioState) {
+        if (s == RadioState.NARRATING) nextNowUntilMs = 0
         val before = _state.value.radioState
         _state.update { it.copy(radioState = s) }
         // Non-stop: when a segment ends, look for the next one right after the gap, not at the next 3 s tick.
@@ -2105,7 +2185,7 @@ class RadioSession(
             mode = loc.travelMode,
             pacing = cfg.pacing,
             minGapMs = ranker.minGapMs(loc.travelMode, cfg.pacing),
-            lastSpeechEndMs = lastSpeechEndMs,
+            lastSpeechEndMs = lastSpeechEndMs.takeUnless { nextNow() },
             storyReady = ranker.storyReady(ranked, cfg.pacing),
             ranked = ranked,
             recentTitles = recentTitles.toList(),
@@ -2468,6 +2548,12 @@ class RadioSession(
 
     private var steerJob: Job? = null
 
+    /** How long an explicit "next" waives the pacing gap (the next segment may still be being written). */
+    private val NEXT_NOW_WINDOW_MS = 60_000L
+
+    /** The model's own tool call for a command already handled on the device is ignored within this window. */
+    private val LOCAL_COMMAND_DEDUP_MS = 8_000L
+
     /** A steered story waits at most this long for the host to finish talking. */
     private val STEER_MAX_WAIT_MS = 8_000L
 
@@ -2614,6 +2700,9 @@ class RadioSession(
 
         private val SKIP_WORDS = setOf(
             "skip", "next", "skip it", "skip this", "skip this one", "next one", "next story", "something else",
+            "the next story", "next please", "another story", "tell me another story", "go to the next one",
+            "следующая история", "следующую историю", "давай следующую", "давай следующую историю", "другую историю",
+            "расскажи другую историю", "расскажи следующую", "дальше давай", "переключи", "следующий рассказ",
             "дальше", "давай дальше", "пропусти", "пропустить", "пропусти это", "следующий", "следующая", "следующее",
             "следующую", "другое", "давай другое", "неинтересно", "не интересно",
             "הבא", "דלג", "תדלג", "הלאה",

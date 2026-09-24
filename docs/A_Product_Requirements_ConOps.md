@@ -824,3 +824,22 @@ Now:
   - Names are matched allowing for case endings, so «в Гмундене» matches «Гмунден».
   - Names shorter than 5 letters in total are not matched.
 - **Credits.** The photo credit (§45) is fetched for these photos too.
+
+## 52. "Next" Means Now
+
+Saying "next" («следующая история», «дальше») over a story with the mic open used to go wrong in three ways:
+
+- **Wrong story.** The listener's voice had already stopped the story, so the skip didn't know what to drop. The interrupted story was never finished, so it was never marked told and came back ("it continues with the current one"). For area stories this was always the case.
+- **Slow.** The command waited for the model, which sometimes treated it as "tell me more", or spoke before acting. Then the next story waited for the normal pacing gap.
+- **Two voices.** Cutting the model off left the audio chunk already sent to the speaker playing under the next story.
+
+Now:
+
+- **What was talked over is remembered.** It is captured before it stops, and "next" drops it: place stories are marked heard, area stories are marked told.
+- **The command is handled on the device.** Controls said in so many words ("next", «дальше», "back to the radio", «стоп») are matched in the live transcript as it arrives.
+  - The model's reply is cut.
+  - The station sting plays as an instant acknowledgement.
+  - The model's own skip tool call within 8 s is ignored, so there is no double skip.
+- **The next story starts at once.** An explicit "next" (voice, notification or headset) waives the pacing gap for up to 60 s, until the next segment airs. A junction while driving still holds it.
+- **The prompt.** The live instructions say to call skip at once, with no preamble, and never to continue the current story for "next".
+- **The speaker.** Live audio is written in 40 ms slices, so cutting the model off silences it at once.

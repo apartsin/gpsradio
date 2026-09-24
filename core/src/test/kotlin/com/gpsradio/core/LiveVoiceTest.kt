@@ -571,6 +571,38 @@ class LiveVoiceTest {
     }
 
     @Test
+    fun sayingNextOverAStorySkipsItAtOnceAndItNeverComesBack() = runTest {
+        val r = Radio(listOf(place("a", Geo.destination(here, 0.0, 100.0)), place("b", Geo.destination(here, 90.0, 120.0))))
+        val conns = mutableListOf<FakeConnection>()
+        val pcm = FakePcm()
+        val played = mutableListOf<String>()
+        val s = session(r, conns, pcm, handsFree = { true }, audio = AudioOutput { played += String(it); delay(30_000) })
+        running(s) {
+            s.onLocation(LocationSample(here.lat, here.lon, 5f, 1_000_000, 0f)); runCurrent()
+            advanceTimeBy(3_000); runCurrent()
+            val c = conns.single()
+            c.server.trySend(RealtimeEvent.SessionReady); runCurrent()
+            val first = played.single()
+            // The listener talks over the story: it stops, and the host listens.
+            c.server.trySend(RealtimeEvent.SpeechStarted); runCurrent()
+            assertEquals(com.gpsradio.core.model.RadioState.CONVERSING, s.state.value.radioState)
+            // «Следующая история»: handled on the device from the transcript, without waiting for the model.
+            c.server.trySend(RealtimeEvent.UserTranscript("Следующая история.")); runCurrent()
+            advanceTimeBy(2_000); runCurrent()
+            assertEquals(2, played.size, "the next story started right away: $played")
+            assertTrue(played[1] != first, "a different story, not the interrupted one again: $played")
+            // The model's own skip a moment later is not a second skip.
+            c.server.trySend(RealtimeEvent.FunctionCall("k1", "radio_control", """{"action":"skip"}""")); runCurrent()
+            advanceTimeBy(1_000); runCurrent()
+            assertEquals(2, played.size, "not skipped twice: $played")
+            assertEquals(com.gpsradio.core.model.RadioState.NARRATING, s.state.value.radioState)
+            // The interrupted story never airs again.
+            advanceTimeBy(120_000); runCurrent()
+            assertEquals(1, played.count { it == first }, played.toString())
+        }
+    }
+
+    @Test
     fun aSlowSteerHoldsTheRadioAndNeverTalksOverTheHost() = runTest {
         // Research slower than the live idle timeout (20 s here): nothing else may start meanwhile, and the steered
         // story then waits until the host's own words have finished playing.

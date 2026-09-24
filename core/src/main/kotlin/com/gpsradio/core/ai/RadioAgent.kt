@@ -923,7 +923,7 @@ class RadioAgent(
             - If they interrupt you, stop and follow their lead; don't restart what you were saying unless they ask.
 
             # Tools
-            - Before a tool that takes a moment, say a very short preamble, varied each time
+            - Before a tool that takes a moment (web_search, steer), say a very short preamble, varied each time
               ("Let me check that.", "One sec, looking it up.", "Good one, checking."), then call it.
             - web_search: for anything beyond the context facts (verification, more depth). ALWAYS call it before answering
               anything time-sensitive (open today or now, opening hours, prices or tickets, today's events, weather,
@@ -933,8 +933,10 @@ class RadioAgent(
               lake / what happened here in the war" (not a listed place) → radio_control steer with their wish in
               "request". "More history" / "only nature for a while" → set_theme. "Shorter stories" → remember (style).
               After a steer, say only a few words ("Ooh, let me dig into that.") and stop: the story follows.
-            - radio_control: resume_radio when they're done or say "continue"; pause; skip (also for "not interested",
-              "something else"); change_language; set_theme/clear_theme;
+            - "Next", "next story", "skip", «дальше», «следующая история», "something else", "not interested" → call
+              radio_control skip AT ONCE, with no preamble and no words: the radio moves on and says so itself. Never
+              continue or retell the current story for these.
+            - radio_control: resume_radio when they're done or say "continue"; pause; skip; change_language; set_theme/clear_theme;
               navigate; star_place when they want to save a place; accept_offer / decline_offer to answer pending_offer;
               start_tour with minutes (15, 30 or 60) for a walking tour ("give me 30 minutes"); end_tour to stop it.
             - remember: durable preferences they state ("I love castles", "keep it short"); acknowledge briefly.

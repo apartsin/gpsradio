@@ -122,7 +122,11 @@ class AndroidPcmAudio(private val context: Context) : PcmAudio {
 
     override fun pendingPlaybackMs(): Long = (playingUntilMs - System.currentTimeMillis()).coerceAtLeast(0)
 
+    /** Bumped by [stopPlayback]: a chunk being written when the host is cut off is abandoned mid-way. */
+    @Volatile private var generation = 0
+
     override fun stopPlayback() {
+        generation++
         abandonFocus()
         queue.clear()
         playingUntilMs = 0
@@ -166,7 +170,15 @@ class AndroidPcmAudio(private val context: Context) : PcmAudio {
                         if (focus != null && System.currentTimeMillis() > playingUntilMs) abandonFocus()
                         continue
                     }
-                    t.write(chunk, 0, chunk.size)
+                    // Written in ~40 ms slices so a barge-in or "next" silences the host at once, instead of
+                    // after the rest of a long chunk (two voices at once).
+                    val gen = generation
+                    var off = 0
+                    while (off < chunk.size && gen == generation) {
+                        val n = minOf(SLICE_BYTES, chunk.size - off)
+                        t.write(chunk, off, n)
+                        off += n
+                    }
                 }
             } catch (_: InterruptedException) {
                 // released
@@ -208,5 +220,10 @@ class AndroidPcmAudio(private val context: Context) : PcmAudio {
         player = null
         track?.let { runCatching { it.stop() }; it.release() }
         track = null
+    }
+
+    private companion object {
+        /** 40 ms of 24 kHz mono 16-bit audio. */
+        const val SLICE_BYTES = 1920
     }
 }

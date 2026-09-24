@@ -104,9 +104,10 @@ class ControlsTest {
             assertEquals(RadioState.NARRATING, s.state.value.radioState)
             val first = s.state.value.nowPlaying!!.entityId
             s.skip(); runCurrent()
-            assertEquals(0, r.playing, "skip stops the audio at once")
-            assertEquals(null, s.state.value.nowPlaying)
-            waitFor(s, RadioState.NARRATING)
+            // Skip stops the story at once, and "next" means now: the next story starts without the pacing gap.
+            assertTrue(r.playing <= 1 && r.maxConcurrent == 1, "skip stops the audio at once")
+            assertTrue(s.state.value.nowPlaying?.entityId != first)
+            waitFor(s, RadioState.NARRATING, maxMs = 5_000)
             val second = s.state.value.nowPlaying!!.entityId
             assertTrue(second != first, "skip = next: a different story")
             // Skip again, twice quickly: still exactly one story at a time, and the next one comes.
@@ -245,7 +246,8 @@ class ControlsTest {
 
     @Test
     fun mashingEveryButtonNeverOverlapsOrWedges() = runTest {
-        val r = Radio(places())
+        // Enough places that 15 instant skips don't simply use them all up.
+        val r = Radio(places() + (1..30).map { place("p$it", Geo.destination(here, it * 12.0, 120.0 + it * 10), name = "Place $it") })
         onAir(r) { s ->
             val presses = listOf<() -> Unit>(
                 { s.skip() }, { s.pause() }, { s.repeat() }, { s.resume() }, { s.skip() }, { s.whatsNearby() },
