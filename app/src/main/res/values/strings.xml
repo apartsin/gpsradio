@@ -249,4 +249,8 @@
     <string name="update_ready_text">Tap to install the update.</string>
     <string name="update_done_title">GPS Radio updated to %1$s</string>
     <string name="update_done_text">Tap to open.</string>
+    <string name="update_prompt_title">Update available</string>
+    <string name="update_prompt_text">%1$s is available. Update now?</string>
+    <string name="update_now">Update</string>
+    <string name="later">Later</string>
 </resources>

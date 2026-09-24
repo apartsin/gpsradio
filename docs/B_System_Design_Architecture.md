@@ -781,3 +781,10 @@ Android usually asks "Install this update?" (always on the first self-update, an
   - A high-priority notification, "GPS Radio x is ready: tap to install", covers the case where the app isn't on screen.
   - If Android answers nothing within 2 minutes, the state becomes Failed with a retry.
   - After the update, `UpdatedReceiver` (`MY_PACKAGE_REPLACED`) posts "GPS Radio updated to x: tap to open", because Android stops the old app and an app can't restart itself from the background.
+
+### Self-update: checked on every start, offered in a dialog
+
+- **When it checks.** Every app start (a fresh activity) checks the release manifest, on top of the 6-hourly checks on resume. The start-up check is silent if it fails.
+- **The offer.** When a newer tested build exists, a dialog offers it: "Update available: GPS Radio x. Update now?", with **Update** and **Later**.
+  - **Update** installs it. If installs from GPS Radio aren't allowed yet, it opens that permission page first.
+  - **Later** hides the dialog for that version until the next start. The Install banner stays in the menu.

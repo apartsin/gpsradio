@@ -34,7 +34,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val cost: StateFlow<com.gpsradio.core.cost.CostMeter.Totals> = graph.meter.totals
 
     /** Automatic checks are rate-limited (every 6 h); manual ones run now. */
-    fun checkForUpdate(manual: Boolean) = graph.updater.check(manual)
+    fun checkForUpdate(manual: Boolean, onStart: Boolean = false) = graph.updater.check(manual, onStart)
+
+    /** The install needs the "install unknown apps" permission first. */
+    fun canInstallUpdates(): Boolean = graph.updater.canInstall()
 
     fun installUpdate(info: UpdateInfo) = graph.updater.install(info)
 

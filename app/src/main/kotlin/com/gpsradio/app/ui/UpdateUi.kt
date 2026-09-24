@@ -104,3 +104,15 @@ fun UpdateBanner(state: UpdateState, onInstall: (UpdateInfo) -> Unit, onAllowIns
         }
     }
 }
+
+/** Offered on start when a newer tested build exists (spec B §36). */
+@Composable
+fun UpdatePrompt(info: UpdateInfo, onUpdate: () -> Unit, onLater: () -> Unit) {
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onLater,
+        title = { Text(stringResource(R.string.update_prompt_title)) },
+        text = { Text(stringResource(R.string.update_prompt_text, info.label())) },
+        confirmButton = { TextButton(onClick = onUpdate) { Text(stringResource(R.string.update_now)) } },
+        dismissButton = { TextButton(onClick = onLater) { Text(stringResource(R.string.later)) } },
+    )
+}

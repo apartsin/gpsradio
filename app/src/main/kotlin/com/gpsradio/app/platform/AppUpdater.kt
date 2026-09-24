@@ -57,12 +57,15 @@ class AppUpdater(
 
     val enabled: Boolean get() = client != null
 
-    /** Checks now ([manual]) or when the last automatic check is old enough. */
-    fun check(manual: Boolean) {
+    /**
+     * Checks now ([manual], or [onStart]: every app start, spec B §36) or when the last automatic check is old enough.
+     * Only a manual check reports "checking" and failures; the others stay silent.
+     */
+    fun check(manual: Boolean, onStart: Boolean = false) {
         val c = client ?: return
         if (job?.isActive == true) return
         val now = System.currentTimeMillis()
-        if (!manual && !Updates.autoCheckDue(prefs.getLong(KEY_LAST_CHECK, 0), now)) return
+        if (!manual && !onStart && !Updates.autoCheckDue(prefs.getLong(KEY_LAST_CHECK, 0), now)) return
         job = scope.launch {
             if (manual) _state.value = UpdateState.Checking
             try {

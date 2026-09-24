@@ -249,4 +249,8 @@
     <string name="update_ready_text">Нажмите, чтобы установить обновление.</string>
     <string name="update_done_title">GPS Radio обновлено до %1$s</string>
     <string name="update_done_text">Нажмите, чтобы открыть.</string>
+    <string name="update_prompt_title">Доступно обновление</string>
+    <string name="update_prompt_text">Доступна версия %1$s. Обновить сейчас?</string>
+    <string name="update_now">Обновить</string>
+    <string name="later">Позже</string>
 </resources>

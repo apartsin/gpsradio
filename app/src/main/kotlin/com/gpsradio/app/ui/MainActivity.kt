@@ -12,6 +12,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gpsradio.app.GpsRadioApp
@@ -40,6 +41,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (savedInstanceState == null) openSettingsRequest.value = intent.wantsSettings()
+        // Every start: is there a newer tested build? If so, the dialog below offers it (spec B §36).
+        if (savedInstanceState == null) vm.checkForUpdate(manual = false, onStart = true)
         enableEdgeToEdge()
         setContent {
             GpsRadioTheme {
@@ -52,6 +55,18 @@ class MainActivity : ComponentActivity() {
                 val radio by vm.radio.collectAsStateWithLifecycle()
                 val update by vm.update.collectAsStateWithLifecycle()
                 val cost by vm.cost.collectAsStateWithLifecycle()
+                // A newer version: ask once per version per app start (Later dismisses it until the next start).
+                var dismissedUpdate by rememberSaveable { mutableStateOf<String?>(null) }
+                (update as? com.gpsradio.app.platform.UpdateState.Available)?.info?.takeIf { it.version != dismissedUpdate }?.let { info ->
+                    UpdatePrompt(
+                        info = info,
+                        onUpdate = {
+                            dismissedUpdate = info.version
+                            if (vm.canInstallUpdates()) vm.installUpdate(info) else vm.allowInstalls()
+                        },
+                        onLater = { dismissedUpdate = info.version },
+                    )
+                }
                 // Android's "install this update?" screen: open it from here, the visible activity (spec B §36).
                 val installConfirm by (application as GpsRadioApp).updater.confirm.collectAsStateWithLifecycle()
                 LaunchedEffect(installConfirm) {

@@ -75,4 +75,19 @@ class UpdateUiTest {
     }
 
     private fun androidx.compose.ui.test.SemanticsNodeInteraction.assertDoesNotExistCompat() = assertDoesNotExist()
+
+    @Test
+    fun onStartANewerVersionIsOfferedWithUpdateAndLater() {
+        var updated = false
+        var later = false
+        compose.setContent {
+            com.gpsradio.app.ui.UpdatePrompt(info, onUpdate = { updated = true }, onLater = { later = true })
+        }
+        compose.onNodeWithText("Update available").assertExists()
+        compose.onNodeWithText("GPS Radio 0.5.150", substring = true).assertExists()
+        compose.onNodeWithText("Update").performClick()
+        org.junit.Assert.assertTrue(updated)
+        compose.onNodeWithText("Later").performClick()
+        org.junit.Assert.assertTrue(later)
+    }
 }
