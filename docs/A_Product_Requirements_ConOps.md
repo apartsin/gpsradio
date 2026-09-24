@@ -704,3 +704,18 @@ Every OpenAI call reports its usage to an on-device meter, priced at list prices
 ## 42. Nothing Pops Up While Driving
 
 While the travel mode is driving, the app's alerts (out of credit, events today nearby) post **silently**: no heads-up banner, sound or vibration. The radio already says these things aloud, and a banner draws the driver's eyes off the road. The notification still lands quietly in the shade for later. On foot or on a bike, alerts behave as before. The playback notification was already silent.
+
+## 44. Jewish & Israel Is Opt-In; Faith and Ethnicity Only of the Dead
+
+A person's faith or ethnicity is sensitive data. The radio never volunteers it about the living, and it tells this theme only to listeners who asked for it.
+
+- **Opt-in.**
+  - "Jewish & Israel" is no longer a default interest. Existing listeners who never changed the default are moved to the new one once; a set they chose themselves is kept.
+  - Without the interest:
+    - the Wikidata "born here" notes (§29) are removed from places, and a place that was only such a note is dropped;
+    - the Jewish-heritage research angle (§37) is not used unless the listener asks for the theme.
+  - Synagogues, cemeteries and memorials from OpenStreetMap stay ordinary heritage places.
+- **Living people.**
+  - The Wikidata query matches people by Israeli citizenship, Jewish faith (P140) or Jewish ethnicity (P172).
+  - Faith and ethnicity count only for people with a date of death (P570). Citizenship is not sensitive and counts for everyone.
+- **Cache.** The area cache version was bumped, so places cached before this change are fetched again.

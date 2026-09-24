@@ -266,9 +266,10 @@ class DiscoveryService(
             if (i >= 0) {
                 val c = out[i]
                 out[i] = c.copy(
-                    features = c.features + PlaceFeature.JEWISH_HERITAGE, topics = c.topics + Topic.JEWISH,
+                    // Feature and topic are added only for listeners who opted in (PlaceCandidate.forInterests).
                     // First, so the narration's fact budget (MAX_FACTS_CHARS) never cuts it off.
                     extract = listOfNotNull(born, c.extract).joinToString(" "), baseRelevance = min(1.0, c.baseRelevance + 0.1),
+                    bornHere = born,
                 )
             } else {
                 out += PlaceCandidate(
@@ -276,7 +277,7 @@ class DiscoveryService(
                     sourceConfidence = 0.8, baseRelevance = min(0.8, 0.45 + 0.05 * j.people.size),
                     topics = setOf(Topic.JEWISH, Topic.HISTORY), description = "birthplace", extract = born,
                     url = "https://www.wikidata.org/wiki/${j.qid}", wikidataId = j.qid,
-                    researchStatus = ResearchStatus.READY, features = setOf(PlaceFeature.JEWISH_HERITAGE),
+                    researchStatus = ResearchStatus.READY, features = setOf(PlaceFeature.JEWISH_HERITAGE), bornHere = born,
                 )
             }
         }

@@ -37,6 +37,7 @@ import com.gpsradio.core.model.GeoPoint
 import com.gpsradio.core.model.LocationContext
 import com.gpsradio.core.model.LocationSample
 import com.gpsradio.core.model.PlaceCandidate
+import com.gpsradio.core.model.forInterests
 import com.gpsradio.core.model.RadioState
 import com.gpsradio.core.model.RankedCandidate
 import com.gpsradio.core.model.Speaker
@@ -656,7 +657,11 @@ class RadioSession(
                         ?: places.discover(refreshPolicy.searchCenter(ctx), radius, lang)
                 }
                 if (lang != lastRefreshLang) candidates.clear()
-                found.forEach { candidates[it.id] = it }
+                // Opt-in topics (§44): what the listener didn't choose is left out.
+                val interests = config().interests
+                val foundIds = found.mapTo(HashSet()) { it.id }
+                candidates.values.removeAll { it.id in foundIds }
+                found.mapNotNull { it.forInterests(interests) }.forEach { candidates[it.id] = it }
                 // A widened search (non-stop) found plenty: back to the normal radius for the next refresh.
                 if (found.size >= RADIUS_RESET_FOUND && radiusBoost > 1.0) radiusBoost = 1.0
                 // Old candidates decay: forget anything far outside the current search area.

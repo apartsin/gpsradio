@@ -132,6 +132,8 @@ object AnglePlanner {
      */
     fun ordered(interests: Set<Topic>, theme: Topic?, avoid: Set<Topic> = emptySet(), random: Random = Random.Default): List<StoryAngle> {
         val pool = StoryAngle.entries.filter { a -> a.topics.none { it in avoid } || a.topics.any { it == theme } }
+            // Opt-in topics (§44) only when chosen, or asked for as the theme.
+            .filter { a -> a.topics.none { it in Topic.OPT_IN } || a.topics.any { it in interests || it == theme } }
             .filter { theme == null || theme in it.topics }
         return pool.groupBy { tierFor(it, interests) }.toSortedMap().values.flatMap { it.shuffled(random) }
     }

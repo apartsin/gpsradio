@@ -55,8 +55,10 @@ class EndlessRadioTest {
     fun plannerGoesTownThenRegionThenCountryAndFollowsInterests() {
         val tried = mutableSetOf<String>()
         val order = generateSequence { AnglePlanner.next(area, setOf(Topic.FOOD), null, tried)?.also { tried += it.key } }.toList()
-        // Every angle once in town, once in the region, and the country-scale ones for the country.
-        assertEquals(50 + 50 + StoryAngle.entries.count { it.countryOk }, order.size)
+        // Every angle once in town, once in the region, and the country-scale ones for the country; opt-in
+        // angles (Jewish & Israel, §44) only when chosen.
+        val offered = StoryAngle.entries.filter { a -> a.topics.none { it in Topic.OPT_IN } }
+        assertEquals(offered.size * 2 + offered.count { it.countryOk }, order.size)
         assertEquals(AngleScope.TOWN, order.first().scope)
         assertEquals("Gmunden", order.first().scopeName)
         // Top tier first (the listener's interests lift an angle one tier), random order within a tier.

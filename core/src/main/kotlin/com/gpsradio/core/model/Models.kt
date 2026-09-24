@@ -75,7 +75,21 @@ enum class Topic(val key: String, private val displayName: String? = null) {
 
     companion object {
         fun fromKey(key: String): Topic? = entries.firstOrNull { it.key.equals(key.trim(), ignoreCase = true) }
+
+        /** Topics the listener must choose themselves (spec A §44): off by default, never pushed on anyone. */
+        val OPT_IN: Set<Topic> = setOf(JEWISH)
     }
+}
+
+/**
+ * Applies the listener's opt-in (spec A §44) to a Wikidata "born here" connection: with [Topic.JEWISH] chosen, the
+ * place carries the topic and feature; otherwise the note is removed, and a place that was only that note is dropped.
+ */
+fun PlaceCandidate.forInterests(interests: Set<Topic>): PlaceCandidate? {
+    val born = bornHere ?: return this
+    if (Topic.JEWISH in interests) return copy(features = features + PlaceFeature.JEWISH_HERITAGE, topics = topics + Topic.JEWISH)
+    if (category == "birthplace" && id.startsWith("wd:")) return null
+    return copy(extract = extract?.removePrefix(born)?.trim()?.ifBlank { null }, bornHere = null)
 }
 
 enum class ResearchStatus { UNRESEARCHED, RESEARCHING, READY, FAILED }
@@ -107,6 +121,8 @@ data class PlaceCandidate(
     val openingHours: String? = null,
     /** Admission from OSM: the `charge` value, "paid entry" or "free". */
     val fee: String? = null,
+    /** The "Birthplace of: …" note from Wikidata (spec A §29), kept apart so it can be left out unless opted in (§44). */
+    val bornHere: String? = null,
 )
 
 @Serializable

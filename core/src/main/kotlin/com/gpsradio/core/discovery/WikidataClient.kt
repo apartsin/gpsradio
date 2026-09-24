@@ -120,13 +120,15 @@ class WikidataClient(
 
         /**
          * Places nearby that are the birthplace of well-known (many Wikipedia editions) people who were
-         * Israeli citizens, of Jewish faith or of Jewish ethnicity.
+         * Israeli citizens, of Jewish faith or of Jewish ethnicity. Faith and ethnicity are sensitive data about a
+         * person: those matches count only for people who have died (spec A §44). Citizenship counts for everyone.
          */
         fun jewishQuery(center: GeoPoint, radiusM: Int, lang: String, limit: Int) = """
             SELECT ?place ?placeLabel ?coord ?person ?personLabel ?personDescription ?links WHERE {
               ${around(center, radiusM, "?place")}
               ?person wdt:P19 ?place .
-              { ?person wdt:P27 wd:Q801 . } UNION { ?person wdt:P140 wd:Q9268 . } UNION { ?person wdt:P172 wd:Q7325 . }
+              { ?person wdt:P27 wd:Q801 . }
+              UNION { { ?person wdt:P140 wd:Q9268 . } UNION { ?person wdt:P172 wd:Q7325 . } ?person wdt:P570 ?died . }
               ?person wikibase:sitelinks ?links . FILTER(?links >= 8)
               SERVICE wikibase:label { bd:serviceParam wikibase:language "$lang,en" . }
             } ORDER BY DESC(?links) LIMIT $limit

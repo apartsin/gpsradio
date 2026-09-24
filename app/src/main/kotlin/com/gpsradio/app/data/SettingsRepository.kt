@@ -32,7 +32,8 @@ data class AppSettings(
     /** Russian by default; the listener can pick another language or Auto (phone language) in Settings. */
     val languageAuto: Boolean = false,
     val preferredLanguage: String = DEFAULT_LANGUAGE,
-    val interests: Set<Topic> = setOf(Topic.HISTORY, Topic.NATURE, Topic.ARCHITECTURE, Topic.CULTURE, Topic.JEWISH),
+    /** Jewish & Israel is opt-in (spec A §44): never on unless the listener chooses it. */
+    val interests: Set<Topic> = setOf(Topic.HISTORY, Topic.NATURE, Topic.ARCHITECTURE, Topic.CULTURE),
     val models: ModelConfig = ModelConfig(),
     val hostStyle: HostStyle = HostStyle.ENTERTAINING,
     /** Natural, hands-free voice conversation via the OpenAI Realtime API (falls back to classic). */
@@ -88,6 +89,7 @@ class SettingsRepository(context: Context) {
             putString(KEY_LANG, next.preferredLanguage)
             putStringSet(KEY_INTERESTS, next.interests.map { it.key }.toSet())
             putInt(KEY_MODELS_VERSION, MODELS_VERSION)
+            putInt(KEY_INTERESTS_VERSION, INTERESTS_VERSION)
             putString(KEY_NARRATION_MODEL, next.models.narrationModel)
             putString(KEY_CONVERSATION_MODEL, next.models.conversationModel)
             putString(KEY_TTS_MODEL, next.models.ttsModel)
@@ -114,7 +116,10 @@ class SettingsRepository(context: Context) {
             apiKey = secure.getString(KEY_API, "").orEmpty(),
             languageAuto = plain.getBoolean(KEY_LANG_AUTO, d.languageAuto),
             preferredLanguage = plain.getString(KEY_LANG, null) ?: d.preferredLanguage,
-            interests = plain.getStringSet(KEY_INTERESTS, null)?.mapNotNull { Topic.fromKey(it) }?.toSet() ?: d.interests,
+            interests = plain.getStringSet(KEY_INTERESTS, null)?.mapNotNull { Topic.fromKey(it) }?.toSet()
+                // v2: the old default had Jewish & Israel on; an untouched old default moves to the opt-in one.
+                ?.takeUnless { plain.getInt(KEY_INTERESTS_VERSION, 1) < INTERESTS_VERSION && it == OLD_DEFAULT_INTERESTS }
+                ?: d.interests,
             models = ModelConfig(
                 // Models saved before v2 were the old mini defaults: move to the new defaults once (spec A §38).
                 narrationModel = plain.getString(KEY_NARRATION_MODEL, null)?.takeIf { modelsCurrent } ?: m.narrationModel,
@@ -170,6 +175,9 @@ class SettingsRepository(context: Context) {
         const val KEY_NARRATION_MODEL = "narration_model"
         const val KEY_MODELS_VERSION = "models_version"
         const val MODELS_VERSION = 2
+        const val KEY_INTERESTS_VERSION = "interests_version"
+        const val INTERESTS_VERSION = 2
+        val OLD_DEFAULT_INTERESTS = setOf(Topic.HISTORY, Topic.NATURE, Topic.ARCHITECTURE, Topic.CULTURE, Topic.JEWISH)
         const val KEY_CONVERSATION_MODEL = "conversation_model"
         const val KEY_TTS_MODEL = "tts_model"
         const val KEY_TTS_VOICE = "tts_voice"

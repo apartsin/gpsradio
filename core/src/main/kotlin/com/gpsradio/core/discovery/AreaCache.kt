@@ -86,7 +86,7 @@ class AreaDiskCache(
     }
 
     private companion object {
-        const val VERSION = 1
+        const val VERSION = 2
         val json = Json { ignoreUnknownKeys = true; encodeDefaults = false }
     }
 }
