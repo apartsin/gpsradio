@@ -1003,3 +1003,14 @@ In Settings → Models, every model and the voice are chosen from a dropdown ins
   - The listener's own question (from its transcript) is illustrated as soon as it's heard, so pictures of what was asked come up while the host answers.
   - The answer is illustrated too (§62).
   - Short texts count: questions from 12 characters.
+
+## 65. Only Photos of What's Told
+
+Photos merely taken near a place or near the listener were often unrelated (cars, people, random streets).
+
+- **Nearby photos of the place.** Commons photos taken near a place are kept only when their file name names the place (a shared word of 4+ letters).
+- **Scenery fallback removed.** The "scenery around the listener" fallback (§63) is no longer used.
+- **What the slideshow shows now:**
+  - the place's own article photos;
+  - the photos of what the story names (§62): the Wikipedia photo of that exact thing, or a search for it near the listener, then anywhere, then Openverse;
+  - the photos of an area story's subject.

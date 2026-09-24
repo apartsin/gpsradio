@@ -1666,7 +1666,10 @@ class RadioSession(
         scope.launch {
             val article = runCatching { places.gallery(place) }.getOrDefault(emptyList())
             // Few article photos: add photos taken right around the place (Commons), for a fuller slideshow.
-            val near = if (article.size < 5) runCatching { places.photosNear(place.point, 150) }.getOrDefault(emptyList()) else emptyList()
+            // Only photos of this place: the file name must name it (photos merely taken nearby can be anything).
+            val near = if (article.size < 5) {
+                runCatching { places.photosNear(place.point, 150) }.getOrDefault(emptyList()).filter { namesPlace(it, place.name) }
+            } else emptyList()
             val g = (article + near).distinctBy { it.substringAfterLast('/').substringAfter("px-") }.take(8)
             if (g.isEmpty()) return@launch
             galleries[place.id] = g
@@ -1705,7 +1708,6 @@ class RadioSession(
         val id = "area:${facet.id}"
         _state.update { it.copy(focus = FocusPlace(id, facet.title ?: facet.area, loc.point, null, facet.url)) }
         illustrate(id, segment.text, 0)
-        addSceneryIfSparse(id)
         scope.launch {
             val lang = langBase(sessionLanguage)
             val wikiTitle = facet.url?.takeIf { "wikipedia.org/wiki/" in it }?.substringAfter("/wiki/")?.replace('_', ' ')
@@ -1760,7 +1762,6 @@ class RadioSession(
             fid
         }
         illustrate(id, text, 0)
-        addSceneryIfSparse(id)
     }
 
     /**
@@ -1796,10 +1797,17 @@ class RadioSession(
         }
     }
 
+    /** A photo's file name names the place (a word of 4+ letters in common), so it's of the place, not just near it. */
+    private fun namesPlace(url: String, placeName: String): Boolean {
+        val file = PhotoCaptions.fromUrl(url)?.lowercase() ?: return false
+        return placeName.lowercase().split(Regex("[^\\p{L}]+")).filter { it.length >= 4 }.any { w -> w.take(5) in file }
+    }
+
     /**
      * Too few pictures for what's being said: add photos taken around the listener (spec A §63), captioned with
-     * what the file says or the town's name.
+     * what the file says or the town's name. Not used: photos merely taken nearby were often unrelated (§65).
      */
+    @Suppress("unused")
     private fun addSceneryIfSparse(id: String) {
         val point = _state.value.location?.point ?: return
         scope.launch {

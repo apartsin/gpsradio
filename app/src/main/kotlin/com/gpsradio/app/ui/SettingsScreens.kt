@@ -499,7 +499,7 @@ private fun ModelPicker(
                 readOnly = true,
                 singleLine = true,
                 label = { Text(label) },
-                supportingText = if (note != null) { { Text(note) } } else null,
+                supportingText = { note?.let { Text(it) } },
                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
                 modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable).testTag(tag),
             )

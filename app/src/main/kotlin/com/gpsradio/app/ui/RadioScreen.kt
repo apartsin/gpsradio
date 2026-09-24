@@ -5,6 +5,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.DrawerValue
