@@ -21,15 +21,26 @@ import kotlin.coroutines.resumeWithException
 /**
  * On-device voice for the keyless preview and the offline/degraded mode (spec A §18.4): Android's
  * own TextToSpeech renders each segment to a WAV file, which [MediaAudioOutput] plays like any clip.
- * Needs no key and no network (for engines with offline voices). Speech recognition is not offered.
+ * Needs no key and no network (for engines with offline voices). Speech recognition is not offered here
+ * (the mic's on-device fallback is [AndroidSpeechAsr]).
+ *
+ * [enginePackage] is the listener's chosen TextToSpeech engine (Settings, "Offline voice"); null = system default.
  */
-class AndroidTtsSpeech(context: Context) : SpeechService {
+class AndroidTtsSpeech(context: Context, private val enginePackage: () -> String? = { null }) : SpeechService {
     private val appContext = context.applicationContext
     private val lock = Mutex()
     private var engine: TextToSpeech? = null
+    /** The engine package [engine] was created for (null = system default). */
+    private var enginePackageInUse: String? = null
 
     override suspend fun synthesize(text: String, language: String, style: HostStyle): ByteArray = lock.withLock {
-        val tts = engine ?: init().also { engine = it }
+        val wanted = runCatching { enginePackage() }.getOrNull()?.takeIf { it.isNotBlank() }
+        engine?.takeIf { wanted != enginePackageInUse }?.let { old ->
+            // The listener picked another engine: release the old one and start the new one.
+            engine = null
+            withContext(Dispatchers.Main) { runCatching { old.shutdown() } }
+        }
+        val tts = engine ?: init(wanted).also { engine = it; enginePackageInUse = wanted }
         val file = withContext(Dispatchers.IO) { File.createTempFile("tts", ".wav", appContext.cacheDir) }
         try {
             withContext(Dispatchers.Main) {
@@ -54,17 +65,19 @@ class AndroidTtsSpeech(context: Context) : SpeechService {
         throw IOException("Speech recognition needs an OpenAI key")
 
     /** Creates the engine and waits for onInit, which Android delivers asynchronously on the main thread. */
-    private suspend fun init(): TextToSpeech = withContext(Dispatchers.Main) {
+    private suspend fun init(pkg: String?): TextToSpeech = withContext(Dispatchers.Main) {
         var created: TextToSpeech? = null
         try {
             suspendCancellableCoroutine<Unit> { cont ->
                 // onInit can also fire synchronously (no engine installed), so the result is read after resuming.
-                created = TextToSpeech(appContext) { status ->
+                val listener = TextToSpeech.OnInitListener { status ->
                     if (cont.isActive) {
                         if (status == TextToSpeech.SUCCESS) cont.resume(Unit)
                         else cont.resumeWithException(IOException("On-device speech is not available on this phone"))
                     }
                 }
+                // A chosen engine that is gone falls back to the system default inside TextToSpeech itself.
+                created = if (pkg != null) TextToSpeech(appContext, listener, pkg) else TextToSpeech(appContext, listener)
             }
             created ?: throw IOException("On-device speech is not available on this phone")
         } catch (e: Throwable) {
@@ -73,7 +86,10 @@ class AndroidTtsSpeech(context: Context) : SpeechService {
         }
     }
 
-    /** Uses the exact locale if the engine has it, else the base language, else keeps the engine default. */
+    /**
+     * Uses the exact locale if the engine has it, else the base language, else keeps the engine default; then
+     * prefers a voice for that language that works offline and is fully installed, highest quality first.
+     */
     private fun applyLanguage(tts: TextToSpeech, tag: String) {
         val exact = Locale.forLanguageTag(tag)
         val candidates = listOf(exact, Locale(exact.language))
@@ -81,9 +97,10 @@ class AndroidTtsSpeech(context: Context) : SpeechService {
             if (locale.language.isNullOrEmpty()) continue
             if (tts.isLanguageAvailable(locale) >= TextToSpeech.LANG_AVAILABLE) {
                 tts.setLanguage(locale)
-                return
+                break
             }
         }
+        OfflineVoices.bestOfflineVoice(tts, tag)?.let { voice -> runCatching { tts.setVoice(voice) } }
     }
 
     /** synthesizeToFile completes through the UtteranceProgressListener (called on a binder thread). */

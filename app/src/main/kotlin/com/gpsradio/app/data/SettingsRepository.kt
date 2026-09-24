@@ -50,6 +50,10 @@ data class AppSettings(
     val pacing: Pacing = Pacing.NONSTOP,
     /** Daily OpenAI spending limit in USD (estimate, spec A §41); 0 = no limit. */
     val dailyBudgetUsd: Double = 0.0,
+    /** Speech recognition on the phone itself (free, offline) instead of OpenAI: the mic listens once per tap. */
+    val asrOnDevice: Boolean = false,
+    /** Package of the phone's TextToSpeech engine for the offline voice; null = the system default. */
+    val offlineTtsEngine: String? = null,
 ) {
     /** The listener's own key if they entered one, otherwise the key built into this app (if any). */
     val effectiveApiKey: String get() = apiKey.ifBlank { EmbeddedKey.value }
@@ -107,6 +111,8 @@ class SettingsRepository(context: Context) {
             putBoolean(KEY_LOCAL_EVENTS, next.localEvents)
             putString(KEY_PACING_V2, next.pacing.key)
             putFloat(KEY_DAILY_BUDGET, next.dailyBudgetUsd.coerceAtLeast(0.0).toFloat())
+            putBoolean(KEY_ASR_ON_DEVICE, next.asrOnDevice)
+            putString(KEY_OFFLINE_TTS_ENGINE, next.offlineTtsEngine?.takeIf { it.isNotBlank() })
         }
         _settings.value = next.copy(apiKey = next.apiKey.trim())
     }
@@ -148,6 +154,8 @@ class SettingsRepository(context: Context) {
             // v2: everyone moved to non-stop once; a pacing chosen after that is kept.
             pacing = plain.getString(KEY_PACING_V2, null)?.let { Pacing.fromKey(it) } ?: d.pacing,
             dailyBudgetUsd = plain.getFloat(KEY_DAILY_BUDGET, d.dailyBudgetUsd.toFloat()).toDouble(),
+            asrOnDevice = plain.getBoolean(KEY_ASR_ON_DEVICE, d.asrOnDevice),
+            offlineTtsEngine = plain.getString(KEY_OFFLINE_TTS_ENGINE, null)?.takeIf { it.isNotBlank() },
         )
     }
 
@@ -209,5 +217,7 @@ class SettingsRepository(context: Context) {
         const val KEY_LOCAL_EVENTS = "local_events"
         const val KEY_PACING_V2 = "pacing_v2"
         const val KEY_DAILY_BUDGET = "daily_budget_usd"
+        const val KEY_ASR_ON_DEVICE = "asr_on_device"
+        const val KEY_OFFLINE_TTS_ENGINE = "offline_tts_engine"
     }
 }

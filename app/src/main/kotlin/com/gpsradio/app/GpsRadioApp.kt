@@ -73,6 +73,13 @@ open class GpsRadioApp : Application(), coil.ImageLoaderFactory {
     lateinit var meter: com.gpsradio.core.cost.CostMeter
         private set
 
+    /** Network state now (the mic falls back to the phone's own speech recognition when offline). */
+    var onlineNow: () -> Boolean = { true }
+        private set
+
+    /** The listener has spent the daily OpenAI limit (spec A §41). */
+    fun budgetReached(): Boolean = settings.current.let { it.dailyBudgetUsd > 0 && meter.todayUsd() >= it.dailyBudgetUsd }
+
     /** The live voice's audio; told when the radio itself is playing (always-listening echo guard). */
     private var livePcm: AndroidPcmAudio? = null
 
@@ -130,7 +137,7 @@ open class GpsRadioApp : Application(), coil.ImageLoaderFactory {
     protected open fun areaLabeler(): AreaLabeler? = GeocoderAreaLabeler(this)
 
     /** On-device voice for the keyless preview and when OpenAI is unreachable. */
-    protected open fun fallbackSpeech(): SpeechService? = AndroidTtsSpeech(this)
+    protected open fun fallbackSpeech(): SpeechService? = AndroidTtsSpeech(this) { settings.current.offlineTtsEngine }
 
     /** Network state for offline-aware scheduling; tests may force online/offline. */
     protected open fun isOnline(): () -> Boolean = NetworkMonitor(this)::isOnline
@@ -187,7 +194,7 @@ open class GpsRadioApp : Application(), coil.ImageLoaderFactory {
             .build()
         val openAi = OpenAiClient(http, apiKey = { settings.current.effectiveApiKey }, baseUrl = ep.openAiBaseUrl, meter = meter)
         val models = { settings.current.models }
-        val online = isOnline()
+        val online = isOnline().also { onlineNow = it }
         val wikipedia = WikipediaClient(http, userAgent, baseUrl = ep.wikipedia)
 
         updater = com.gpsradio.app.platform.AppUpdater(this, updateClient(http), beforeInstall = {
@@ -215,7 +222,8 @@ open class GpsRadioApp : Application(), coil.ImageLoaderFactory {
                         language = it.resolvedLanguage(),
                         interests = it.interests,
                         style = it.hostStyle,
-                        liveVoice = it.liveVoice && micGranted() && it.hasApiKey,
+                        // "On this phone" speech recognition replaces the OpenAI live voice (free & offline).
+                        liveVoice = it.liveVoice && !it.asrOnDevice && micGranted() && it.hasApiKey,
                         handsFree = it.alwaysListening,
                         voice = it.models.ttsVoice,
                         liveModel = it.models.realtimeModel,
@@ -228,7 +236,7 @@ open class GpsRadioApp : Application(), coil.ImageLoaderFactory {
                         askPreferences = true,
                         localEvents = it.localEvents,
                         // With the mic closed the listener can't answer: no teasers, offers or questions.
-                        canReply = it.alwaysListening && it.liveVoice && micGranted() && it.hasApiKey,
+                        canReply = it.alwaysListening && it.liveVoice && !it.asrOnDevice && micGranted() && it.hasApiKey,
                         // Over the daily limit: free on-device notes until tomorrow or until the limit is raised.
                         budgetReached = it.dailyBudgetUsd > 0 && meter.todayUsd() >= it.dailyBudgetUsd,
                     )

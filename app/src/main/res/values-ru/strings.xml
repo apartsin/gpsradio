@@ -282,4 +282,17 @@
     <string name="install_manually">Установить вручную</string>
     <string name="searching">Ищу</string>
     <string name="installing_play_protect_hint">Радио остановится на время обновления и включится снова, когда вы откроете приложение. Если Play Protect долго «проверяет»: нажмите «Всё равно установить» или «Установить вручную».</string>
+    <string name="free_offline_title">Бесплатно и без интернета</string>
+    <string name="free_offline_hint">Собственные речевые движки Android: без ключа, бесплатно и работают без интернета.</string>
+    <string name="asr_engine_label">Распознавание речи</string>
+    <string name="asr_engine_openai">OpenAI (лучшее)</string>
+    <string name="asr_engine_phone">На этом телефоне (бесплатно, без интернета)</string>
+    <string name="asr_engine_hint">На этом телефоне: нажмите на микрофон и скажите одну фразу. Микрофон и сам переходит на него без интернета, без ключа или когда дневной лимит исчерпан.</string>
+    <string name="offline_voice_label">Голос без интернета</string>
+    <string name="offline_voice_system_default">Системный по умолчанию</string>
+    <string name="offline_voice_checking">Проверяю голоса телефона…</string>
+    <string name="offline_voice_installed">Голос без интернета для языка «%1$s» установлен.</string>
+    <string name="offline_voice_missing">Голос без интернета для языка «%1$s» пока не установлен.</string>
+    <string name="install_voice_data">Установить голосовые данные</string>
+    <string name="phone_asr_unavailable">Распознавание речи на этом телефоне недоступно.</string>
 </resources>

@@ -239,7 +239,8 @@ fun RadioScreen(vm: MainViewModel, onOpenSettings: () -> Unit, autoStart: Boolea
         onAsk = vm::ask,
         onTalkStart = {
             if (granted(Manifest.permission.RECORD_AUDIO)) {
-                vm.startTalking()
+                // Free & offline: the phone's own recognition listens once (the release does nothing then).
+                if (vm.useOnDeviceMic()) vm.listenOnDevice() else vm.startTalking()
                 true
             } else {
                 micPermission.launch(Manifest.permission.RECORD_AUDIO)
@@ -254,12 +255,19 @@ fun RadioScreen(vm: MainViewModel, onOpenSettings: () -> Unit, autoStart: Boolea
         onRemoveFavorite = vm::removeFavorite,
         onAnswerOffer = vm::answerOffer,
         onLiveToggle = {
-            if (granted(Manifest.permission.RECORD_AUDIO)) vm.toggleLive() else micPermission.launch(Manifest.permission.RECORD_AUDIO)
+            when {
+                !granted(Manifest.permission.RECORD_AUDIO) -> micPermission.launch(Manifest.permission.RECORD_AUDIO)
+                vm.useOnDeviceMic() -> vm.listenOnDevice()
+                else -> vm.toggleLive()
+            }
         },
         // The mic switch: open = natural voice + always listening; asks for the mic permission first.
         onToggleListening = {
             if (!granted(Manifest.permission.RECORD_AUDIO)) {
                 micPermission.launch(Manifest.permission.RECORD_AUDIO)
+            } else if (vm.useOnDeviceMic()) {
+                // Free & offline (chosen, no key, limit reached or no network): listen once on the phone.
+                vm.listenOnDevice()
             } else {
                 vm.saveSettings { if (it.liveVoice && it.alwaysListening) it.copy(alwaysListening = false) else it.copy(liveVoice = true, alwaysListening = true) }
             }
@@ -277,7 +285,8 @@ fun RadioScreen(vm: MainViewModel, onOpenSettings: () -> Unit, autoStart: Boolea
         recording = recording,
         actions = actions,
         // Natural voice needs the mic; until it's granted, the mic falls back to hold-to-talk (which asks for it).
-        liveMode = settings.liveVoice && micGranted,
+        // "On this phone" recognition replaces the live voice: the mic listens once per tap.
+        liveMode = settings.liveVoice && micGranted && !settings.asrOnDevice,
         alwaysListening = settings.alwaysListening,
         update = update,
         onInstallUpdate = vm::installUpdate,
