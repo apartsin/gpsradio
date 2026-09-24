@@ -121,7 +121,7 @@ The orchestrator maintains a compact state object. A representative internal mod
 
 - Smooth speed and bearing to prevent mode oscillation.
 
-- Derive travel mode from speed plus hysteresis; allow user override.
+- Derive travel mode from speed plus hysteresis and activity recognition; always automatic (spec A §37), no user override.
 
 - Trigger area refresh by meaningful displacement, not every GPS sample.
 
@@ -608,7 +608,7 @@ Typed questions are routed into an open live session. If the connection fails, t
 | Rare | ×1.25 | 90 s | 12 min |
 | Non-stop | ×0.7 | ~4.5 s | none |
 
-A hard floor of a quarter of the gap applies between any two segments. Driving keeps ≤ 30 s per segment and ≥ 90 s between segments, except in Non-stop, where the driving gap is 12 s (`Pacing.drivingMinGapMs`) so the radio keeps talking on the road; junctions (`holdForManeuver`) always mean silence.
+A hard floor of a quarter of the gap applies between any two segments. Driving keeps ≤ 30 s per segment and ≥ 90 s between segments, except in Non-stop, where the driving gap is 4 s (`Pacing.drivingMinGapMs`, spec A §38) so the radio keeps talking on the road; junctions (`holdForManeuver`) always mean silence.
 
 **Non-stop.** When nothing crosses the (lowered) threshold, the programme keeps talking in this order: (1) weaker unheard nearby places above half the threshold, told as full stories; (2) area facets; (3) bumpers, on this day and quizzes (fillers may follow fillers); (4) a wider discovery radius (×2 per step, up to 3 steps). Teasers are off and the quiz pause is 5 s, so there are no long answer windows. Nothing is repeated; when everything is exhausted, the radio is silent rather than repetitive.
 

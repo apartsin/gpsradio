@@ -251,7 +251,7 @@ Travel mode determines what is worth telling and how far out to look.
 |---|---|---|---|
 | Walking | ~1.5 km, weighted to the nearest few hundred metres | Things you can see or reach on foot: facades, plaques, street history, small sights | Frequent, shorter segments. Direction phrased as "on your left" or "ahead". |
 | Cycling (planned) | ~3–4 km, ahead-weighted | Route-side sights, viewpoints, rest stops | Medium |
-| Driving | ~8 km, shifted ahead along the direction of travel (look-ahead) | **Visible from the road**: mountains, lakes, castles, bridges, landmarks. **Worth a stop on this trip**: sights within a short detour, with an offer to navigate there | Sparse (at least 90 s between segments; 12 s in Non-stop, §24), ≤30 s, no screen interaction, silence at junctions |
+| Driving | ~8 km, shifted ahead along the direction of travel (look-ahead) | **Visible from the road**: mountains, lakes, castles, bridges, landmarks. **Worth a stop on this trip**: sights within a short detour, with an offer to navigate there | Sparse (at least 90 s between segments; 4 s in Non-stop, §38), ≤30 s, no screen interaction, silence at junctions |
 | Stationary | ~1.5 km | Deeper stories and recommendations | Longer segments on request |
 
 - Mode is detected from GPS speed with hysteresis today. Android activity recognition (walk, cycle, vehicle, still) will be added to detect mode faster and more reliably, and to save battery while still.
@@ -356,7 +356,7 @@ Conversation should feel like talking to a person, as in ChatGPT's voice mode.
 The listener chooses how talkative the radio is: **Chatty**, **Balanced** (default), **Rare** or **Non-stop**.
 
 - Between place stories the radio can run short formats: a "did you know" bumper, a quiz (answer out loud or wait for the reveal), "on this day", a station ident with a recap, and stories about the town or region, one angle at a time. All of them stay grounded in sources.
-- **Non-stop** never goes quiet while there is anything left to tell. When no strong story is nearby it falls back, in order, to weaker unheard places, stories about the area, the short formats, and then a wider search radius. Nothing is repeated. It also works while driving: segments stay ≤30 s, with about 12 s between them, and the radio is silent at junctions.
+- **Non-stop** never goes quiet while there is anything left to tell. When no strong story is nearby it falls back, in order, to weaker unheard places, stories about the area, the short formats, and then a wider search radius. Nothing is repeated. It also works while driving: segments stay ≤30 s, with about 4 s between them (§38), and the radio is silent at junctions.
 
 | ID | Capability | Requirement |
 |---|---|---|
@@ -450,7 +450,7 @@ GPS Radio is not distributed through a store:
 - The host mentions new events promptly and once, as an invitation ("if you're back at…"), with the time and place. It never invents prices, tickets or line-ups.
 - A phone notification lists them.
 - The Nearby tab shows "Today nearby" with times, venues and links.
-- A Settings switch, "Events today nearby", is on by default.
+- A Settings switch, "Events today nearby", is on by default in the app. (`SessionConfig.localEvents` defaults to off in `core`, so embedders and tests opt in; the app always passes the setting.)
 
 | ID | Capability | Requirement |
 |---|---|---|
@@ -555,12 +555,12 @@ Everything the radio airs on its own is about where the listener is. Nothing air
 | Segment | How it is tied to the location |
 |---|---|
 | Stories, teasers, arrival notes, "did you know" bumpers, photo tips | Places near the listener or on the road ahead |
-| Area stories | The town or region the listener is in |
+| Area stories | The town or region the listener is in; at country scope, only country-wide angles (landscape, cuisine, customs, language) of the country the listener is in (§37) |
 | Events today | Within reach of the listener |
 | Station ID | Recaps only places already heard on this trip |
 | **On this day** | **Only if the anniversary happened here:** the event names the town or region, or one of its places is within 100 km. |
 
-- **Country is not enough.** Sharing only the country does not count: a treaty in Vienna is not "on this day" for a listener in Gmunden.
+- **Country is not enough for events.** Sharing only the country does not count for "on this day": a treaty in Vienna is not "on this day" for a listener in Gmunden. Country-scope area stories are different: they are about what is true across the whole country the listener is in (its landscape, dishes, customs), never about a single faraway event or place.
 - **No local event, no segment.** If nothing local happened on today's date, the slot is skipped and the next local segment airs instead.
 - **Per area.** The check runs once per day and area, so a new town on a drive can have its own anniversary.
 - **Framing.** The narration ties the event to the place ("right here in Gmunden…") and never invents a connection.
@@ -578,7 +578,6 @@ The main screen has only the essentials:
   - The notification's Mic action does the same.
 - **The image / map area:** the photo of the place on air, or the map. Under it are the place name (with the ON AIR light) and one status line. An error that needs the API key links to Settings.
 - **Menu (☰):**
-  - travel mode: Auto, Walk, Cycle, Drive or Still;
   - Nearby, with events today and walking tours;
   - Saved & journal;
   - Transcript;
@@ -606,10 +605,10 @@ These are now by voice ("skip", "pause", «следующий», "save this plac
 
 - **Non-stop by default.** Unless stopped, the stories keep coming. Existing installs move to non-stop once; a pacing chosen after that is kept.
 - **The endless loop.** When the nearby places run out, the radio researches the next untold angle for the listener's town, then the region, then the country (landscape and culture angles only at country level).
-  - It uses `AngleScout`: the conversation model with web search returns "found / not found", a title and 3–8 sentences of sourced factual notes.
+  - It uses `AngleScout`: the research model (gpt-4.1-mini, §38) with web search returns "found / not found", a title and 3–8 sentences of sourced factual notes.
   - The notes are narrated by the normal story prompt, so the grounding, retelling, language and dignity rules apply unchanged.
   - One angle is researched ahead of time, so there is no dead air.
-  - At most 24 lookups an hour, each angle once per scope.
+  - At most 40 lookups an hour, each angle once per scope (and, from §40, once per 90 days).
   - Angles matching the listener's interests come first; a theme narrows to it; avoided topics are left out; consecutive angles vary.
 - **The 50 angles** (`StoryAngle`):
   - History & heritage: origins and the name, turning points, everyday life in the past, work heritage, architecture, castles and defence, religious heritage, Jewish heritage and Israel, war and remembrance, archaeology, borders and rulers, migration and communities, royal links, documented scandals and mysteries, disasters and recovery.
@@ -735,3 +734,16 @@ Trust needs a way to check. The listener can ask by voice, and every photo says 
   - Gallery photos come from Wikimedia Commons.
   - Their author and licence are fetched from Commons metadata (one request per place) and shown under the photo: "Photo: Jane Doe · CC BY-SA 4.0 · Wikimedia Commons".
   - A photo whose file can't be identified shows no credit line rather than a wrong one.
+
+## 46. Resolved Contradictions (R1.8)
+
+Where earlier sections disagreed, the later decision and the code win. The sections above were edited to match.
+
+| Topic | Was | Now |
+|---|---|---|
+| Non-stop driving gap | 12 s (§16, §24) | 4 s (§38); junctions still mean silence |
+| Angle lookups | 24 an hour (§37) | 40 an hour; each angle once per scope and per 90 days (§40) |
+| Travel mode | choosable in the menu (§36) | always automatic (§37); the menu has no mode picker |
+| Country scope | "country is not enough" (§35) vs country angles (§37) | §35 governs "on this day"; country-scope area stories are limited to country-wide angles |
+| Events today | on (§30) vs off in `core` | on in the app; `core` defaults to off and the app passes the setting |
+| Research model | conversation model (§37) | gpt-4.1-mini research model (§38) |
