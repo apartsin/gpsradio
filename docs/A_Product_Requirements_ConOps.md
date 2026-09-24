@@ -921,3 +921,27 @@ Stories stay on gpt-4o-mini-tts in the `marin` voice (the owner chose not to pay
 - **Russian notes:** standard literary pronunciation with correct stress, a conversational melody (not a newsreader or an audiobook), ё as ё, and numbers in the right grammatical case. Hebrew and German have short notes too.
 
 - (§54 follow-up) **"Avoid" means left out entirely.** A lake with a war past, for a listener who avoids war, is told through another aspect (depth, fish, legends), not even mentioning the war in passing.
+
+## 59. Waiting Is Seen and Heard
+
+When the listener is waiting (after "next", while a steer is researched, or for the first story after Start), the radio shows and says that it's working:
+
+- **Seen.** The main screen shows an animated "Searching…" (a pulsing magnifier with moving dots, «Ищу…» in Russian). It also shows whenever the radio is preparing its next story.
+- **Heard.**
+  - After 4 s of waiting, a short spoken cue in the session language: «Секундочку…», then «Ещё ищу, почти готово.», then «Уже почти…». English, Hebrew, German, Spanish and French have their own lines.
+  - At most three per wait, 9 s apart, in the host's voice (the phone's voice when OpenAI is out).
+  - No cue while the host or the listener is talking. No cue for the radio's own background preparation, which nobody is waiting for.
+  - A cue that hasn't finished is cut when the story is ready.
+- **One queue for all radio audio.** Stories, notices and cues never overlap.
+
+## 60. More Photos: Wikimedia Commons
+
+The slideshow (§55) adds free, licensed photos from Wikimedia Commons, the archive behind Wikipedia's images:
+
+- **Place stories.** When the article has few photos, add photos taken within 150 m of the place (Commons geosearch): views, facades, details.
+- **Area stories.** When the subject's article has few photos, add Commons photos of the subject (search).
+- **Credits.** They are credited like all Commons photos (§45).
+- **Not used:**
+  - Google Image Search: its API is paid, closed to new sign-ups, and returns copyrighted images the app may not show.
+  - OpenAI web search: returns pages, not images.
+  - AI-generated illustrations remain possible (for example, historical scenes that have no photos), clearly labelled; they are not used by default.

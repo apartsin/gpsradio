@@ -38,5 +38,11 @@ class LivePhotoTest {
         assertEquals(200, ours.first)
         assertTrue(ours.second.orEmpty().startsWith("image/"), ours.toString())
         gallery.take(2).forEach { u -> assertEquals(200, status(http, u, userAgent).first, u) }
+        // More slideshow photos from Commons (spec A §60): taken near Schloss Ort, and of the subject.
+        val near = wiki.commonsPhotosNear(com.gpsradio.core.model.GeoPoint(47.9105, 13.8013), 300)
+        val of = wiki.commonsPhotosOf("Traunsee")
+        println("PHOTO commons near=${near.size} ${near.take(3)}; of=${of.size} ${of.take(3)}")
+        assertTrue(near.isNotEmpty() && of.isNotEmpty())
+        assertEquals(200, status(http, near.first(), userAgent).first)
     }
 }

@@ -5,6 +5,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButtonDefaults
@@ -449,6 +451,11 @@ private fun NowLine(state: RadioUiState, micOpen: Boolean, onFixKey: () -> Unit)
                 modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
             )
         }
+        // Looking for the next story (after "next", a steer, the first story, or preparing one): animated, so the
+        // listener sees it's working (spec A §59).
+        if (state.radioState != RadioState.IDLE && (state.waiting || state.discovering) && state.status?.level != StatusLevel.ERROR) {
+            SearchingIndicator(Modifier.padding(top = 2.dp))
+        }
         val status = state.status
         val openSettings = stringResource(R.string.open_settings)
         val line = when {
@@ -496,6 +503,41 @@ private fun RadioOnOffButton(running: Boolean, onStart: () -> Unit, onStop: () -
             Icon(if (running) Icons.Default.Stop else Icons.Default.PlayArrow, stringResource(if (running) R.string.stop_radio else R.string.start_radio), Modifier.size(56.dp))
         }
         Text(stringResource(if (running) R.string.stop else R.string.start), style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 4.dp))
+    }
+}
+
+/** A pulsing magnifier and "Searching…" with moving dots: the radio is looking for what to tell next. */
+@Composable
+private fun SearchingIndicator(modifier: Modifier = Modifier) {
+    val t = androidx.compose.animation.core.rememberInfiniteTransition(label = "searching")
+    val pulse by t.animateFloat(
+        initialValue = 0.85f, targetValue = 1.15f,
+        animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+            androidx.compose.animation.core.tween(600), androidx.compose.animation.core.RepeatMode.Reverse,
+        ),
+        label = "pulse",
+    )
+    val dots by t.animateFloat(
+        initialValue = 0f, targetValue = 4f,
+        animationSpec = androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(1600)),
+        label = "dots",
+    )
+    val searching = stringResource(R.string.searching)
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = modifier.testTag("searching").semantics { contentDescription = searching },
+    ) {
+        Icon(
+            Icons.Default.Search, null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(20.dp).graphicsLayer { scaleX = pulse; scaleY = pulse; alpha = 0.6f + (pulse - 0.85f) },
+        )
+        Text(
+            searching + ".".repeat(dots.toInt().coerceIn(0, 3)),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(start = 6.dp).width(120.dp),
+        )
     }
 }
 

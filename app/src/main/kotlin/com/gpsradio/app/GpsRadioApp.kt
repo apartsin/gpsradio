@@ -183,7 +183,7 @@ open class GpsRadioApp : Application(), coil.ImageLoaderFactory {
         val openAi = OpenAiClient(http, apiKey = { settings.current.effectiveApiKey }, baseUrl = ep.openAiBaseUrl, meter = meter)
         val models = { settings.current.models }
         val online = isOnline()
-        val wikipedia = WikipediaClient(http, userAgent, ep.wikipedia)
+        val wikipedia = WikipediaClient(http, userAgent, baseUrl = ep.wikipedia)
 
         updater = com.gpsradio.app.platform.AppUpdater(this, updateClient(http))
         session = RadioSession(

@@ -63,6 +63,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -173,6 +174,8 @@ data class RadioUiState(
     val nearby: List<RankedCandidate> = emptyList(),
     val transcript: List<TranscriptEntry> = emptyList(),
     val discovering: Boolean = false,
+    /** The listener is waiting for the next story (after "next", a steer, the first story): show that it's working. */
+    val waiting: Boolean = false,
     val status: Status? = null,
     /** Non-null while a walking mini-tour is active. */
     val tour: TourState? = null,
@@ -196,7 +199,7 @@ class RadioSession(
     private val places: PlacesProvider,
     private val narrator: Narrator,
     private val speech: SpeechService,
-    private val audio: AudioOutput,
+    audio: AudioOutput,
     private val historyStore: HistoryStore,
     private val config: () -> SessionConfig,
     private val areaLabeler: AreaLabeler? = null,
@@ -247,6 +250,13 @@ class RadioSession(
     private val angleResearch: com.gpsradio.core.discovery.AngleResearch? = null,
     private val zone: () -> ZoneId = { ZoneId.systemDefault() },
 ) {
+    /**
+     * Every clip of the radio path plays through one queue: two clips (a story and a "just a moment", a notice and a
+     * story) can never overlap; a cancelled clip that was still waiting simply never plays.
+     */
+    private val audioLock = kotlinx.coroutines.sync.Mutex()
+    private val audio: AudioOutput = audio.let { out -> AudioOutput { bytes -> audioLock.withLock { out.play(bytes) } } }
+
     data class Timeouts(
         val narrationMs: Long = 25_000,
         val speechMs: Long = 25_000,
@@ -345,6 +355,7 @@ class RadioSession(
 
     fun start() = scope.launch {
         if (schedulerJob?.isActive == true) return@launch
+        firstStoryPending = true
         heard.restore(historyStore.load(), clock())
         programme.reset()
         // Remembered from earlier days: area stories told and angles already researched (spec A §40).
@@ -629,6 +640,7 @@ class RadioSession(
         if (s.radioState != RadioState.IDLE) maybeScoutEvents(now)
         if (s.radioState != RadioState.IDLE && s.radioState != RadioState.PAUSED) maybeResearchAngle(now)
         maybeStandby(now)
+        maybeWaitCue(now, speaking)
         // During a walking tour only the tour's stops air (on arrival).
         if (tour != null) return tourTick()
 
@@ -1641,7 +1653,10 @@ class RadioSession(
     private fun loadGallery(place: PlaceCandidate) {
         galleries[place.id]?.let { updateFocusGallery(place.id); return }
         scope.launch {
-            val g = runCatching { places.gallery(place) }.getOrDefault(emptyList())
+            val article = runCatching { places.gallery(place) }.getOrDefault(emptyList())
+            // Few article photos: add photos taken right around the place (Commons), for a fuller slideshow.
+            val near = if (article.size < 5) runCatching { places.photosNear(place.point, 150) }.getOrDefault(emptyList()) else emptyList()
+            val g = (article + near).distinctBy { it.substringAfterLast('/').substringAfter("px-") }.take(8)
             if (g.isEmpty()) return@launch
             galleries[place.id] = g
             updateFocusGallery(place.id)
@@ -1695,7 +1710,9 @@ class RadioSession(
                 }
                 // A slideshow of the subject: its lead photo, then more views from its article.
                 val more = runCatching { places.articleGallery(l, photo.first) }.getOrDefault(emptyList())
-                val g = (listOf(photo.second) + more).distinctBy { it.substringAfterLast('/').substringAfter("px-") }.take(6)
+                // And Commons photos of the subject, when the article has few.
+                val commons = if (more.size < 4) runCatching { places.photosOf(photo.first) }.getOrDefault(emptyList()) else emptyList()
+                val g = (listOf(photo.second) + more + commons).distinctBy { it.substringAfterLast('/').substringAfter("px-") }.take(8)
                 galleries[id] = g
                 updateFocusGallery(id)
                 val credit = runCatching { places.photoCredits(g) }.getOrDefault(emptyMap())
@@ -1812,6 +1829,8 @@ class RadioSession(
 
     private fun setRadioState(s: RadioState) {
         if (s == RadioState.NARRATING) {
+            cueJob?.cancel()
+            firstStoryPending = false
             nextNowUntilMs = 0
             if (_state.value.status?.text == NEXT_STATUS) setStatus(null)
         }
@@ -2632,8 +2651,59 @@ class RadioSession(
             researchedFacets.any { it.subject?.let(com.gpsradio.core.editorial.HeardHistory::normalizeName) == key }
     }
 
+    /** Since when the listener has been waiting for content (null when not waiting). */
+    private var waitingSinceMs: Long? = null
+    private var waitCues = 0
+    private var lastWaitCueMs = 0L
+
+    /**
+     * Waiting feedback (spec A §59): while the listener waits for the next story (after "next", during a steer, before
+     * the first story), the UI shows it's searching, and after a few seconds a short "just a moment" is spoken in the
+     * session language, varied, at most three times per wait.
+     */
+    private fun maybeWaitCue(now: Long, speaking: Boolean) {
+        if (cueJob?.isActive == true) return
+        val s = _state.value
+        // Only when the listener is actually waiting on something: a "next", a steer, or the very first story.
+        // (Preparing a story counts: that's the longest wait, while the story job is already running.)
+        val preparing = s.radioState == RadioState.RESEARCHING || (s.radioState == RadioState.RADIO && !speaking)
+        val quiet = live?.isAudible != true && s.live != LiveState.USER_SPEAKING
+        val waiting = quiet && (
+            (preparing && nextNow()) ||
+                (!speaking && s.radioState == RadioState.CONVERSING && steerJob?.isActive == true) ||
+                (firstStoryPending && (s.discovering || s.radioState == RadioState.RESEARCHING))
+            )
+        // The animated "searching" also shows while the radio prepares its own next story (nobody waits on that,
+        // so no spoken cue).
+        val searching = waiting || s.radioState == RadioState.RESEARCHING
+        if (s.waiting != searching) _state.update { it.copy(waiting = searching) }
+        if (!waiting) {
+            waitingSinceMs = null
+            waitCues = 0
+            return
+        }
+        val since = waitingSinceMs ?: now.also { waitingSinceMs = it }
+        if (onDeviceNow() && !config().previewMode) return
+        if (waitCues >= 3 || now - since < WAIT_CUE_FIRST_MS || now - lastWaitCueMs < WAIT_CUE_EVERY_MS) return
+        val notice = listOf(Notice.WAIT_1, Notice.WAIT_2, Notice.WAIT_3)[waitCues]
+        waitCues++
+        lastWaitCueMs = now
+        // Its own short job (the story being prepared keeps running); the audio queue keeps them apart, and a story
+        // that becomes ready cancels a cue that hasn't finished.
+        cueJob = scope.launch { speakNotice(Notices.text(notice, sessionLanguage)) }
+    }
+
+    private var cueJob: Job? = null
+
+    /** From Start until the first story airs: the listener is waiting for it. */
+    private var firstStoryPending = false
+
     /** Shown the moment "next" is heard, until the next story starts. */
     private val NEXT_STATUS = "Next story…"
+
+    /** The first "just a moment" after this long waiting, then one every [WAIT_CUE_EVERY_MS]. */
+    private val WAIT_CUE_FIRST_MS = 4_000L
+    private val WAIT_CUE_EVERY_MS = 9_000L
 
     /** How long an explicit "next" waives the pacing gap (the next segment may still be being written). */
     private val NEXT_NOW_WINDOW_MS = 60_000L

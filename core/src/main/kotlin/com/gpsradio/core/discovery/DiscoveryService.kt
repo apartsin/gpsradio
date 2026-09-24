@@ -30,6 +30,12 @@ interface PlacesProvider {
 
     /** More photos from a Wikipedia article (views, buildings, details), best first (spec A §55). */
     suspend fun articleGallery(lang: String, title: String): List<String> = emptyList()
+
+    /** Commons photos taken near a point (spec A §60). */
+    suspend fun photosNear(point: GeoPoint, radiusM: Int = 150): List<String> = emptyList()
+
+    /** Commons photos of a subject (spec A §60). */
+    suspend fun photosOf(query: String): List<String> = emptyList()
 }
 
 /**
@@ -154,6 +160,12 @@ class DiscoveryService(
         wikipedia.pagesByTitle(lang, listOf(title)).firstOrNull { it.thumbnailUrl != null }
             ?.let { Triple(it.title, it.thumbnailUrl!!, wikipedia.articleUrl(lang, it.title)) }
     }.getOrNull()
+
+    override suspend fun photosNear(point: GeoPoint, radiusM: Int): List<String> =
+        runCatching { wikipedia.commonsPhotosNear(point, radiusM) }.getOrDefault(emptyList())
+
+    override suspend fun photosOf(query: String): List<String> =
+        runCatching { wikipedia.commonsPhotosOf(query) }.getOrDefault(emptyList())
 
     override suspend fun articleGallery(lang: String, title: String): List<String> =
         runCatching { wikipedia.articleImages(lang, title, limit = 6) }.getOrDefault(emptyList())

@@ -14,6 +14,8 @@ import okhttp3.Request
 class WikipediaClient(
     private val http: OkHttpClient,
     private val userAgent: String,
+    /** Wikimedia Commons (free, licensed photos) for the slideshow (spec A §60). */
+    private val commonsUrl: HttpUrl = "https://commons.wikimedia.org/w/api.php".toHttpUrl(),
     /** Override for tests; receives the language edition code. */
     private val baseUrl: (String) -> HttpUrl = { lang -> "https://$lang.wikipedia.org/w/api.php".toHttpUrl() },
 ) {
@@ -152,6 +154,66 @@ class WikipediaClient(
             val source = byTitle[p.title] ?: byTitle[p.title.replace(' ', '_')] ?: return@mapNotNull null
             credit(meta["Artist"]?.value, meta["LicenseShortName"]?.value)?.let { source to it }
         }.toMap()
+    }
+
+    @Serializable private data class CommonsGeoResponse(val query: CommonsGeoQuery? = null)
+    @Serializable private data class CommonsGeoQuery(val geosearch: List<CommonsGeoItem> = emptyList())
+    @Serializable private data class CommonsGeoItem(val title: String = "")
+
+    /**
+     * Photos taken near a point, from Wikimedia Commons (views, buildings, details around the place), best first
+     * (spec A §60). Icons, maps and diagrams are left out.
+     */
+    suspend fun commonsPhotosNear(point: GeoPoint, radiusM: Int = 150, limit: Int = 6): List<String> {
+        val geo = commonsUrl.newBuilder()
+            .addQueryParameter("action", "query")
+            .addQueryParameter("list", "geosearch")
+            .addQueryParameter("gsnamespace", "6")
+            .addQueryParameter("gscoord", "${point.lat}|${point.lon}")
+            .addQueryParameter("gsradius", radiusM.coerceIn(10, 10_000).toString())
+            .addQueryParameter("gslimit", "30")
+            .addQueryParameter("format", "json")
+            .addQueryParameter("formatversion", "2")
+            .build()
+        val titles = json.decodeFromString(CommonsGeoResponse.serializer(), http.fetchString(request(geo))).query?.geosearch.orEmpty()
+            .map { it.title }.filter { isPhoto(it) }.take(limit * 2)
+        if (titles.isEmpty()) return emptyList()
+        return commonsImageUrls(titles).take(limit)
+    }
+
+    /** Commons photos matching a subject ("Traunsee", "Franz Joseph I"), for area stories (spec A §60). */
+    suspend fun commonsPhotosOf(query: String, limit: Int = 4): List<String> {
+        val url = commonsUrl.newBuilder()
+            .addQueryParameter("action", "query")
+            .addQueryParameter("generator", "search")
+            .addQueryParameter("gsrnamespace", "6")
+            .addQueryParameter("gsrsearch", "$query filetype:bitmap")
+            .addQueryParameter("gsrlimit", "20")
+            .addQueryParameter("prop", "imageinfo")
+            .addQueryParameter("iiprop", "url")
+            .addQueryParameter("iiurlwidth", "800")
+            .addQueryParameter("format", "json")
+            .addQueryParameter("formatversion", "2")
+            .build()
+        return json.decodeFromString(ImagesResponse.serializer(), http.fetchString(request(url))).query?.pages.orEmpty()
+            .filter { isPhoto(it.title) }
+            .mapNotNull { p -> p.imageinfo.firstOrNull()?.let { it.thumburl ?: it.url } }
+            .distinct().take(limit)
+    }
+
+    private suspend fun commonsImageUrls(fileTitles: List<String>): List<String> {
+        val url = commonsUrl.newBuilder()
+            .addQueryParameter("action", "query")
+            .addQueryParameter("titles", fileTitles.take(50).joinToString("|"))
+            .addQueryParameter("prop", "imageinfo")
+            .addQueryParameter("iiprop", "url")
+            .addQueryParameter("iiurlwidth", "800")
+            .addQueryParameter("format", "json")
+            .addQueryParameter("formatversion", "2")
+            .build()
+        val byTitle = json.decodeFromString(ImagesResponse.serializer(), http.fetchString(request(url))).query?.pages.orEmpty()
+            .associate { p -> p.title to p.imageinfo.firstOrNull()?.let { it.thumburl ?: it.url } }
+        return fileTitles.mapNotNull { byTitle[it] }.distinct()
     }
 
     /** A whole article as plain text, with `== Section ==` headings kept (for area stories); null if missing. */

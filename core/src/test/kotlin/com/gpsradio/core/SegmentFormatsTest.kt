@@ -165,7 +165,7 @@ class SegmentFormatsTest {
         server.enqueue(MockResponse().setBody("""{"query":{"pages":[{"pageid":5,"title":"Gmunden","extract":${JsonPrimitive(article.text)}}]}}"""))
         server.enqueue(MockResponse().setBody("""{"query":{"pages":[{"title":"Nowhere","missing":true}]}}"""))
         server.start()
-        val wiki = WikipediaClient(OkHttpClient(), "ua", { lang -> server.url("/$lang/w/api.php") })
+        val wiki = WikipediaClient(OkHttpClient(), "ua", baseUrl = { lang -> server.url("/$lang/w/api.php") })
         val a = wiki.articleByTitle("de", "Gmunden")!!
         val path = server.takeRequest().path!!
         assertTrue(path.startsWith("/de/w/api.php") && "titles=Gmunden" in path && "explaintext=1" in path && "exintro" !in path)

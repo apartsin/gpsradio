@@ -131,12 +131,36 @@ class PhotoCreditsTest {
             """{"query":{"pages":[{"title":"File:Traunsee.jpg","imageinfo":[{"extmetadata":{"Artist":{"value":"<span>Max Muster</span>"},"LicenseShortName":{"value":"CC BY 3.0"}}}]}]}}"""))
         server.start()
         try {
-            val wiki = com.gpsradio.core.discovery.WikipediaClient(okhttp3.OkHttpClient(), "ua", { server.url("/w/api.php") })
+            val wiki = com.gpsradio.core.discovery.WikipediaClient(okhttp3.OkHttpClient(), "ua", baseUrl = { server.url("/w/api.php") })
             val url = "https://upload.wikimedia.org/wikipedia/commons/thumb/c/cd/Traunsee.jpg/800px-Traunsee.jpg"
             assertEquals(mapOf(url to "Max Muster · CC BY 3.0 · Wikimedia Commons"), wiki.photoCredits(listOf(url, "https://example.com/x.jpg")))
             val q = server.takeRequest().requestUrl!!
             assertEquals("File:Traunsee.jpg", q.queryParameter("titles"))
             assertEquals("extmetadata", q.queryParameter("iiprop"))
+        } finally {
+            server.shutdown()
+        }
+    }
+}
+
+/** Spec A §60: more slideshow photos from Wikimedia Commons, taken near the place or of the subject. */
+class CommonsPhotosTest {
+    @Test
+    fun photosTakenNearAPlaceComeFromCommons() = kotlinx.coroutines.runBlocking {
+        val server = okhttp3.mockwebserver.MockWebServer()
+        server.enqueue(okhttp3.mockwebserver.MockResponse().setBody(
+            """{"query":{"geosearch":[{"title":"File:Schloss Ort from the lake.jpg"},{"title":"File:Gmunden map.svg"},{"title":"File:Ort bridge.jpg"}]}}"""))
+        server.enqueue(okhttp3.mockwebserver.MockResponse().setBody(
+            """{"query":{"pages":[{"title":"File:Ort bridge.jpg","imageinfo":[{"thumburl":"https://upload.wikimedia.org/b.jpg"}]},{"title":"File:Schloss Ort from the lake.jpg","imageinfo":[{"thumburl":"https://upload.wikimedia.org/a.jpg"}]}]}}"""))
+        server.start()
+        try {
+            val wiki = com.gpsradio.core.discovery.WikipediaClient(okhttp3.OkHttpClient(), "ua", commonsUrl = server.url("/commons/api.php"), baseUrl = { server.url("/w/api.php") })
+            val photos = wiki.commonsPhotosNear(GeoPoint(47.9105, 13.8013), 150)
+            assertEquals(listOf("https://upload.wikimedia.org/a.jpg", "https://upload.wikimedia.org/b.jpg"), photos, "in geosearch order, no maps")
+            val geo = server.takeRequest().requestUrl!!
+            assertEquals("geosearch", geo.queryParameter("list"))
+            assertEquals("6", geo.queryParameter("gsnamespace"))
+            assertEquals("/commons/api.php", geo.encodedPath)
         } finally {
             server.shutdown()
         }

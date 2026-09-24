@@ -101,7 +101,10 @@ class LocationSyncTest {
             s.setModeOverride(TravelMode.DRIVING); runCurrent()
             drive(s, 0, 60)
             assertEquals(1, f.requests.size, f.requests.map { "${it.candidate.place.id}@${it.location.timestampMs}" }.toString())
-            assertTrue(f.played.isEmpty(), "a passed place must not be narrated: ${f.played}")
+            // (A "just a moment" while the first story is written is fine: spec A §59.)
+            val cues = com.gpsradio.core.lang.Notice.entries.filter { it.name.startsWith("WAIT_") }
+                .map { com.gpsradio.core.lang.Notices.text(it, "en-US") }
+            assertTrue(f.played.none { it !in cues }, "a passed place must not be narrated: ${f.played}")
         } finally {
             s.stop(); runCurrent()
         }

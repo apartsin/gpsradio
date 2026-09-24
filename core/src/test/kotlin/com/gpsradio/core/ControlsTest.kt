@@ -319,3 +319,48 @@ class ControlsTest {
         }
     }
 }
+
+/** Spec A §59: the listener waiting on "next" hears "just a moment" (in their language) and sees it's searching. */
+class WaitFeedbackTest {
+    private val here = GeoPoint(47.61, 13.78)
+
+    private class Slow(val places: List<PlaceCandidate>) : PlacesProvider, Narrator, SpeechService, AudioOutput, HistoryStore {
+        val played = mutableListOf<String>()
+        override suspend fun discover(center: GeoPoint, radiusM: Int, languageBase: String) = places
+        override suspend fun narrate(req: NarrationRequest): Segment {
+            delay(15_000) // a slow writer
+            return Segment("История ${req.candidate.place.name}", req.candidate.place.id, req.candidate.place.name, emptyList())
+        }
+        override suspend fun converse(req: ConversationRequest, onSearching: suspend () -> Unit) = ConversationReply("ok")
+        override suspend fun synthesize(text: String, language: String, style: com.gpsradio.core.ai.HostStyle) = text.toByteArray()
+        override suspend fun transcribe(audio: ByteArray, fileName: String, mimeType: String, prompt: String?) = ""
+        override suspend fun play(audio: ByteArray) { played += String(audio); delay(2_000) }
+        override fun load(): String? = null
+        override fun save(serialized: String) {}
+    }
+
+    @Test
+    fun waitingForTheFirstStorySaysJustAMomentAndShowsSearching() = runTest {
+        val r = Slow(listOf(place("castle", Geo.destination(here, 0.0, 150.0), name = "Castle")))
+        val s = RadioSession(
+            places = r, narrator = r, speech = r, audio = r, historyStore = r,
+            config = { SessionConfig("ru-RU", setOf(Topic.HISTORY)) },
+            clock = { testScheduler.currentTime + 1_000_000 },
+            dispatcher = StandardTestDispatcher(testScheduler),
+            teaserGapMs = Long.MAX_VALUE,
+        )
+        try {
+            s.start(); runCurrent()
+            s.onLocation(LocationSample(here.lat, here.lon, 5f, 1_000_000, 0f)); runCurrent()
+            advanceTimeBy(4_000); runCurrent()
+            assertTrue(s.state.value.waiting, "the UI shows it's searching")
+            advanceTimeBy(14_000); runCurrent()
+            val cue = com.gpsradio.core.lang.Notices.text(com.gpsradio.core.lang.Notice.WAIT_1, "ru-RU")
+            assertEquals(cue, r.played.first(), "a spoken 'just a moment' in Russian: ${r.played}")
+            assertTrue(r.played.any { it.startsWith("История") }, "then the story: ${r.played}")
+            assertTrue(r.played.count { it == cue } == 1, "not repeated like a loop: ${r.played}")
+        } finally {
+            s.stop(); runCurrent()
+        }
+    }
+}
