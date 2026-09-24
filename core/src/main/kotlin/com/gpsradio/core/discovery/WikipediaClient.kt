@@ -182,7 +182,14 @@ class WikipediaClient(
     }
 
     /** Commons photos matching a subject ("Traunsee", "Franz Joseph I"), for area stories (spec A §60). */
-    suspend fun commonsPhotosOf(query: String, limit: Int = 4, near: GeoPoint? = null, nearKm: Int = 25): List<String> {
+    suspend fun commonsPhotosOf(
+        query: String,
+        limit: Int = 4,
+        near: GeoPoint? = null,
+        nearKm: Int = 25,
+        /** Keeps only files whose name fits (spec A §68). */
+        accept: (fileTitle: String) -> Boolean = { true },
+    ): List<String> {
         // Near the listener first (Commons search's nearcoord): "the bridge" means this town's bridge (spec A §63).
         val where = near?.let { " nearcoord:${nearKm}km,${"%.4f".format(java.util.Locale.ROOT, it.lat)},${"%.4f".format(java.util.Locale.ROOT, it.lon)}" }.orEmpty()
         val url = commonsUrl.newBuilder()
@@ -198,7 +205,7 @@ class WikipediaClient(
             .addQueryParameter("formatversion", "2")
             .build()
         return json.decodeFromString(ImagesResponse.serializer(), http.fetchString(request(url))).query?.pages.orEmpty()
-            .filter { isPhoto(it.title) }
+            .filter { isPhoto(it.title) && accept(it.title) }
             .mapNotNull { p -> p.imageinfo.firstOrNull()?.let { it.thumburl ?: it.url } }
             .distinct().take(limit)
     }

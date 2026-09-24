@@ -202,3 +202,25 @@ class MorePhotoSourcesTest {
         }
     }
 }
+
+/** Spec A §68: only photos of the very thing the story names; no photo beats a wrong one. */
+class PhotoRelevanceTest {
+    private val R = com.gpsradio.core.discovery.PhotoRelevance
+
+    @Test
+    fun searchHitsMustNameTheThingNotJustTheTown() {
+        val tokens = R.keyTokens("Schloss Ort wooden bridge Gmunden", listOf("Gmunden", "Upper Austria"))
+        assertEquals(listOf("schloss", "wooden", "bridge"), tokens)
+        assertTrue(R.titleMatches("File:Schloss Ort Gmunden bridge 2019.jpg", tokens))
+        assertFalse(R.titleMatches("File:Gmunden Rathausplatz tram.jpg", tokens), "only the town in common")
+        assertFalse(R.titleMatches("anything", R.keyTokens("Gmunden view", listOf("Gmunden"))), "nothing specific to look for")
+    }
+
+    @Test
+    fun aWikipediaNamesakeIsRejected() {
+        // "Traunstein" the mountain by Gmunden, not the Bavarian town.
+        assertFalse(R.articleFits("Traunstein", "Town in Bavaria, Germany", "Traunstein is a town in Upper Bavaria.", "Traunstein mountain", listOf("Gmunden")))
+        assertTrue(R.articleFits("Traunstein (mountain)", "Mountain in Upper Austria", "The Traunstein is a mountain on the Traunsee near Gmunden.", "Traunstein mountain", listOf("Gmunden")))
+        assertTrue(R.articleFits("Johann Orth", null, null, "Johann Orth archduke", listOf("Gmunden")), "no description: can't judge")
+    }
+}

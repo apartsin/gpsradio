@@ -41,8 +41,12 @@ interface PlacesProvider {
      * The best photo for a search (spec A §63): Commons near [near] first, then Commons anywhere, then Openverse
      * (openly licensed photos, e.g. Flickr). Returns the URL and, when the source gives it directly, its credit.
      */
-    suspend fun findPhoto(query: String, near: GeoPoint?): Pair<String, String?>? =
+    suspend fun findPhoto(query: String, near: GeoPoint?, placeWords: Collection<String> = emptyList()): Pair<String, String?>? =
         photosOf(query).firstOrNull()?.let { it to null }
+
+    /** [articlePhoto], only when the article is the one meant (spec A §68); a wrong namesake gives null. */
+    suspend fun articlePhotoFor(lang: String, title: String, query: String, placeWords: Collection<String>): Triple<String, String, String>? =
+        articlePhoto(lang, title)
 }
 
 /**
@@ -162,7 +166,11 @@ class DiscoveryService(
         val lang = place.source.removePrefix("wikipedia:").takeIf { place.source.startsWith("wikipedia:") }
             ?: return listOfNotNull(place.imageUrl)
         val more = runCatching { wikipedia.articleImages(lang, place.name) }.getOrDefault(emptyList())
-        return (listOfNotNull(place.imageUrl) + more).distinctBy { it.substringAfterLast('/').substringAfter("px-") }.take(8)
+        // Articles also carry photos of other things (people, neighbouring buildings, maps): keep only those whose
+        // file name names the place (spec A §68). The lead image is always the place.
+        val tokens = PhotoRelevance.keyTokens(place.name, emptyList()).ifEmpty { listOf(place.name.lowercase()) }
+        val own = more.filter { url -> WikipediaClient.fileTitle(url)?.let { PhotoRelevance.titleMatches(it, tokens) } == true }
+        return (listOfNotNull(place.imageUrl) + own).distinctBy { it.substringAfterLast('/').substringAfter("px-") }.take(5)
     }
 
     override suspend fun articlePhoto(lang: String, title: String): Triple<String, String, String>? = runCatching {
@@ -173,11 +181,22 @@ class DiscoveryService(
     override suspend fun photosNear(point: GeoPoint, radiusM: Int): List<String> =
         runCatching { wikipedia.commonsPhotosNear(point, radiusM) }.getOrDefault(emptyList())
 
-    override suspend fun findPhoto(query: String, near: GeoPoint?): Pair<String, String?>? {
-        near?.let { p -> runCatching { wikipedia.commonsPhotosOf(query, limit = 1, near = p) }.getOrNull()?.firstOrNull()?.let { return it to null } }
-        runCatching { wikipedia.commonsPhotosOf(query, limit = 1) }.getOrNull()?.firstOrNull()?.let { return it to null }
-        return openverse?.let { o -> runCatching { o.search(query, limit = 1) }.getOrNull()?.firstOrNull()?.let { it.url to it.credit } }
+    override suspend fun findPhoto(query: String, near: GeoPoint?, placeWords: Collection<String>): Pair<String, String?>? {
+        // Only results whose own title names the specific thing, not just the town (spec A §68).
+        val tokens = PhotoRelevance.keyTokens(query, placeWords)
+        if (tokens.isEmpty()) return null
+        val fits = { title: String -> PhotoRelevance.titleMatches(title, tokens) }
+        near?.let { p -> runCatching { wikipedia.commonsPhotosOf(query, limit = 1, near = p, accept = fits) }.getOrNull()?.firstOrNull()?.let { return it to null } }
+        runCatching { wikipedia.commonsPhotosOf(query, limit = 1, accept = fits) }.getOrNull()?.firstOrNull()?.let { return it to null }
+        return openverse?.let { o -> runCatching { o.search(query, limit = 1, accept = fits) }.getOrNull()?.firstOrNull()?.let { it.url to it.credit } }
     }
+
+    override suspend fun articlePhotoFor(lang: String, title: String, query: String, placeWords: Collection<String>): Triple<String, String, String>? =
+        runCatching {
+            wikipedia.pagesByTitle(lang, listOf(title)).firstOrNull { it.thumbnailUrl != null }
+                ?.takeIf { PhotoRelevance.articleFits(it.title, it.description, it.extract, query, placeWords) }
+                ?.let { Triple(it.title, it.thumbnailUrl!!, wikipedia.articleUrl(lang, it.title)) }
+        }.getOrNull()
 
     override suspend fun photosOf(query: String): List<String> =
         runCatching { wikipedia.commonsPhotosOf(query) }.getOrDefault(emptyList())

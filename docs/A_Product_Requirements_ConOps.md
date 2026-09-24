@@ -1030,3 +1030,12 @@ The story model returns `entities` with the story, in the same call: up to 6 thi
 - **Searching indicator.** The dots animate in a fixed slot.
 - **Controls.** The three controls are top-aligned with one-line labels of the same width, so they line up. Russian mic labels are shorter: «Мик. вкл.» / «Мик. выкл.».
 - **No repeated photos.** A photo shown with one story isn't shown again with another (the place's own photos excepted). For example, area stories no longer all fall back to the same photo of the town; a story whose only photo was already used shows the map instead.
+
+## 68. Only Photos of the Very Thing (Precision over Recall)
+
+Some photos were junk or unrelated to the story on air. The rule now: no photo (the map) is better than a wrong one.
+
+- **Search hits must name the thing.** A Commons or Openverse result is kept only if its own title names a specific word of the search: not just the town, and not generic words like "view" or "old". "Gmunden Rathausplatz tram" is no longer accepted for "Schloss Ort wooden bridge Gmunden".
+- **Wikipedia namesakes are rejected.** The article's short description or opening must mention the story's context (the search's specific words, or the place). "Traunstein" the Bavarian town is rejected when the mountain by Gmunden is meant.
+- **A place's own photos.** From its article, only those whose file name names the place, plus the lead image; at most 5. Articles also carry photos of people, neighbouring buildings and maps.
+- **Exchanges get their own slideshow.** Pictures for a question and its answer never mix into the story's slideshow.

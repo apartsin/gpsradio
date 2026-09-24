@@ -1767,8 +1767,9 @@ class RadioSession(
     /** Pictures for an answer (live or typed): on the current focus, or a new one where the listener is. */
     private fun illustrateAnswer(text: String, minChars: Int = 40) {
         if (pictureFinder == null || text.length < minChars) return
-        val id = _state.value.focus?.id ?: run {
-            val point = _state.value.location?.point ?: return
+        // An exchange gets its own slideshow: its pictures never mix into the story's (spec A §68).
+        val id = _state.value.focus?.id?.takeIf { it.startsWith("answer:") } ?: run {
+            val point = _state.value.location?.point ?: _state.value.focus?.point ?: return
             val fid = "answer:${clock()}"
             _state.update { it.copy(focus = FocusPlace(fid, _state.value.area?.city ?: "", point, null, null)) }
             fid
@@ -1789,12 +1790,16 @@ class RadioSession(
                 ?: runCatching { finder!!.find(text, sessionLanguage, _state.value.area) }.getOrDefault(emptyList())
             // Looked up side by side (each is a few web requests), then shown in the order they're said.
             val point = _state.value.location?.point
+            val placeWords = listOfNotNull(_state.value.area?.city, _state.value.area?.region)
             val found = refs.map { ref ->
                 async {
                     var credit: String? = null
-                    val url = ref.wikipedia?.let { t -> runCatching { places.articlePhoto("en", t) }.getOrNull()?.second }
+                    // Only a photo of that very thing (spec A §68): the article must fit, a search hit must name it.
+                    val url = ref.wikipedia?.let { t ->
+                        runCatching { places.articlePhotoFor("en", t, ref.search + " " + ref.caption, placeWords) }.getOrNull()?.second
+                    }
                         ?: ref.search.takeIf { it.isNotBlank() }?.let { q ->
-                            runCatching { places.findPhoto(q, point) }.getOrNull()?.also { credit = it.second }?.first
+                            runCatching { places.findPhoto(q, point, placeWords) }.getOrNull()?.also { credit = it.second }?.first
                         }
                     url?.let { Triple(ref, it, credit) }
                 }
