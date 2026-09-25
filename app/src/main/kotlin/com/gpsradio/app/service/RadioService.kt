@@ -258,7 +258,10 @@ class RadioService : Service() {
                 .putExtra(MainActivity.EXTRA_OPEN_SETTINGS, true),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
-        val builtIn = (application as GpsRadioApp).settings.current.usingEmbeddedKey
+        val app = application as GpsRadioApp
+        // The phone's model carries on for free: nothing urgent to tell (spec A §72).
+        if (runCatching { app.localModels.readyNow(app.settings.current.localModel) }.getOrDefault(false)) return
+        val builtIn = app.settings.current.usingEmbeddedKey
         val text = getString(if (builtIn) R.string.quota_text_builtin else R.string.quota_text_own)
         val n = NotificationCompat.Builder(this, ALERTS_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_radio)

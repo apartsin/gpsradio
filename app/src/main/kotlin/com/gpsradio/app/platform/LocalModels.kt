@@ -108,6 +108,8 @@ class LocalModels(
         LocalModelCatalog.all.forEach { File(legacyDir, it.fileName + ".part").delete() }
         // Android kept downloading while the app was closed or being updated: pick up where it is.
         reconcile()
+        // Know early whether Gemini Nano is there, so "ready" is right before the first story.
+        scope.launch { runCatching { refreshNano() } }
     }
 
     private fun scanInstalled() = LocalModelCatalog.all.filter { fileOf(it).isFile }.map { it.id }.toSet()
@@ -129,6 +131,14 @@ class LocalModels(
             aiCore = aiCore,
             recommended = recommendedFor(ramGb),
         )
+    }
+
+    /** Whether [choice] has a model ready right now (no waiting): Nano available or a model downloaded. */
+    fun readyNow(choice: String): Boolean = when (choice) {
+        "off" -> false
+        NANO -> _nano.value == NanoState.AVAILABLE
+        "auto" -> _nano.value == NanoState.AVAILABLE || _installed.value.isNotEmpty()
+        else -> choice in _installed.value
     }
 
     suspend fun refreshNano(): NanoState {

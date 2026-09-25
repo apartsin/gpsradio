@@ -966,17 +966,22 @@ class RadioSession(
         if (config().budgetReached) {
             if (!budgetAnnounced && (segment.language ?: req.language).let { langBase(it) == langBase(req.language) }) {
                 budgetAnnounced = true
-                segment = segment.copy(text = Notices.text(Notice.BUDGET_REACHED, req.language) + " " + segment.text)
+                val notice = if (config().localModelReady) Notice.BUDGET_MODEL else Notice.BUDGET_REACHED
+                segment = segment.copy(text = Notices.text(notice, req.language) + " " + segment.text)
             }
         } else if (!chosen && !_state.value.quotaExhausted && !config().previewMode && !degradedAnnounced &&
             (segment.language ?: req.language).let { langBase(it) == langBase(req.language) }
         ) {
             degradedAnnounced = true
-            segment = segment.copy(text = Notices.text(if (isOnline()) Notice.DEGRADED_NOTES else Notice.OFFLINE_NOTES, req.language) + " " + segment.text)
+            val notice = when {
+                config().localModelReady -> if (isOnline()) Notice.DEGRADED_MODEL else Notice.OFFLINE_MODEL
+                else -> if (isOnline()) Notice.DEGRADED_NOTES else Notice.OFFLINE_NOTES
+            }
+            segment = segment.copy(text = Notices.text(notice, req.language) + " " + segment.text)
         }
         if (_state.value.quotaExhausted && !quotaAnnounced && (segment.language ?: req.language).let { langBase(it) == langBase(req.language) }) {
             quotaAnnounced = true
-            segment = segment.copy(text = quotaSpoken(req.language) + " " + segment.text)
+            segment = segment.copy(text = quotaNotice(req.language) + " " + segment.text)
         }
         val bytes = speakFree(segment.text, segment.language ?: req.language, req.style)
         return segment to bytes
@@ -1138,7 +1143,8 @@ class RadioSession(
         }
         // The on-device model answers when chosen, or when OpenAI can't (spec A §70).
         val local = fallbackNarrator?.takeIf {
-            (config().assistantOnDevice || config().previewMode || !isOnline() || config().budgetReached) && it.canConverse()
+            (config().assistantOnDevice || config().previewMode || !isOnline() || config().budgetReached || _state.value.quotaExhausted) &&
+                it.canConverse()
         }
         if (local == null && questionsUnavailable()) { endConversation(); return }
         val answerer = local ?: narrator
@@ -1170,7 +1176,7 @@ class RadioSession(
             throw e
         } catch (e: Exception) {
             fail("Couldn't answer: ${e.message}")
-            if (isQuota(e)) announceText(quotaSpoken(sessionLanguage)) else announce(Notice.ANSWER_FAILED)
+            if (isQuota(e)) announceText(quotaNotice(sessionLanguage)) else announce(Notice.ANSWER_FAILED)
             endConversation()
             return
         } finally {
@@ -2017,9 +2023,16 @@ class RadioSession(
 
     private fun previewNote(): Status? = when {
         _state.value.quotaExhausted -> quotaStatus()
+        // No key, but the phone's model tells the stories: a calm note, not an error (spec A §72).
+        config().previewMode && config().localModelReady ->
+            Status(Notices.text(Notice.PREVIEW_MODEL, sessionLanguage), StatusLevel.INFO, actionLabel = "Add key")
         config().previewMode -> Status(PREVIEW_NOTE, StatusLevel.INFO, needsKey = true, actionLabel = "Add key")
         else -> null
     }
+
+    /** Spoken once when the credit runs out: the phone's model carries on if there is one. */
+    private fun quotaNotice(language: String): String =
+        if (config().localModelReady) Notices.text(Notice.QUOTA_MODEL, language) else quotaSpoken(language)
 
     // ---- out of OpenAI credit -------------------------------------------------------------------
 
@@ -2037,7 +2050,12 @@ class RadioSession(
         (e is OpenAiException && e.isQuotaExhausted) || QuotaErrors.matches(e.message)
 
     private fun quotaStatus(): Status =
-        Status(if (config().usingBuiltInKey) QUOTA_BUILT_IN else QUOTA_OWN_KEY, StatusLevel.ERROR, needsKey = true, actionLabel = "Add key")
+        if (config().localModelReady) {
+            // The phone's model carries on: say so in the listener's language, no error (spec A §72).
+            Status(Notices.text(Notice.QUOTA_MODEL, sessionLanguage), StatusLevel.INFO, actionLabel = "Add key")
+        } else {
+            Status(if (config().usingBuiltInKey) QUOTA_BUILT_IN else QUOTA_OWN_KEY, StatusLevel.ERROR, needsKey = true, actionLabel = "Add key")
+        }
 
     /**
      * Tells the listener: a persistent status with an "Add key" action, a transcript line (not repeated

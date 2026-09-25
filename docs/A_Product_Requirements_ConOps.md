@@ -1081,3 +1081,15 @@ A 2.6 GB download often got stuck: the in-app downloader stopped when the phone 
 - **Finished while the app was closed:** a receiver moves the file into place, and so does the next app start. Settings says "ready".
 - **Downloaded once:** models live in the app's own storage (`Android/data/<app>/files/models`), which app updates keep. Asking again for a model that's there does nothing. Models from 0.5.91–0.5.92 (in the old folder) are still used, and their unfinished `.part` files are dropped.
 - Failures are shown with the reason (no space, server refused, couldn't resume) and a **Download** button to retry. **Cancel** removes the download from Android's queue.
+
+## 72. Out of Credit or No Key, With a Model on the Phone
+
+Reported: the model was downloaded, yet the app still said a key was missing. The app's built-in OpenAI credit had run out, and the out-of-credit handling predated the on-device model. It showed an English "add your own key" error, sent an urgent notification and refused questions.
+
+When a model on the phone is ready (Gemini Nano available, or an open model downloaded, for the chosen "Stories without OpenAI" setting):
+- **Out of credit:** "the OpenAI credit has run out, so I'll carry on with the phone's own model, for free", said once and shown as a calm note in the listener's language (Russian: «закончился кредит OpenAI, поэтому дальше я рассказываю бесплатно, с помощью модели на телефоне»). An "Add key" action stays, but there's no error and no urgent notification.
+- **No key at all:** "Free mode: stories and answers come from the phone's own model", not "Preview mode — add an OpenAI key".
+- **Offline, OpenAI down, over the daily limit:** the spoken notice says the phone's model carries on, not "short notes".
+- **Questions** go to the phone's model when the credit is out, as when offline or without a key.
+
+Without a model on the phone, the earlier behaviour stays (the notes, the "add a key" advice).

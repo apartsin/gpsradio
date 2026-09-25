@@ -21,6 +21,12 @@ enum class Notice {
     WAIT_3,
     /** Shown the moment "next" is heard (spec A §59). */
     NEXT_STORY,
+    /** The phone's model carries on (spec A §72): out of OpenAI credit, offline, OpenAI down, over the limit, no key. */
+    QUOTA_MODEL,
+    OFFLINE_MODEL,
+    DEGRADED_MODEL,
+    BUDGET_MODEL,
+    PREVIEW_MODEL,
 }
 
 object Notices {
@@ -39,6 +45,11 @@ object Notices {
             Notice.WAIT_2 to "Still looking, almost there.",
             Notice.WAIT_3 to "Nearly ready…",
             Notice.NEXT_STORY to "Next story…",
+            Notice.QUOTA_MODEL to "Quick note: the OpenAI credit has run out, so I'll carry on with the phone's own model, for free. You can add a key in Settings.",
+            Notice.OFFLINE_MODEL to "Quick note: you're offline, so I'll carry on with the phone's own model.",
+            Notice.DEGRADED_MODEL to "Quick note: I can't reach OpenAI right now, so I'll carry on with the phone's own model.",
+            Notice.BUDGET_MODEL to "Quick note: today's spending limit is reached, so until tomorrow I'll carry on with the phone's own model, for free.",
+            Notice.PREVIEW_MODEL to "Free mode: stories and answers come from the phone's own model. Add an OpenAI key in Settings for the full radio.",
         ),
         "ru" to mapOf(
             Notice.ANSWER_FAILED to "Извините, сейчас не получилось ответить. Попробуйте чуть позже.",
@@ -54,6 +65,11 @@ object Notices {
             Notice.WAIT_2 to "Ещё ищу, почти готово.",
             Notice.WAIT_3 to "Уже почти…",
             Notice.NEXT_STORY to "Следующая история…",
+            Notice.QUOTA_MODEL to "Небольшое объявление: закончился кредит OpenAI, поэтому дальше я рассказываю бесплатно, с помощью модели на телефоне. Ключ можно добавить в настройках.",
+            Notice.OFFLINE_MODEL to "Небольшое объявление: нет интернета, поэтому дальше я рассказываю с помощью модели на телефоне.",
+            Notice.DEGRADED_MODEL to "Небольшое объявление: OpenAI сейчас недоступен, поэтому дальше я рассказываю с помощью модели на телефоне.",
+            Notice.BUDGET_MODEL to "Небольшое объявление: дневной лимит расходов исчерпан, поэтому до завтра я рассказываю бесплатно, с помощью модели на телефоне.",
+            Notice.PREVIEW_MODEL to "Бесплатный режим: истории и ответы даёт модель на телефоне. Для полного радио добавьте ключ OpenAI в настройках.",
         ),
         "he" to mapOf(
             Notice.ANSWER_FAILED to "סליחה, לא הצלחתי לענות כרגע. נסו שוב בעוד רגע.",
@@ -69,6 +85,11 @@ object Notices {
             Notice.WAIT_2 to "עדיין מחפש, כמעט שם.",
             Notice.WAIT_3 to "כמעט מוכן…",
             Notice.NEXT_STORY to "הסיפור הבא…",
+            Notice.QUOTA_MODEL to "הודעה קצרה: הקרדיט של OpenAI נגמר, אז אמשיך בחינם עם המודל של הטלפון. אפשר להוסיף מפתח בהגדרות.",
+            Notice.OFFLINE_MODEL to "הודעה קצרה: אין אינטרנט, אז אמשיך עם המודל של הטלפון.",
+            Notice.DEGRADED_MODEL to "הודעה קצרה: אין כרגע גישה ל-OpenAI, אז אמשיך עם המודל של הטלפון.",
+            Notice.BUDGET_MODEL to "הודעה קצרה: מגבלת ההוצאה היומית הושגה, אז עד מחר אמשיך בחינם עם המודל של הטלפון.",
+            Notice.PREVIEW_MODEL to "מצב חינמי: סיפורים ותשובות מהמודל של הטלפון. הוסיפו מפתח OpenAI בהגדרות לרדיו המלא.",
         ),
         "de" to mapOf(
             Notice.ANSWER_FAILED to "Entschuldigung, das konnte ich gerade nicht beantworten. Versuch es gleich noch einmal.",
@@ -84,6 +105,11 @@ object Notices {
             Notice.WAIT_2 to "Ich suche noch, gleich geht's weiter.",
             Notice.WAIT_3 to "Fast fertig…",
             Notice.NEXT_STORY to "Nächste Geschichte…",
+            Notice.QUOTA_MODEL to "Kurze Durchsage: Das OpenAI-Guthaben ist aufgebraucht, also mache ich kostenlos mit dem Modell auf dem Telefon weiter. Einen Schlüssel können Sie in den Einstellungen hinzufügen.",
+            Notice.OFFLINE_MODEL to "Kurze Durchsage: Sie sind offline, also mache ich mit dem Modell auf dem Telefon weiter.",
+            Notice.DEGRADED_MODEL to "Kurze Durchsage: OpenAI ist gerade nicht erreichbar, also mache ich mit dem Modell auf dem Telefon weiter.",
+            Notice.BUDGET_MODEL to "Kurze Durchsage: Das Tageslimit ist erreicht, also mache ich bis morgen kostenlos mit dem Modell auf dem Telefon weiter.",
+            Notice.PREVIEW_MODEL to "Gratis-Modus: Geschichten und Antworten kommen vom Modell auf dem Telefon. Für das volle Radio einen OpenAI-Schlüssel in den Einstellungen hinzufügen.",
         ),
         "es" to mapOf(
             Notice.ANSWER_FAILED to "Lo siento, ahora no pude responder. Inténtalo de nuevo en un momento.",
@@ -99,6 +125,11 @@ object Notices {
             Notice.WAIT_2 to "Sigo buscando, ya casi.",
             Notice.WAIT_3 to "Casi listo…",
             Notice.NEXT_STORY to "Siguiente historia…",
+            Notice.QUOTA_MODEL to "Un aviso: se acabó el crédito de OpenAI, así que sigo gratis con el modelo del teléfono. Puedes añadir una clave en Ajustes.",
+            Notice.OFFLINE_MODEL to "Un aviso: no hay conexión, así que sigo con el modelo del teléfono.",
+            Notice.DEGRADED_MODEL to "Un aviso: ahora no puedo conectar con OpenAI, así que sigo con el modelo del teléfono.",
+            Notice.BUDGET_MODEL to "Un aviso: se alcanzó el límite de gasto de hoy, así que hasta mañana sigo gratis con el modelo del teléfono.",
+            Notice.PREVIEW_MODEL to "Modo gratuito: las historias y respuestas vienen del modelo del teléfono. Añade una clave de OpenAI en Ajustes para la radio completa.",
         ),
         "fr" to mapOf(
             Notice.ANSWER_FAILED to "Désolé, je n'ai pas pu répondre pour l'instant. Réessayez dans un moment.",
@@ -114,6 +145,11 @@ object Notices {
             Notice.WAIT_2 to "Je cherche encore, presque prêt.",
             Notice.WAIT_3 to "Presque prêt…",
             Notice.NEXT_STORY to "Histoire suivante…",
+            Notice.QUOTA_MODEL to "Petite annonce : le crédit OpenAI est épuisé, je continue donc gratuitement avec le modèle du téléphone. Vous pouvez ajouter une clé dans les réglages.",
+            Notice.OFFLINE_MODEL to "Petite annonce : vous êtes hors ligne, je continue donc avec le modèle du téléphone.",
+            Notice.DEGRADED_MODEL to "Petite annonce : OpenAI est injoignable pour l'instant, je continue donc avec le modèle du téléphone.",
+            Notice.BUDGET_MODEL to "Petite annonce : la limite de dépenses du jour est atteinte, je continue donc gratuitement jusqu'à demain avec le modèle du téléphone.",
+            Notice.PREVIEW_MODEL to "Mode gratuit : les histoires et les réponses viennent du modèle du téléphone. Ajoutez une clé OpenAI dans les réglages pour la radio complète.",
         ),
     )
 

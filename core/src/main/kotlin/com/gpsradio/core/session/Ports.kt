@@ -83,6 +83,11 @@ data class SessionConfig(
     val storiesOnDevice: Boolean = false,
     /** Provider choice (spec A §70): questions are answered by the on-device model, never by OpenAI. */
     val assistantOnDevice: Boolean = false,
+    /**
+     * An on-device model is ready (spec A §72): when OpenAI can't be used, the radio carries on with it, so
+     * out-of-credit and no-key become calm notes in the listener's language instead of "add a key" errors.
+     */
+    val localModelReady: Boolean = false,
 )
 
 class OpenAiSpeech(

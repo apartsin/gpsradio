@@ -34,19 +34,22 @@ import kotlin.test.assertTrue
 class ProviderChoiceTest {
     private val here = GeoPoint(47.61, 13.78)
 
-    private class OpenAi : Narrator, SpeechService {
+    private class OpenAi(var error: Exception? = null) : Narrator, SpeechService {
         val calls = mutableListOf<String>()
         override suspend fun narrate(req: NarrationRequest): Segment {
             calls += "narrate"
+            error?.let { throw it }
             return Segment("AI story", req.candidate.place.id, req.candidate.place.name, emptyList())
         }
         override suspend fun converse(req: ConversationRequest, onSearching: suspend () -> Unit): ConversationReply {
             calls += "converse"
+            error?.let { throw it }
             return ConversationReply("AI answer")
         }
         override suspend fun webAnswer(question: String, language: String, area: AreaLabel?) = ""
         override suspend fun synthesize(text: String, language: String, style: HostStyle): ByteArray {
             calls += "synthesize"
+            error?.let { throw it }
             return "AI:$text".toByteArray()
         }
         override suspend fun transcribe(audio: ByteArray, fileName: String, mimeType: String, prompt: String?) = "hi"
@@ -144,6 +147,33 @@ class ProviderChoiceTest {
             assertTrue(openAi.calls.isEmpty(), openAi.calls.toString())
             assertTrue("It was built in the 11th century." in phone.spoken, phone.spoken.toString())
             assertTrue(s.state.value.status?.text != RadioSession.OFFLINE_QUESTIONS)
+        }
+    }
+
+    @Test
+    fun outOfCreditWithAModelOnThePhoneCarriesOnCalmlyInRussian() = runTest {
+        val quota = com.gpsradio.core.ai.OpenAiException(
+            429,
+            com.gpsradio.core.ai.OpenAiClient.friendlyError(
+                429, """{"error":{"message":"You exceeded your current quota","type":"insufficient_quota","code":"insufficient_quota"}}""",
+            ),
+        )
+        val openAi = OpenAi(error = quota); val phone = Phone(); val gemma = Gemma()
+        val s = session(openAi, phone, gemma, SessionConfig("ru-RU", setOf(Topic.HISTORY), usingBuiltInKey = true, localModelReady = true))
+        running(s) {
+            s.onLocation(fix()); runCurrent()
+            advanceTimeBy(5_000); runCurrent()
+            val status = s.state.value.status!!
+            assertEquals(com.gpsradio.core.lang.Notices.text(com.gpsradio.core.lang.Notice.QUOTA_MODEL, "ru-RU"), status.text)
+            assertEquals(com.gpsradio.core.session.StatusLevel.INFO, status.level)
+            assertTrue(!status.needsKey, "no 'add a key' error while the phone's model tells the stories")
+            val story = s.state.value.nowPlaying!!.text
+            assertTrue(story.startsWith("Небольшое объявление: закончился кредит OpenAI"), story)
+            assertTrue(story.endsWith("Ort Castle stands on Lake Traun and is almost a thousand years old."), story)
+            // Questions go to the phone's model too, not to an "add a key" refusal.
+            s.ask("Сколько ему лет?"); runCurrent()
+            advanceTimeBy(30_000); runCurrent()
+            assertTrue(gemma.prompts.any { "Listener: Сколько ему лет?" in it })
         }
     }
 }

@@ -142,6 +142,9 @@ open class GpsRadioApp : Application(), coil.ImageLoaderFactory {
     /** The on-device model that retells stories when OpenAI can't; null = plain notes only. */
     protected open fun localWriter(): com.gpsradio.core.ai.LocalWriter? = localModels.writer { settings.current.localModel }
 
+    /** This build uses on-device models at all (the emulator test app doesn't). */
+    private val localModelsOn: Boolean by lazy { localWriter() != null }
+
     protected open fun fallbackSpeech(): SpeechService? = AndroidTtsSpeech(this) { settings.current.offlineTtsEngine }
 
     /** Network state for offline-aware scheduling; tests may force online/offline. */
@@ -256,6 +259,7 @@ open class GpsRadioApp : Application(), coil.ImageLoaderFactory {
                         budgetReached = it.dailyBudgetUsd > 0 && meter.todayUsd() >= it.dailyBudgetUsd,
                         storiesOnDevice = it.storyOnDevice,
                         assistantOnDevice = it.assistantOnDevice,
+                        localModelReady = localModelsOn && localModels.readyNow(it.localModel),
                     )
                 }
             },
