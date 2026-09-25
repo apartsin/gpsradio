@@ -13,6 +13,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -20,6 +21,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -27,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gpsradio.app.R
 import com.gpsradio.app.platform.DeviceInfo
+import com.gpsradio.app.platform.DownloadWait
 import com.gpsradio.app.platform.LocalModelCatalog
 import com.gpsradio.app.platform.LocalModels
 import com.gpsradio.app.platform.ModelDownload
@@ -59,7 +62,13 @@ fun rememberLocalAi(models: LocalModels): LocalAiUi {
 /** "Stories without OpenAI": which on-device model writes them, and its download. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LocalModelPicker(choice: String, onChoice: (String) -> Unit, ai: LocalAiUi) {
+fun LocalModelPicker(
+    choice: String,
+    onChoice: (String) -> Unit,
+    ai: LocalAiUi,
+    wifiOnly: Boolean = true,
+    onWifiOnly: (Boolean) -> Unit = {},
+) {
     ai.device?.let { d ->
         Text(stringResource(R.string.device_check_title), style = MaterialTheme.typography.titleSmall)
         Text(
@@ -138,6 +147,18 @@ fun LocalModelPicker(choice: String, onChoice: (String) -> Unit, ai: LocalAiUi) 
             }
             download != null && download.error == null -> {
                 val f = download.fraction
+                download.waiting?.let { w ->
+                    Text(
+                        stringResource(
+                            when (w) {
+                                DownloadWait.WIFI -> R.string.local_model_waiting_wifi
+                                DownloadWait.NETWORK -> R.string.local_model_waiting_network
+                                DownloadWait.RETRY -> R.string.local_model_waiting_retry
+                            },
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
                 if (f != null) LinearProgressIndicator(progress = { f }, modifier = Modifier.fillMaxWidth())
                 else LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -154,6 +175,10 @@ fun LocalModelPicker(choice: String, onChoice: (String) -> Unit, ai: LocalAiUi) 
                     Text(stringResource(R.string.local_model_failed, it), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                 }
                 Text(stringResource(R.string.local_model_download_hint), style = MaterialTheme.typography.bodySmall)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(stringResource(R.string.local_model_wifi_only), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                    Switch(checked = wifiOnly, onCheckedChange = onWifiOnly, modifier = Modifier.testTag("modelWifiOnly"))
+                }
                 OutlinedButton(onClick = { ai.onDownload(spec.id) }, modifier = Modifier.fillMaxWidth().testTag("localModelDownload")) {
                     Text(stringResource(R.string.local_model_download, spec.label, gb(spec.sizeMb)))
                 }

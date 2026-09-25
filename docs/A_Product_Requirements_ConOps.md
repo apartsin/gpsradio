@@ -1071,3 +1071,13 @@ Settings → Free & offline starts with one choice per job. Each shows what take
 - The phone's model also answers questions whenever OpenAI can't: offline, without a key, or over the limit. Before, those questions were refused.
 - **"This phone"** in the same section shows the Android version, memory and free space, and whether Gemini Nano (AICore) supports the phone. It also names the open model that fits the memory: Gemma 4 E4B from 11 GB, Gemma 4 E2B from 6 GB, otherwise Qwen3 1.7B. Under *Automatic* that model is the one offered for download.
 - **llama.cpp** was considered as a further engine. LiteRT-LM already runs the same open models (Gemma 4, Qwen3), with Google's mobile tuning and GPU/NPU paths. llama.cpp would add GGUF models, for example Russian-tuned fine-tunes, but needs a native build of our own. The `LocalWriter` port (§69) lets it be added later as one more choice in the model list.
+
+## 71. Model Downloads That Finish On Their Own
+
+A 2.6 GB download often got stuck: the in-app downloader stopped when the phone slept or Android paused the app. Downloads are now handed to Android's own download service (DownloadManager):
+
+- **Keeps going** while the app is closed, the screen is off or the phone sleeps. It resumes by itself after a dropped connection, a restart of the phone or an app update. Progress shows in the notification shade and in Settings.
+- **Wi-Fi only by default** ("Download only on Wi-Fi", on): never over mobile data or roaming. On mobile data it waits and says "Waiting for Wi-Fi…", then starts by itself on Wi-Fi. Switching it off allows mobile data (never roaming).
+- **Finished while the app was closed:** a receiver moves the file into place, and so does the next app start. Settings says "ready".
+- **Downloaded once:** models live in the app's own storage (`Android/data/<app>/files/models`), which app updates keep. Asking again for a model that's there does nothing. Models from 0.5.91–0.5.92 (in the old folder) are still used, and their unfinished `.part` files are dropped.
+- Failures are shown with the reason (no space, server refused, couldn't resume) and a **Download** button to retry. **Cancel** removes the download from Android's queue.

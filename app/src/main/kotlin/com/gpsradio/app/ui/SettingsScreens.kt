@@ -168,6 +168,7 @@ private fun SettingsForm(
     var storyOnDevice by remember { mutableStateOf(initial.storyOnDevice) }
     var voiceOnDevice by remember { mutableStateOf(initial.voiceOnDevice) }
     var assistantOnDevice by remember { mutableStateOf(initial.assistantOnDevice) }
+    var modelWifiOnly by remember { mutableStateOf(initial.modelWifiOnly) }
     var language by remember { mutableStateOf(if (initial.languageAuto) AUTO else initial.preferredLanguage) }
     var interests by remember { mutableStateOf(initial.interests) }
     var narrationModel by remember { mutableStateOf(initial.models.narrationModel) }
@@ -349,7 +350,7 @@ private fun SettingsForm(
                 languageTag = initial.resolvedLanguage(),
                 onInstallVoiceData = onInstallVoiceData,
             )
-            LocalModelPicker(localModel, { localModel = it }, localAi)
+            LocalModelPicker(localModel, { localModel = it }, localAi, modelWifiOnly) { modelWifiOnly = it }
             extra()
         }
 
@@ -370,6 +371,7 @@ private fun SettingsForm(
             storyOnDevice = storyOnDevice,
             voiceOnDevice = voiceOnDevice,
             assistantOnDevice = assistantOnDevice,
+            modelWifiOnly = modelWifiOnly,
             dailyBudgetUsd = if (budget) budgetText.replace(',', '.').toDoubleOrNull()?.coerceAtLeast(0.0) ?: 0.0 else initial.dailyBudgetUsd,
             // Adding a key ends the keyless preview.
             previewMode = initial.previewMode && apiKey.isBlank(),

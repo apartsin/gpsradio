@@ -1,6 +1,8 @@
 package com.gpsradio.app.platform
 
+import android.app.DownloadManager
 import android.content.Context
+import android.net.Uri
 import android.util.Log
 import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.Content
@@ -25,10 +27,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
-import okhttp3.Request
 import java.io.File
-import java.io.FileOutputStream
-import java.util.concurrent.TimeUnit
 
 /** An open model the listener can download for free, on-device stories (spec A §69), run by Google's LiteRT-LM. */
 data class LocalModelSpec(val id: String, val label: String, val url: String, val fileName: String, val sizeMb: Int)
@@ -56,24 +55,42 @@ enum class NanoState { UNKNOWN, UNAVAILABLE, DOWNLOADABLE, DOWNLOADING, AVAILABL
 /** What this phone offers for on-device AI, shown in Settings → Free & offline (spec A §70). */
 data class DeviceInfo(val android: String, val ramGb: Double, val freeGb: Double, val aiCore: Boolean, val recommended: LocalModelSpec)
 
-/** A model download: [fraction] null while the size is unknown; [error] set when it failed. */
-data class ModelDownload(val fraction: Float? = null, val error: String? = null)
+/** Why a queued download isn't moving. */
+enum class DownloadWait { WIFI, NETWORK, RETRY }
+
+/**
+ * A model download: [fraction] null while the size is unknown; [waiting] while Android holds it (no Wi-Fi,
+ * no network, retrying); [error] set when it failed.
+ */
+data class ModelDownload(val fraction: Float? = null, val error: String? = null, val waiting: DownloadWait? = null)
 
 /**
  * The on-device story writers (spec A §69): Gemini Nano where the phone has it (Pixel, Galaxy, recent Xiaomi
  * flagships), or an open model downloaded once. The choice is a setting: "auto" (Nano if ready, else a
  * downloaded model), "off", "nano" or a model id.
+ *
+ * Open models are fetched by Android's DownloadManager (spec A §71): it keeps going while the app is closed
+ * or the phone sleeps, resumes by itself after a dropped connection or a restart, can wait for Wi-Fi, and
+ * shows its progress in the notification shade.
  */
-class LocalModels(private val context: Context, http: OkHttpClient, private val scope: CoroutineScope) {
+class LocalModels(
+    private val context: Context,
+    @Suppress("UNUSED_PARAMETER") http: OkHttpClient,
+    private val scope: CoroutineScope,
+    private val wifiOnly: () -> Boolean = { true },
+) {
     /**
-     * Downloaded once and kept: app-private storage survives app updates (the self-update installs over the
-     * same app), and "no backup" keeps gigabytes out of the phone's cloud backup. Only uninstalling, "clear
-     * data" or Delete in Settings removes a model.
+     * Downloaded once and kept: the app's own external storage (Android/data/<app>/files/models) survives app
+     * updates (the self-update installs over the same app), stays out of cloud backup, and is where
+     * DownloadManager can write. Only uninstalling, "clear data" or Delete in Settings removes a model.
      */
-    private val dir = File(context.noBackupFilesDir, "models").apply { mkdirs() }
+    private val dir = (context.getExternalFilesDir(MODELS) ?: File(context.noBackupFilesDir, MODELS)).apply { mkdirs() }
+    /** Where 0.5.91–0.5.92 kept models: still used if a model is there. */
+    private val legacyDir = File(context.noBackupFilesDir, MODELS)
     /** LiteRT-LM's prepared-model cache, kept next to the models so it isn't rebuilt after an update. */
     private val engineCache = File(dir, "cache").apply { mkdirs() }
-    private val http = http.newBuilder().readTimeout(60, TimeUnit.SECONDS).callTimeout(0, TimeUnit.SECONDS).build()
+    private val prefs = context.getSharedPreferences("model_downloads", Context.MODE_PRIVATE)
+    private val downloadManager get() = context.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager
 
     private val _installed = MutableStateFlow(scanInstalled())
     val installed: StateFlow<Set<String>> = _installed.asStateFlow()
@@ -81,19 +98,23 @@ class LocalModels(private val context: Context, http: OkHttpClient, private val 
     val downloads: StateFlow<Map<String, ModelDownload>> = _downloads.asStateFlow()
     private val _nano = MutableStateFlow(NanoState.UNKNOWN)
     val nano: StateFlow<NanoState> = _nano.asStateFlow()
-    private val jobs = HashMap<String, Job>()
+    private var poller: Job? = null
 
     private val nanoWriter = NanoWriter()
     private val liteRt = HashMap<String, LiteRtWriter>()
 
     init {
-        // A download cut short (the app was updated or closed) continues where it stopped.
-        LocalModelCatalog.all.filter { File(dir, it.fileName + ".part").isFile && it.id !in _installed.value }.forEach { download(it.id) }
+        // Unfinished downloads from the old in-app downloader can't be continued by Android: drop them.
+        LocalModelCatalog.all.forEach { File(legacyDir, it.fileName + ".part").delete() }
+        // Android kept downloading while the app was closed or being updated: pick up where it is.
+        reconcile()
     }
 
-    private fun scanInstalled() = LocalModelCatalog.all.filter { File(dir, it.fileName).isFile }.map { it.id }.toSet()
+    private fun scanInstalled() = LocalModelCatalog.all.filter { fileOf(it).isFile }.map { it.id }.toSet()
 
-    fun fileOf(spec: LocalModelSpec) = File(dir, spec.fileName)
+    /** The model's file: in the models folder, or where an earlier version saved it. */
+    fun fileOf(spec: LocalModelSpec): File =
+        File(legacyDir, spec.fileName).takeIf { it.isFile } ?: File(dir, spec.fileName)
 
     /** Android version, memory, free space, whether AICore (Gemini Nano) supports this phone, and the model that fits. */
     fun deviceInfo(): DeviceInfo {
@@ -154,24 +175,38 @@ class LocalModels(private val context: Context, http: OkHttpClient, private val 
             return
         }
         val spec = LocalModelCatalog.byId(id) ?: return
-        synchronized(jobs) {
-            if (jobs[id]?.isActive == true) return
-            _downloads.update { it + (id to ModelDownload()) }
-            jobs[id] = scope.launch(Dispatchers.IO) {
-                val error = runCatching { fetch(spec) }.exceptionOrNull()
-                if (error == null) {
-                    _installed.value = scanInstalled()
-                    _downloads.update { it - id }
-                } else if (isActive) {
-                    Log.w(TAG, "Download of ${spec.id} failed", error)
-                    _downloads.update { it + (id to ModelDownload(error = error.message ?: error.javaClass.simpleName)) }
-                }
-            }
+        if (id in _installed.value || prefs.contains(id)) { reconcile(); return }
+        val needed = spec.sizeMb * 1_000_000L + 200_000_000L
+        if (dir.usableSpace < needed) {
+            _downloads.update { it + (id to ModelDownload(error = "Not enough free space: ${needed / 1_000_000} MB needed")) }
+            return
         }
+        val dm = downloadManager ?: run {
+            _downloads.update { it + (id to ModelDownload(error = "No download service on this phone")) }
+            return
+        }
+        tempOf(spec).delete()
+        val request = DownloadManager.Request(Uri.parse(spec.url))
+            .setTitle("GPS Radio: ${spec.label}")
+            .setDescription(context.getString(com.gpsradio.app.R.string.local_model_notification))
+            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+            .setDestinationInExternalFilesDir(context, MODELS, tempOf(spec).name)
+            .setAllowedOverMetered(!wifiOnly())
+            .setAllowedOverRoaming(false)
+        val downloadId = runCatching { dm.enqueue(request) }.getOrElse { e ->
+            _downloads.update { it + (id to ModelDownload(error = e.message ?: e.javaClass.simpleName)) }
+            return
+        }
+        prefs.edit().putLong(id, downloadId).apply()
+        _downloads.update { it + (id to ModelDownload()) }
+        watch()
     }
 
     fun cancel(id: String) {
-        synchronized(jobs) { jobs.remove(id)?.cancel() }
+        val downloadId = prefs.getLong(id, -1)
+        if (downloadId >= 0) runCatching { downloadManager?.remove(downloadId) }
+        prefs.edit().remove(id).apply()
+        LocalModelCatalog.byId(id)?.let { tempOf(it).delete() }
         _downloads.update { it - id }
     }
 
@@ -180,63 +215,107 @@ class LocalModels(private val context: Context, http: OkHttpClient, private val 
         cancel(id)
         synchronized(liteRt) { liteRt.remove(id)?.close() }
         fileOf(spec).delete()
-        File(dir, spec.fileName + ".part").delete()
+        File(dir, spec.fileName).delete()
         _installed.value = scanInstalled()
     }
 
-    /** Downloads with resume: a broken connection continues where it stopped. */
-    private suspend fun fetch(spec: LocalModelSpec) {
-        val part = File(dir, spec.fileName + ".part")
-        val needed = spec.sizeMb * 1_000_000L - part.length() + 200_000_000L
-        if (dir.usableSpace < needed) throw IllegalStateException("Not enough free space: ${needed / 1_000_000} MB needed")
-        var attempt = 0
-        while (true) {
-            try {
-                download(spec, part)
-                break
-            } catch (e: java.io.IOException) {
-                if (++attempt >= 5 || !kotlin.coroutines.coroutineContext.isActive) throw e
-                kotlinx.coroutines.delay(3_000L * attempt)
-            }
-        }
-        if (!part.renameTo(fileOf(spec))) throw IllegalStateException("Could not save the model")
-    }
+    private fun tempOf(spec: LocalModelSpec) = File(dir, spec.fileName + ".download")
 
-    private suspend fun download(spec: LocalModelSpec, part: File) {
-        val have = part.length()
-        val request = Request.Builder().url(spec.url).apply { if (have > 0) header("Range", "bytes=$have-") }.build()
-        http.newCall(request).execute().use { response ->
-            if (response.code == 416) return // already complete
-            if (!response.isSuccessful) throw java.io.IOException("HTTP ${response.code}")
-            val append = response.code == 206
-            val body = response.body ?: throw java.io.IOException("Empty response")
-            val total = body.contentLength().takeIf { it > 0 }?.let { it + if (append) have else 0 }
-            var done = if (append) have else 0L
-            var lastReport = 0L
-            FileOutputStream(part, append).use { out ->
-                body.byteStream().use { input ->
-                    val buffer = ByteArray(256 * 1024)
-                    while (true) {
-                        if (!kotlin.coroutines.coroutineContext.isActive) throw kotlinx.coroutines.CancellationException()
-                        val n = input.read(buffer)
-                        if (n < 0) break
-                        out.write(buffer, 0, n)
-                        done += n
-                        if (done - lastReport > 4_000_000) {
-                            lastReport = done
-                            val fraction = total?.let { (done.toFloat() / it).coerceIn(0f, 1f) }
-                            _downloads.update { it + (spec.id to ModelDownload(fraction)) }
-                        }
+    /**
+     * Brings the state up to date with Android's download service: progress, "waiting for Wi-Fi", failures,
+     * and finished downloads (moved into place). Safe to call any time; the download receiver calls it too.
+     */
+    @Synchronized
+    fun reconcile() {
+        val dm = downloadManager
+        val next = HashMap<String, ModelDownload>()
+        for (spec in LocalModelCatalog.all) {
+            val downloadId = prefs.getLong(spec.id, -1)
+            if (downloadId < 0) {
+                // Keep a failure on screen until the listener retries.
+                _downloads.value[spec.id]?.takeIf { it.error != null }?.let { next[spec.id] = it }
+                continue
+            }
+            val status = dm?.let { query(it, downloadId) }
+            if (status == null) {
+                prefs.edit().remove(spec.id).apply() // Android forgot it (cleared): start over
+                continue
+            }
+            when (status.status) {
+                DownloadManager.STATUS_SUCCESSFUL -> {
+                    val temp = tempOf(spec)
+                    if (temp.isFile && (temp.renameTo(File(dir, spec.fileName)) || File(dir, spec.fileName).isFile)) {
+                        prefs.edit().remove(spec.id).apply()
+                    } else {
+                        prefs.edit().remove(spec.id).apply()
+                        next[spec.id] = ModelDownload(error = "The downloaded file is missing")
                     }
                 }
+                DownloadManager.STATUS_FAILED -> {
+                    runCatching { dm?.remove(downloadId) }
+                    prefs.edit().remove(spec.id).apply()
+                    next[spec.id] = ModelDownload(error = failureText(status.reason))
+                }
+                else -> next[spec.id] = ModelDownload(
+                    fraction = status.total.takeIf { it > 0 }?.let { (status.done.toFloat() / it).coerceIn(0f, 1f) },
+                    waiting = if (status.status == DownloadManager.STATUS_PAUSED) when (status.reason) {
+                        DownloadManager.PAUSED_QUEUED_FOR_WIFI -> DownloadWait.WIFI
+                        DownloadManager.PAUSED_WAITING_FOR_NETWORK -> if (wifiOnly()) DownloadWait.WIFI else DownloadWait.NETWORK
+                        else -> DownloadWait.RETRY
+                    } else null,
+                )
             }
-            if (total != null && done < total) throw java.io.IOException("Download interrupted")
+        }
+        _downloads.value = next
+        _installed.value = scanInstalled()
+        if (next.values.any { it.error == null }) watch()
+    }
+
+    private data class Status(val status: Int, val reason: Int, val done: Long, val total: Long)
+
+    private fun query(dm: DownloadManager, downloadId: Long): Status? = runCatching {
+        dm.query(DownloadManager.Query().setFilterById(downloadId))?.use { c ->
+            if (!c.moveToFirst()) return@use null
+            Status(
+                status = c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS)),
+                reason = c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON)),
+                done = c.getLong(c.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR)),
+                total = c.getLong(c.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES)),
+            )
+        }
+    }.getOrNull()
+
+    private fun failureText(reason: Int): String = when (reason) {
+        DownloadManager.ERROR_INSUFFICIENT_SPACE -> "Not enough free space"
+        DownloadManager.ERROR_CANNOT_RESUME -> "The download couldn't be resumed; try again"
+        DownloadManager.ERROR_HTTP_DATA_ERROR, DownloadManager.ERROR_UNHANDLED_HTTP_CODE -> "The server refused the download ($reason)"
+        DownloadManager.ERROR_DEVICE_NOT_FOUND -> "Storage not available"
+        else -> "Download failed ($reason)"
+    }
+
+    /** Progress for the screen while a download runs; Android does the downloading itself. */
+    private fun watch() {
+        if (poller?.isActive == true) return
+        poller = scope.launch {
+            while (isActive) {
+                kotlinx.coroutines.delay(2_000)
+                reconcile()
+                if (_downloads.value.values.none { it.error == null }) break
+            }
         }
     }
 
     companion object {
         const val NANO = "nano"
+        private const val MODELS = "models"
         private const val TAG = "LocalModels"
+    }
+}
+
+/** Android finished (or failed) a model download, possibly while the app was closed: move it into place. */
+class ModelDownloadReceiver : android.content.BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: android.content.Intent) {
+        (context.applicationContext as? com.gpsradio.app.GpsRadioApp)?.localModels?.reconcile()
     }
 }
 

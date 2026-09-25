@@ -819,3 +819,18 @@ These fixes follow the report that the update flow still didn't work:
 - `SessionConfig.storiesOnDevice`: `onDeviceNow()` = `hasFallback && (storiesOnDevice || openAiUnusable())`. When chosen (not forced) the degraded status and spoken notice are skipped. `speakFree()` voices on-device stories with the speech port while OpenAI is usable, else, or on failure, with `fallbackSpeech`.
 - `SessionConfig.assistantOnDevice`: `handleUtterance` answers with `fallbackNarrator` when it is chosen or when OpenAI is unusable (preview, offline or over budget), and `fallbackNarrator.canConverse()`. The timeout is at least 60 s. The answer is voiced with `speakFree`. `Narrator.canConverse()` defaults to true; `NarrationFallback` is false and `LocalNarrator` is `writer.available()`. `LocalNarrator.answerPrompt` grounds the model in the area, the active place's source text, the nearby names and the last 4 turns.
 - App: `RoutedSpeech(cloud, phone) { settings.voiceOnDevice }` is the session's speech port. It does not hide OpenAI errors, so the session's fallback and quota logic still see them. The same `AndroidTtsSpeech` instance is the fallback voice. `assistantOnDevice` turns the live voice off and routes the mic to the phone's recognizer (`useOnDeviceMic`). `LocalModels.deviceInfo()` reports Android, RAM, free space, `GenAiUtils.isAiCoreCompatible` and `recommendedFor(ram)`.
+
+## Model Downloads via DownloadManager (spec A §71)
+
+`LocalModels.download(id)` enqueues a `DownloadManager.Request` with:
+- destination `getExternalFilesDir("models")/<file>.download`;
+- `setAllowedOverMetered(!settings.modelWifiOnly)` and `setAllowedOverRoaming(false)`;
+- `VISIBILITY_VISIBLE_NOTIFY_COMPLETED`.
+
+The download id is stored in the `model_downloads` preferences under the model id. `reconcile()`, which is synchronized, maps each stored id:
+- **RUNNING or PENDING:** progress.
+- **PAUSED:** `DownloadWait` (queued for Wi-Fi, waiting for network, or retry).
+- **SUCCESSFUL:** the `.download` file is renamed into place and the id forgotten.
+- **FAILED:** a reason text; the download is removed.
+
+`reconcile()` runs from `init`, from a 2 s poller while a download is active, and from `ModelDownloadReceiver` (a manifest receiver for `DOWNLOAD_COMPLETE`, which also works with the app closed). `fileOf()` prefers the legacy `noBackupFilesDir/models` file if present.

@@ -23,7 +23,7 @@ class LocalModelsStorageTest {
     fun modelKeptInNoBackupStorageIsReusedAfterRestart() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val spec = LocalModelCatalog.all.first()
-        val file = File(File(context.noBackupFilesDir, "models"), spec.fileName)
+        val file = File(context.getExternalFilesDir("models"), spec.fileName)
         file.parentFile!!.mkdirs()
         file.writeText("model")
 
@@ -32,9 +32,25 @@ class LocalModelsStorageTest {
         assertEquals(setOf(spec.id), models.installed.value)
         assertTrue(models.downloads.value.isEmpty())
         assertEquals(file, models.fileOf(spec))
+        // Asking again doesn't fetch it again.
+        models.download(spec.id)
+        assertTrue(models.downloads.value.isEmpty())
 
         models.delete(spec.id)
         assertFalse(file.exists())
         assertTrue(models.installed.value.isEmpty())
+    }
+
+    @Test
+    fun modelFromTheEarlierVersionsFolderIsStillUsed() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val spec = LocalModelCatalog.all.last()
+        val legacy = File(File(context.noBackupFilesDir, "models"), spec.fileName)
+        legacy.parentFile!!.mkdirs()
+        legacy.writeText("model")
+        val models = LocalModels(context, OkHttpClient(), CoroutineScope(Job()))
+        assertTrue(spec.id in models.installed.value)
+        assertEquals(legacy, models.fileOf(spec))
+        legacy.delete()
     }
 }

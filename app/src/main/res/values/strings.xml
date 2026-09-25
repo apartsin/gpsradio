@@ -309,7 +309,7 @@
     <string name="local_model_delete">Delete model (frees %1$s)</string>
     <string name="local_model_downloading">Downloading %1$s: %2$s</string>
     <string name="local_model_failed">Download failed: %1$s</string>
-    <string name="local_model_download_hint">Free, runs offline. Use Wi-Fi and keep the app open until it finishes.</string>
+    <string name="local_model_download_hint">Free, runs offline. It downloads in the background and resumes by itself.</string>
     <string name="local_model_download">Download %1$s (%2$s)</string>
     <string name="local_model_cancel">Cancel</string>
     <string name="providers_hint">Choose who does each job. When the choice can\'t be used (no internet, no key, limit reached), the next one takes over.</string>
@@ -329,4 +329,9 @@
     <string name="device_check_aicore_yes">Gemini Nano (AICore): supported by this phone.</string>
     <string name="device_check_aicore_no">Gemini Nano (AICore): not on this phone.</string>
     <string name="device_check_recommend">Recommended open model: %1$s</string>
+    <string name="local_model_notification">On-device model for free, offline stories</string>
+    <string name="local_model_waiting_wifi">Waiting for Wi-Fi… It continues by itself, even with the app closed.</string>
+    <string name="local_model_waiting_network">Waiting for a connection… It continues by itself.</string>
+    <string name="local_model_waiting_retry">Paused; Android will retry by itself.</string>
+    <string name="local_model_wifi_only">Download only on Wi-Fi</string>
 </resources>

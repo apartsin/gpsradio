@@ -199,6 +199,7 @@ open class GpsRadioApp : Application(), coil.ImageLoaderFactory {
             .build()
         localModels = com.gpsradio.app.platform.LocalModels(
             this, http, CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default),
+            wifiOnly = { settings.current.modelWifiOnly },
         )
         val openAi = OpenAiClient(http, apiKey = { settings.current.effectiveApiKey }, baseUrl = ep.openAiBaseUrl, meter = meter)
         val models = { settings.current.models }

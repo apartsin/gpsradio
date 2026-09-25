@@ -62,6 +62,8 @@ data class AppSettings(
     val voiceOnDevice: Boolean = false,
     /** Providers: questions answered on the phone (its recognizer, model and voice) instead of OpenAI. */
     val assistantOnDevice: Boolean = false,
+    /** Download on-device models only over Wi-Fi (unmetered), never on mobile data. */
+    val modelWifiOnly: Boolean = true,
 ) {
     /** The listener's own key if they entered one, otherwise the key built into this app (if any). */
     val effectiveApiKey: String get() = apiKey.ifBlank { EmbeddedKey.value }
@@ -125,6 +127,7 @@ class SettingsRepository(context: Context) {
             putBoolean(KEY_STORY_ON_DEVICE, next.storyOnDevice)
             putBoolean(KEY_VOICE_ON_DEVICE, next.voiceOnDevice)
             putBoolean(KEY_ASSISTANT_ON_DEVICE, next.assistantOnDevice)
+            putBoolean(KEY_MODEL_WIFI_ONLY, next.modelWifiOnly)
         }
         _settings.value = next.copy(apiKey = next.apiKey.trim())
     }
@@ -172,6 +175,7 @@ class SettingsRepository(context: Context) {
             storyOnDevice = plain.getBoolean(KEY_STORY_ON_DEVICE, d.storyOnDevice),
             voiceOnDevice = plain.getBoolean(KEY_VOICE_ON_DEVICE, d.voiceOnDevice),
             assistantOnDevice = plain.getBoolean(KEY_ASSISTANT_ON_DEVICE, d.assistantOnDevice),
+            modelWifiOnly = plain.getBoolean(KEY_MODEL_WIFI_ONLY, d.modelWifiOnly),
         )
     }
 
@@ -239,5 +243,6 @@ class SettingsRepository(context: Context) {
         const val KEY_STORY_ON_DEVICE = "story_on_device"
         const val KEY_VOICE_ON_DEVICE = "voice_on_device"
         const val KEY_ASSISTANT_ON_DEVICE = "assistant_on_device"
+        const val KEY_MODEL_WIFI_ONLY = "model_wifi_only"
     }
 }

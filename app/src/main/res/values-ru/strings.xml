@@ -309,7 +309,7 @@
     <string name="local_model_delete">Удалить модель (освободит %1$s)</string>
     <string name="local_model_downloading">Загрузка %1$s: %2$s</string>
     <string name="local_model_failed">Ошибка загрузки: %1$s</string>
-    <string name="local_model_download_hint">Бесплатно, работает без интернета. Используйте Wi-Fi и не закрывайте приложение до конца загрузки.</string>
+    <string name="local_model_download_hint">Бесплатно, работает без интернета. Загрузка идёт в фоне и возобновляется сама.</string>
     <string name="local_model_download">Скачать %1$s (%2$s)</string>
     <string name="local_model_cancel">Отмена</string>
     <string name="providers_hint">Выберите, кто выполняет каждую задачу. Если выбранное недоступно (нет интернета, ключа или исчерпан лимит), работу берёт следующий.</string>
@@ -329,4 +329,9 @@
     <string name="device_check_aicore_yes">Gemini Nano (AICore): телефон поддерживает.</string>
     <string name="device_check_aicore_no">Gemini Nano (AICore): на этом телефоне нет.</string>
     <string name="device_check_recommend">Рекомендуемая открытая модель: %1$s</string>
+    <string name="local_model_notification">Модель на телефоне для бесплатных офлайн-историй</string>
+    <string name="local_model_waiting_wifi">Ожидание Wi-Fi… Загрузка продолжится сама, даже если приложение закрыто.</string>
+    <string name="local_model_waiting_network">Ожидание соединения… Загрузка продолжится сама.</string>
+    <string name="local_model_waiting_retry">Пауза; Android повторит сам.</string>
+    <string name="local_model_wifi_only">Скачивать только по Wi-Fi</string>
 </resources>
