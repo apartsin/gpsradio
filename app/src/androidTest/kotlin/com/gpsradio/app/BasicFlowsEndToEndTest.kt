@@ -126,7 +126,9 @@ class BasicFlowsEndToEndTest {
         startRadio()
         // Non-stop radio: after one story ends, the next starts by itself (no button pressed).
         waitUntil("two different stories in a row", 90_000) {
-            FakeServices.played.toList().filter { it.startsWith("AUDIO:") || it.startsWith("DEVICE:") }.toSet().size >= 2
+            // Recorded clips start alike (the TTS request), so count the stories told in the transcript.
+            app.session.state.value.transcript.filter { it.speaker == com.gpsradio.core.model.Speaker.RADIO }
+                .map { it.text }.toSet().size >= 2
         }
     }
 
