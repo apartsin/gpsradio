@@ -297,7 +297,7 @@
     <string name="phone_asr_unavailable">Speech recognition isn\'t available on this phone.</string>
     <string name="local_model_label">Stories without OpenAI</string>
     <string name="local_model_hint">A model on the phone retells the facts when there\'s no internet, no key or the limit is reached.</string>
-    <string name="local_model_auto">Automatic (best available)</string>
+    <string name="local_model_auto">Automatic</string>
     <string name="local_model_off">Off (read the facts as they are)</string>
     <string name="nano_checking">Checking for Gemini Nano…</string>
     <string name="nano_ready">Gemini Nano is ready on this phone.</string>

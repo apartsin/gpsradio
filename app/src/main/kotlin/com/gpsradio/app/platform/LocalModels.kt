@@ -70,11 +70,33 @@ private val SNAPDRAGON = mapOf(
     "SM6450" to "Snapdragon 6 Gen 1",
     "SM6375" to "Snapdragon 695",
     "SM4450" to "Snapdragon 4 Gen 2",
+    // MediaTek (Xiaomi "T" models, Redmi, POCO).
+    "MT6993" to "Dimensity 9500",
+    "MT6991" to "Dimensity 9400",
+    "MT6989" to "Dimensity 9300",
+    "MT6985" to "Dimensity 9200",
+    "MT6899" to "Dimensity 8400",
+    "MT6897" to "Dimensity 8300",
+    "MT6896" to "Dimensity 8200",
+    "MT6895" to "Dimensity 8100",
+    "MT6886" to "Dimensity 7200",
+    "MT6878" to "Dimensity 7300",
+    "MT6877" to "Dimensity 1080 / 7050",
+    "MT6835" to "Dimensity 6300",
+    "MT6833" to "Dimensity 700 / 6020",
 )
 
+/** Flagship chips (Snapdragon 8, Dimensity 9000/8000) can carry the bigger model at a listenable speed. */
+fun isFlagshipChip(soc: String?): Boolean {
+    val code = soc?.uppercase() ?: return false
+    return Regex("SM8\\d{3}").containsMatchIn(code) || Regex("MT69(8|9)\\d").containsMatchIn(code) ||
+        code.contains("MT6897") || code.contains("MT6899") || code.contains("TENSOR")
+}
+
 /** The biggest model that runs comfortably: the model takes about its file size in memory besides Android and apps. */
-fun recommendedFor(ramGb: Double): LocalModelSpec = when {
-    ramGb >= 11 -> LocalModelCatalog.byId("gemma4-e4b")!!
+fun recommendedFor(ramGb: Double, soc: String? = chipName()): LocalModelSpec = when {
+    // The 4B model needs both memory and a fast chip: on a mid-range chip (e.g. Dimensity 7300) it's too slow to talk.
+    ramGb >= 11 && isFlagshipChip(soc) -> LocalModelCatalog.byId("gemma4-e4b")!!
     ramGb >= 6 -> LocalModelCatalog.byId("gemma4-e2b")!!
     else -> LocalModelCatalog.byId("qwen3-1.7b")!!
 }

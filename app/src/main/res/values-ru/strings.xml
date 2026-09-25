@@ -297,7 +297,7 @@
     <string name="phone_asr_unavailable">Распознавание речи на этом телефоне недоступно.</string>
     <string name="local_model_label">Истории без OpenAI</string>
     <string name="local_model_hint">Модель на телефоне пересказывает факты, когда нет интернета, ключа или исчерпан лимит.</string>
-    <string name="local_model_auto">Автоматически (лучшая доступная)</string>
+    <string name="local_model_auto">Автоматически</string>
     <string name="local_model_off">Выключено (читать факты как есть)</string>
     <string name="nano_checking">Проверяю Gemini Nano…</string>
     <string name="nano_ready">Gemini Nano готова на этом телефоне.</string>

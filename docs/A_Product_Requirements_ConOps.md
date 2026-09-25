@@ -1118,3 +1118,4 @@ Without a model on the phone, the earlier behaviour stays (the notes, the "add a
   - Qualcomm's own Genie SDK and Alibaba's MNN (with a QNN backend) need models compiled per chip.
   - Revisit for one known chip (for example SM8750, Snapdragon 8 Elite) if GPU speed isn't enough.
 - **llama.cpp** has an official OpenCL backend for Adreno (8 Gen 3, 8 Elite). It's still an option for GGUF models (§70).
+- **Chip-aware recommendation** (the owner's phone: MediaTek MT6878 = Dimensity 7300, 12 GB, no Gemini Nano): Gemma 4 E4B is recommended only with 11+ GB **and** a flagship chip (Snapdragon 8, Dimensity 9000/8300/8400, Tensor). A mid-range chip with lots of memory gets Gemma 4 E2B, since the 4B model would be too slow to talk. MediaTek codes now show their Dimensity names. The *Automatic* label is shortened so it isn't cut off.
