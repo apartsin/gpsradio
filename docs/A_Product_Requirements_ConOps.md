@@ -1119,3 +1119,23 @@ Without a model on the phone, the earlier behaviour stays (the notes, the "add a
   - Revisit for one known chip (for example SM8750, Snapdragon 8 Elite) if GPU speed isn't enough.
 - **llama.cpp** has an official OpenCL backend for Adreno (8 Gen 3, 8 Elite). It's still an option for GGUF models (§70).
 - **Chip-aware recommendation** (the owner's phone: MediaTek MT6878 = Dimensity 7300, 12 GB, no Gemini Nano): Gemma 4 E4B is recommended only with 11+ GB **and** a flagship chip (Snapdragon 8, Dimensity 9000/8300/8400, Tensor). A mid-range chip with lots of memory gets Gemma 4 E2B, since the 4B model would be too slow to talk. MediaTek codes now show their Dimensity names. The *Automatic* label is shortened so it isn't cut off.
+
+## 74. Basic Flows Audit
+
+Reported from a phone (Russian, OpenAI credit used up, stories from the phone's model or the plain notes): "Next story does not play". The session code was audited and the basic flows are now covered by tests end to end.
+
+Bugs found and fixed:
+- **Next waited for the phone's model twice.** While a story plays, the next one is written ahead. The phone's model writes one text at a time and can't be stopped. Pressing Next while it was still writing started a second request for the same place, queued behind the first. It took twice as long, could run past the model's time limit, and the place was then dropped. Next now waits for the story already being written.
+- **"Next story…" stayed on screen.** Stories, area stories and tour stops went on air without ending the wait. The note stayed through the whole next story, the "searching" animation ran on, and a queued "just a moment" could play after the story. Now anything going on air ends the wait. If nothing can air, the note goes after a minute.
+- **Out of credit, every story tried OpenAI first.** Now, while the credit is out, stories, fillers and preparing ahead stay on the phone. One story every 3 minutes still tries OpenAI, so a top-up is noticed without changing the key. A filler written by OpenAI also clears the credit warning. An out-of-credit error is always handled like an outage, so the place isn't marked as broken.
+- **Silence among English-only places.** A Russian listener with no model on the phone, among places that only have English notes, heard nothing at all. The radio now says once, in the listener's language, why it's quiet and what brings the stories back (OpenAI back, or a model in Settings). If the credit is the reason, that's said first. The stories resume by themselves when OpenAI is back.
+- **Pause and Stop:** a queued "just a moment" no longer plays after them.
+
+New tests (`BasicFlowsTest`) run each flow with OpenAI working and on the phone: out of credit or offline, with a phone model or with plain notes, and for a Russian listener with Russian or only English sources.
+- Start: the first story plays, then the next ones follow by themselves (non-stop), with no repeats, one clip at a time, in the right voice and language.
+- OpenAI is not called while offline, and only once while the credit is out.
+- Next during a story: a different story starts within seconds, even with a slow phone model. A double Next brings exactly one new story, and skipped stories never come back.
+- Pause, resume, stop and start.
+- A question is answered: by OpenAI, by the phone's model, or with the "no credit" or "offline" notice. Then the radio carries on.
+- The credit runs out mid-session: the stories go on on the phone, the notice is said once, and OpenAI stories resume after a top-up.
+- English-only places, a Russian listener and no model: no English is read, the notice is said once, and the stories resume when OpenAI is back.
