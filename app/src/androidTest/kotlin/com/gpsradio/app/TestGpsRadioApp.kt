@@ -31,6 +31,12 @@ class TestGpsRadioApp : GpsRadioApp() {
     /** The tests match English text: keep the emulator's locale. */
     override fun uiLanguage(): String? = null
 
+    /** The phone's voice, faked: the emulator may have no offline voice installed. */
+    override fun fallbackSpeech(): com.gpsradio.core.session.SpeechService = object : com.gpsradio.core.session.SpeechService {
+        override suspend fun synthesize(text: String, language: String, style: com.gpsradio.core.ai.HostStyle) = "DEVICE:$text".toByteArray()
+        override suspend fun transcribe(audio: ByteArray, fileName: String, mimeType: String, prompt: String?) = ""
+    }
+
     // No on-device model on the test emulator: offline stories are the plain notes.
     override fun localWriter(): com.gpsradio.core.ai.LocalWriter? = null
 

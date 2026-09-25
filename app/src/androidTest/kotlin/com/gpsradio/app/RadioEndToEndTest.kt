@@ -73,9 +73,16 @@ class RadioEndToEndTest {
 
     @Test
     fun narratesNearbyStoryAnswersQuestionAndRemembersPreference() {
-        // First launch: enter a (fake) key.
-        compose.onNodeWithText("OpenAI API key").performTextInput("sk-test")
-        compose.onNodeWithText("Save and start listening").performScrollTo().performClick()
+        // Another test may have heard Schloss Ort already: start fresh.
+        app.session.clearHistory()
+        // First launch: enter a (fake) key. If another test already did, just start the radio.
+        compose.waitForIdle()
+        if (runCatching { compose.onNodeWithText("OpenAI API key").assertExists() }.isSuccess) {
+            compose.onNodeWithText("OpenAI API key").performTextInput("sk-test")
+            compose.onNodeWithText("Save and start listening").performScrollTo().performClick()
+        } else if (app.session.state.value.radioState == com.gpsradio.core.model.RadioState.IDLE) {
+            compose.onNodeWithContentDescription("Start radio").performClick()
+        }
 
         // Saving starts the radio right away (location already granted); feed GPS fixes.
         waitFor(hasContentDescription("Stop radio"), 10_000)
