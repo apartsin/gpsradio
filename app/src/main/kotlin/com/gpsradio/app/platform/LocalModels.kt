@@ -14,7 +14,10 @@ import com.google.mlkit.genai.common.FeatureStatus
 import com.google.mlkit.genai.prompt.Generation
 import com.google.mlkit.genai.prompt.GenerativeModel
 import com.gpsradio.core.ai.LocalWriter
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -528,9 +531,26 @@ private class LiteRtWriter(
     /** "GPU" or "CPU" once loaded. */
     @Volatile var backend: String? = null
 
+    /**
+     * Loading and writing run here, apart from the caller: the native calls can't be interrupted, so a caller's
+     * time limit (the radio waiting for a story) could otherwise never fire and the next story would never play.
+     * The caller stops waiting on time; work still queued for the model is dropped.
+     */
+    private val worker = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    private suspend fun <T> onWorker(block: () -> T): T {
+        val job = worker.async { lock.withLock { block() } }
+        try {
+            return job.await()
+        } catch (e: CancellationException) {
+            job.cancel() // still waiting for the model: never run it
+            throw e
+        }
+    }
+
     override suspend fun available() = file.isFile
 
-    override suspend fun prepare(): Boolean = lock.withLock { withContext(Dispatchers.Default) { load() != null } }
+    override suspend fun prepare(): Boolean = onWorker { load() != null }
 
     private fun load(): Engine? {
         engine?.let { return it }
@@ -538,36 +558,34 @@ private class LiteRtWriter(
         if (gpu.gpuAllowed()) {
             gpu.starting()
             val onGpu = runCatching {
-                Engine(EngineConfig(modelPath = file.path, backend = Backend.GPU(), cacheDir = cacheDir.path)).also { it.initialize() }
+                Engine(EngineConfig(modelPath = file.path, backend = Backend.GPU(), maxNumTokens = MAX_TOKENS, cacheDir = cacheDir.path)).also { it.initialize() }
             }
             // "pending" stays set until the first answer on the GPU: some drivers crash only then (LiteRT-LM #1860).
             if (onGpu.isFailure) gpu.finished(false)
             onGpu.onFailure { Log.w("LiteRtWriter", "GPU load failed, using the CPU", it) }
             onGpu.getOrNull()?.let { engine = it; backend = "GPU"; gpuProven = false; return it }
         }
-        return Engine(EngineConfig(modelPath = file.path, backend = Backend.CPU(), cacheDir = cacheDir.path))
+        return Engine(EngineConfig(modelPath = file.path, backend = Backend.CPU(), maxNumTokens = MAX_TOKENS, cacheDir = cacheDir.path))
             .also { it.initialize(); engine = it; backend = "CPU" }
     }
 
     /** The GPU has answered once without killing the app. */
     private var gpuProven = true
 
-    override suspend fun write(prompt: String): String? = lock.withLock {
-        withContext(Dispatchers.Default) {
-            val e = load() ?: return@withContext null
-            val reply = runCatching { generate(e, prompt) }
-            if (backend == "GPU" && !gpuProven) {
-                gpu.finished(reply.isSuccess)
-                gpuProven = reply.isSuccess
-                if (reply.isFailure) {
-                    // The GPU loaded but can't answer: the CPU from now on.
-                    Log.w("LiteRtWriter", "GPU answer failed, using the CPU", reply.exceptionOrNull())
-                    close()
-                    return@withContext load()?.let { generate(it, prompt) }
-                }
+    override suspend fun write(prompt: String): String? = onWorker {
+        val e = load() ?: return@onWorker null
+        val reply = runCatching { generate(e, prompt) }
+        if (backend == "GPU" && !gpuProven) {
+            gpu.finished(reply.isSuccess)
+            gpuProven = reply.isSuccess
+            if (reply.isFailure) {
+                // The GPU loaded but can't answer: the CPU from now on.
+                Log.w("LiteRtWriter", "GPU answer failed, using the CPU", reply.exceptionOrNull())
+                close()
+                return@onWorker load()?.let { generate(it, prompt) }
             }
-            reply.getOrThrow()
         }
+        reply.getOrThrow()
     }
 
     private fun generate(e: Engine, prompt: String): String =
@@ -580,5 +598,10 @@ private class LiteRtWriter(
         runCatching { engine?.close() }
         engine = null
         backend = null
+    }
+
+    companion object {
+        /** Prompt (facts up to ~1,000 characters) plus a short story: a small context loads and answers faster. */
+        const val MAX_TOKENS = 2048
     }
 }

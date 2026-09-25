@@ -43,7 +43,7 @@ class LocalNarrator(
     private val writer: LocalWriter,
     private val notes: NarrationFallback = NarrationFallback(),
     private val timeoutMs: Long = 45_000,
-    private val factChars: Int = 1_500,
+    private val factChars: Int = 1_000,
     /** The first load of the model: slower than any answer. */
     private val prepareMs: Long = 150_000,
 ) : Narrator {
