@@ -518,23 +518,41 @@ private class LiteRtWriter(
             val onGpu = runCatching {
                 Engine(EngineConfig(modelPath = file.path, backend = Backend.GPU(), cacheDir = cacheDir.path)).also { it.initialize() }
             }
-            gpu.finished(onGpu.isSuccess)
+            // "pending" stays set until the first answer on the GPU: some drivers crash only then (LiteRT-LM #1860).
+            if (onGpu.isFailure) gpu.finished(false)
             onGpu.onFailure { Log.w("LiteRtWriter", "GPU load failed, using the CPU", it) }
-            onGpu.getOrNull()?.let { engine = it; backend = "GPU"; return it }
+            onGpu.getOrNull()?.let { engine = it; backend = "GPU"; gpuProven = false; return it }
         }
         return Engine(EngineConfig(modelPath = file.path, backend = Backend.CPU(), cacheDir = cacheDir.path))
             .also { it.initialize(); engine = it; backend = "CPU" }
     }
 
+    /** The GPU has answered once without killing the app. */
+    private var gpuProven = true
+
     override suspend fun write(prompt: String): String? = lock.withLock {
         withContext(Dispatchers.Default) {
             val e = load() ?: return@withContext null
-            e.createConversation(ConversationConfig()).use { conversation ->
-                conversation.sendMessage(Contents.of(prompt)).contents.contents
-                    .filterIsInstance<Content.Text>().joinToString("") { it.text }
+            val reply = runCatching { generate(e, prompt) }
+            if (backend == "GPU" && !gpuProven) {
+                gpu.finished(reply.isSuccess)
+                gpuProven = reply.isSuccess
+                if (reply.isFailure) {
+                    // The GPU loaded but can't answer: the CPU from now on.
+                    Log.w("LiteRtWriter", "GPU answer failed, using the CPU", reply.exceptionOrNull())
+                    close()
+                    return@withContext load()?.let { generate(it, prompt) }
+                }
             }
+            reply.getOrThrow()
         }
     }
+
+    private fun generate(e: Engine, prompt: String): String =
+        e.createConversation(ConversationConfig()).use { conversation ->
+            conversation.sendMessage(Contents.of(prompt)).contents.contents
+                .filterIsInstance<Content.Text>().joinToString("") { it.text }
+        }
 
     fun close() {
         runCatching { engine?.close() }

@@ -1102,3 +1102,19 @@ Without a model on the phone, the earlier behaviour stays (the notes, the "add a
 - **Loading apart from writing:** the first load of a 2–4 GB model may take up to 150 s, so it's no longer cut off by the 45 s writing limit. The phone's model is loaded at app start when stories or answers are set to come from the phone (or there's no key), not when the first story is due. Answers from the phone may take up to 120 s.
 - **GPU first:** LiteRT-LM loads the model on the GPU (OpenCL; much faster on Snapdragon's Adreno), with the CPU as fallback. If a GPU load ever kills the app, that's remembered and the phone uses the CPU from then on.
 - **This phone** also shows the chip (Android 12+), with the Snapdragon name for Qualcomm codes (for example SM8750 = Snapdragon 8 Elite).
+- **GPU crash guard covers the first answer too:** on some phones the GPU loads but the driver crashes at the first answer (LiteRT-LM issue #1860). The "GPU in progress" mark stays set until the GPU has answered once. If the app dies before that, the phone uses the CPU from then on. A GPU answer that fails with an error switches to the CPU at once.
+
+### Xiaomi and Qualcomm options (research 2026-09-25)
+
+- **Xiaomi's own models.**
+  - MiMo (MIT licence) is too big for a phone: 7B/9B distillations up to a 1T flagship, with no ≤4B variant.
+  - MiLM / HyperOS AI has no public API for third-party apps.
+  - Xiaomi's MACE framework has no LLM support.
+- **Gemini Nano on Xiaomi.** Listed by Google for the Xiaomi 14T Pro, 15, 15T, 15T Pro, 15 Ultra, 17 and 17 Ultra; POCO and Redmi phones generally aren't. The app checks at run time (AICore status in **This phone**).
+- **Snapdragon GPU:** used now (LiteRT-LM `Backend.GPU()`, OpenCL on Adreno), with the crash guard above.
+- **Snapdragon NPU (Hexagon):** not practical for a sideloaded APK yet.
+  - LiteRT-LM's NPU backend needs Qualcomm's dispatch and QNN libraries matched to the chip (Hexagon V73–V81), and the chip-specific `.litertlm` files (`_qualcomm_sm8750` and others).
+  - Google delivers these through Play for On-device AI packs (AAB), and a missing library aborts natively (LiteRT #6889).
+  - Qualcomm's own Genie SDK and Alibaba's MNN (with a QNN backend) need models compiled per chip.
+  - Revisit for one known chip (for example SM8750, Snapdragon 8 Elite) if GPU speed isn't enough.
+- **llama.cpp** has an official OpenCL backend for Adreno (8 Gen 3, 8 Elite). It's still an option for GGUF models (§70).
