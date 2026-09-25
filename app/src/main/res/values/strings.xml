@@ -334,4 +334,10 @@
     <string name="local_model_waiting_network">Waiting for a connection… It continues by itself.</string>
     <string name="local_model_waiting_retry">Paused; Android will retry by itself.</string>
     <string name="local_model_wifi_only">Download only on Wi-Fi</string>
+    <string name="local_model_test">Test model</string>
+    <string name="local_model_testing">Testing… The first load can take a minute.</string>
+    <string name="local_model_test_ok">%1$s: loaded in %2$s s, wrote in %3$s s.</string>
+    <string name="local_model_test_failed">%1$s: failed: %2$s</string>
+    <string name="local_model_test_wrong_language">The reply isn\'t in your language, so stories would fall back to the next option. Try another model.</string>
+    <string name="device_check_chip">Chip: %1$s</string>
 </resources>

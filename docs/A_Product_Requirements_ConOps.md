@@ -1093,3 +1093,12 @@ When a model on the phone is ready (Gemini Nano available, or an open model down
 - **Questions** go to the phone's model when the credit is out, as when offline or without a key.
 
 Without a model on the phone, the earlier behaviour stays (the notes, the "add a key" advice).
+
+## 73. On-Device Models: Test Button, Fallback Chain, GPU
+
+- **Test model** (Settings → Free & offline, next to Download/Delete): loads the chosen model and has it retell three facts about the Eiffel Tower in the session language, the way stories are told. It shows which model and engine answered (Gemini Nano via AICore, or LiteRT-LM on the GPU or CPU), the load and write times, and the text. If the reply isn't in the listener's language, it says so.
+- **Fallback chain** (was: one model, then the plain facts): the chosen model; then Gemini Nano if ready; then every downloaded open model, the one that fits the phone's memory first; then the facts read as they are. A model that fails to load is skipped for the rest of the session.
+- **Language check:** a reply not in the listener's script is never aired (a small model may answer a Russian prompt in English): mostly Cyrillic for Russian, Hebrew for Hebrew, Latin for Latin-script languages. The next model is tried instead.
+- **Loading apart from writing:** the first load of a 2–4 GB model may take up to 150 s, so it's no longer cut off by the 45 s writing limit. The phone's model is loaded at app start when stories or answers are set to come from the phone (or there's no key), not when the first story is due. Answers from the phone may take up to 120 s.
+- **GPU first:** LiteRT-LM loads the model on the GPU (OpenCL; much faster on Snapdragon's Adreno), with the CPU as fallback. If a GPU load ever kills the app, that's remembered and the phone uses the CPU from then on.
+- **This phone** also shows the chip (Android 12+), with the Snapdragon name for Qualcomm codes (for example SM8750 = Snapdragon 8 Elite).

@@ -204,6 +204,10 @@ open class GpsRadioApp : Application(), coil.ImageLoaderFactory {
             this, http, CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default),
             wifiOnly = { settings.current.modelWifiOnly },
         )
+        // Stories or answers are set to come from the phone: load its model now, not when the first story is due.
+        settings.current.let { s ->
+            if ((s.storyOnDevice || s.assistantOnDevice || !s.hasApiKey) && localModels.readyNow(s.localModel)) localModels.warmUp(s.localModel)
+        }
         val openAi = OpenAiClient(http, apiKey = { settings.current.effectiveApiKey }, baseUrl = ep.openAiBaseUrl, meter = meter)
         val models = { settings.current.models }
         val online = isOnline().also { onlineNow = it }

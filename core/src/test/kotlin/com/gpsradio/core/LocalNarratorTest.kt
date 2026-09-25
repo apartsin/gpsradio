@@ -70,6 +70,29 @@ class LocalNarratorTest {
     }
 
     @Test
+    fun aReplyInTheWrongLanguageIsNotAired() = runTest {
+        // A small model may answer a Russian prompt in English: the listener gets the next option instead.
+        val narrator = LocalNarrator(Writer { "Ort Castle stands on Lake Traun and is almost a thousand years old." })
+        assertFailsWith<NotInListenerLanguageException> { narrator.narrate(request("ru-RU")) }
+        assertTrue(LocalNarrator.fitsLanguage(story, "ru-RU"))
+        assertTrue(LocalNarrator.fitsLanguage("Замок Орт (Schloss Ort) стоит на озере Траун.", "ru"))
+        assertTrue(!LocalNarrator.fitsLanguage("The castle is old.", "ru-RU"))
+        assertTrue(!LocalNarrator.fitsLanguage("Замок очень старый и красивый.", "en-US"))
+        assertTrue(LocalNarrator.fitsLanguage("Das Schloss Ort liegt am Traunsee.", "de-DE"))
+    }
+
+    @Test
+    fun aSlowFirstLoadIsNotCountedAsASlowAnswer() = runTest {
+        val writer = object : LocalWriter {
+            override val name = "slow load"
+            override suspend fun available() = true
+            override suspend fun prepare(): Boolean { delay(90_000); return true }
+            override suspend fun write(prompt: String) = story
+        }
+        assertEquals(story, LocalNarrator(writer, timeoutMs = 10_000).narrate(request("ru-RU")).text)
+    }
+
+    @Test
     fun cleansMarkdownAndLongReplies() {
         assertEquals(
             "Ort Castle sits on the lake. It is nearly a thousand years old.",

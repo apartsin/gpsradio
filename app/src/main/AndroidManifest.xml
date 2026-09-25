@@ -96,5 +96,9 @@
                 <action android:name="android.intent.action.DOWNLOAD_COMPLETE" />
             </intent-filter>
         </receiver>
+
+        <!-- The GPU (OpenCL) for on-device models, where the phone has it (spec A §73). -->
+        <uses-native-library android:name="libOpenCL.so" android:required="false" />
+        <uses-native-library android:name="libvndksupport.so" android:required="false" />
     </application>
 </manifest>

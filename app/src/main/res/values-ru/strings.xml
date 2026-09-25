@@ -334,4 +334,10 @@
     <string name="local_model_waiting_network">Ожидание соединения… Загрузка продолжится сама.</string>
     <string name="local_model_waiting_retry">Пауза; Android повторит сам.</string>
     <string name="local_model_wifi_only">Скачивать только по Wi-Fi</string>
+    <string name="local_model_test">Проверить модель</string>
+    <string name="local_model_testing">Проверка… Первая загрузка может занять минуту.</string>
+    <string name="local_model_test_ok">%1$s: загружена за %2$s с, ответ за %3$s с.</string>
+    <string name="local_model_test_failed">%1$s: ошибка: %2$s</string>
+    <string name="local_model_test_wrong_language">Ответ не на вашем языке, поэтому истории перейдут к следующему варианту. Попробуйте другую модель.</string>
+    <string name="device_check_chip">Процессор: %1$s</string>
 </resources>

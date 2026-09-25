@@ -82,4 +82,30 @@ class LocalModelSettingsTest {
         assertEquals(true, saved!!.voiceOnDevice)
         assertEquals(false, saved!!.assistantOnDevice)
     }
+
+    @Test
+    fun testModelShowsWhichModelAnsweredAndHowFast() {
+        var tested: String? = null
+        compose.setContent {
+            GpsRadioTheme {
+                SettingsScreen(
+                    AppSettings(apiKey = "sk-x", localModel = "gemma4-e2b"), onSave = {}, onClearHistory = {}, onBack = {},
+                    localAi = LocalAiUi(
+                        installed = setOf("gemma4-e2b"),
+                        test = { choice ->
+                            tested = choice
+                            com.gpsradio.app.platform.LocalModels.TestResult(
+                                "Gemma 4 E2B", "GPU", 12_300, 4_100, "Эйфелева башня высотой 330 метров.", true, null,
+                            )
+                        },
+                    ),
+                )
+            }
+        }
+        compose.onNodeWithTag("localModelTest").performScrollTo().performClick()
+        compose.waitForIdle()
+        assertEquals("gemma4-e2b", tested)
+        compose.onNodeWithText("Gemma 4 E2B · GPU: loaded in 12.3 s, wrote in 4.1 s.").performScrollTo()
+        compose.onNodeWithText("«Эйфелева башня высотой 330 метров.»").performScrollTo()
+    }
 }

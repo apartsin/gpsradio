@@ -100,7 +100,7 @@ class MainActivity : ComponentActivity() {
                     showSettings -> SettingsScreen(
                         offlineVoice = rememberOfflineVoiceInfo(settings.offlineTtsEngine, settings.resolvedLanguage()),
                         onInstallVoiceData = { openInstallVoiceData(this@MainActivity) },
-                        localAi = rememberLocalAi((application as GpsRadioApp).localModels),
+                        localAi = rememberLocalAi((application as GpsRadioApp).localModels, settings.resolvedLanguage()),
                         settings = settings,
                         onSave = { next -> vm.saveSettings { next }; showSettings = false },
                         onClearHistory = vm::clearHistory,

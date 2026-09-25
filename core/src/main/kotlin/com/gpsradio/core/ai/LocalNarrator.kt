@@ -17,8 +17,20 @@ interface LocalWriter {
     /** True when the model is on the phone and ready (it may still be downloading). */
     suspend fun available(): Boolean
 
+    /**
+     * Loads the model (the first load of a 2–4 GB model takes a while); true when it's ready to write. Kept apart
+     * from [write] so a slow first load isn't mistaken for a slow answer.
+     */
+    suspend fun prepare(): Boolean = available()
+
     /** One completion for [prompt]; null when the model declined or failed. */
     suspend fun write(prompt: String): String?
+
+    /**
+     * A completion that passes [accept] (e.g. it's in the listener's language). A writer with several models
+     * tries the next one when a reply is refused; a single model just checks its own.
+     */
+    suspend fun writeChecked(prompt: String, accept: (String) -> Boolean): String? = write(prompt)?.takeIf(accept)
 }
 
 /**
@@ -32,6 +44,8 @@ class LocalNarrator(
     private val notes: NarrationFallback = NarrationFallback(),
     private val timeoutMs: Long = 45_000,
     private val factChars: Int = 1_500,
+    /** The first load of the model: slower than any answer. */
+    private val prepareMs: Long = 150_000,
 ) : Narrator {
 
     override suspend fun narrate(req: NarrationRequest): Segment {
@@ -44,8 +58,10 @@ class LocalNarrator(
         val facts = NarrationFallback.stripParentheticals(
             place.extract?.takeIf { it.isNotBlank() } ?: place.description ?: return null,
         ).take(factChars)
-        val raw = withTimeoutOrNull(timeoutMs) { writer.write(prompt(place.name, facts, req.language)) } ?: return null
-        val text = clean(raw) ?: return null
+        if (withTimeoutOrNull(prepareMs) { writer.prepare() } != true) return null
+        val ok = { raw: String -> clean(raw)?.let { fitsLanguage(it, req.language) } == true }
+        val raw = withTimeoutOrNull(timeoutMs) { writer.writeChecked(prompt(place.name, facts, req.language), ok) } ?: return null
+        val text = clean(raw)?.takeIf { fitsLanguage(it, req.language) } ?: return null
         return Segment(
             text = text,
             entityId = place.id,
@@ -59,9 +75,12 @@ class LocalNarrator(
     /** A spoken answer from the on-device model, grounded in the place on air and what's nearby. */
     override suspend fun converse(req: ConversationRequest, onSearching: suspend () -> Unit): ConversationReply {
         if (!writer.available()) return notes.converse(req, onSearching)
-        val raw = withTimeoutOrNull(timeoutMs) { writer.write(answerPrompt(req, factChars)) }
+        if (withTimeoutOrNull(prepareMs) { writer.prepare() } != true) throw IllegalStateException("The on-device model isn't ready")
+        val ok = { raw: String -> clean(raw, minChars = 2)?.let { fitsLanguage(it, req.language) } == true }
+        val raw = withTimeoutOrNull(timeoutMs) { writer.writeChecked(answerPrompt(req, factChars), ok) }
             ?: throw IllegalStateException("The on-device model didn't answer")
-        val text = clean(raw, minChars = 2) ?: throw IllegalStateException("The on-device model gave no answer")
+        val text = clean(raw, minChars = 2)?.takeIf { fitsLanguage(it, req.language) }
+            ?: throw IllegalStateException("The on-device model gave no answer in the listener's language")
         return ConversationReply(reply = text, entityId = req.active?.place?.id)
     }
 
@@ -71,6 +90,23 @@ class LocalNarrator(
         notes.webAnswer(question, language, area)
 
     companion object {
+        /**
+         * A reply in the wrong script is useless on air (a small model may answer a Russian prompt in English):
+         * Cyrillic, Hebrew and Greek listeners need mostly their script; Latin-script languages need mostly Latin.
+         */
+        fun fitsLanguage(text: String, language: String): Boolean {
+            val letters = text.filter { it.isLetter() }
+            if (letters.length < 2) return true
+            fun share(test: (Char) -> Boolean) = letters.count(test).toDouble() / letters.length
+            return when (language.substringBefore('-').lowercase()) {
+                "ru", "uk", "be", "bg", "sr", "mk", "kk" -> share { it in '\u0400'..'\u04FF' } >= 0.6
+                "he", "yi" -> share { it in '\u0590'..'\u05FF' } >= 0.6
+                "el" -> share { it in '\u0370'..'\u03FF' || it in '\u1F00'..'\u1FFF' } >= 0.6
+                "ar", "fa", "ja", "zh", "ko", "hi", "th" -> true
+                else -> share { it.code < 0x250 } >= 0.8
+            }
+        }
+
         fun languageName(tag: String): String =
             Locale.forLanguageTag(tag).getDisplayLanguage(Locale.ENGLISH).ifBlank { tag }
 

@@ -20,6 +20,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -44,10 +46,12 @@ data class LocalAiUi(
     val onCancel: (String) -> Unit = {},
     val onDelete: (String) -> Unit = {},
     val device: DeviceInfo? = null,
+    /** Settings → "Test model": runs the model for a choice and reports what happened. */
+    val test: (suspend (String) -> LocalModels.TestResult)? = null,
 )
 
 @Composable
-fun rememberLocalAi(models: LocalModels): LocalAiUi {
+fun rememberLocalAi(models: LocalModels, language: String): LocalAiUi {
     val nano by models.nano.collectAsStateWithLifecycle()
     val installed by models.installed.collectAsStateWithLifecycle()
     val downloads by models.downloads.collectAsStateWithLifecycle()
@@ -56,7 +60,9 @@ fun rememberLocalAi(models: LocalModels): LocalAiUi {
         device = runCatching { models.deviceInfo() }.getOrNull()
         models.refreshNano()
     }
-    return LocalAiUi(nano, installed, downloads, models::download, models::cancel, models::delete, device)
+    return LocalAiUi(nano, installed, downloads, models::download, models::cancel, models::delete, device) { choice ->
+        models.test(choice, language)
+    }
 }
 
 /** "Stories without OpenAI": which on-device model writes them, and its download. */
@@ -75,6 +81,7 @@ fun LocalModelPicker(
             stringResource(R.string.device_check_line, d.android, "%.1f".format(java.util.Locale.US, d.ramGb), "%.1f".format(java.util.Locale.US, d.freeGb)),
             style = MaterialTheme.typography.bodySmall,
         )
+        d.chip?.let { Text(stringResource(R.string.device_check_chip, it), style = MaterialTheme.typography.bodySmall) }
         Text(
             stringResource(if (d.aiCore) R.string.device_check_aicore_yes else R.string.device_check_aicore_no),
             style = MaterialTheme.typography.bodySmall,
@@ -127,6 +134,45 @@ fun LocalModelPicker(
         if (ai.nano == NanoState.DOWNLOADABLE) {
             OutlinedButton(onClick = { ai.onDownload(LocalModels.NANO) }, modifier = Modifier.fillMaxWidth()) {
                 Text(stringResource(R.string.nano_download))
+            }
+        }
+    }
+
+    // "Test model": proves the chosen model loads and writes in the listener's language, and how fast.
+    val ready = choice != "off" && (ai.nano == NanoState.AVAILABLE || ai.installed.isNotEmpty())
+    val test = ai.test
+    if (ready && test != null) {
+        val scope = rememberCoroutineScope()
+        var testing by remember { mutableStateOf(false) }
+        var result by remember { mutableStateOf<LocalModels.TestResult?>(null) }
+        OutlinedButton(
+            onClick = {
+                testing = true
+                result = null
+                scope.launch {
+                    result = runCatching { test(choice) }.getOrElse { LocalModels.TestResult(null, null, 0, 0, null, false, it.message) }
+                    testing = false
+                }
+            },
+            enabled = !testing,
+            modifier = Modifier.fillMaxWidth().testTag("localModelTest"),
+        ) { Text(stringResource(R.string.local_model_test)) }
+        if (testing) {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            Text(stringResource(R.string.local_model_testing), style = MaterialTheme.typography.bodySmall)
+        }
+        result?.let { r ->
+            val head = listOfNotNull(r.model, r.backend).joinToString(" · ")
+            Text(
+                if (r.error == null) stringResource(R.string.local_model_test_ok, head, secs(r.loadMs), secs(r.writeMs))
+                else stringResource(R.string.local_model_test_failed, head.ifBlank { "—" }, r.error),
+                style = MaterialTheme.typography.bodySmall,
+                color = if (r.error == null && r.inLanguage) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error,
+                modifier = Modifier.testTag("localModelTestResult"),
+            )
+            r.text?.let { Text("«$it»", style = MaterialTheme.typography.bodyMedium) }
+            if (r.text != null && !r.inLanguage) {
+                Text(stringResource(R.string.local_model_test_wrong_language), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
             }
         }
     }
@@ -186,5 +232,7 @@ fun LocalModelPicker(
         }
     }
 }
+
+private fun secs(ms: Long): String = "%.1f".format(java.util.Locale.US, ms / 1000.0)
 
 private fun gb(mb: Int): String = if (mb >= 1000) "%.1f GB".format(java.util.Locale.US, mb / 1000.0) else "$mb MB"

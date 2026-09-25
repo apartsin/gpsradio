@@ -70,7 +70,12 @@ class ProviderChoiceTest {
         override suspend fun available() = true
         override suspend fun write(prompt: String): String {
             prompts += prompt
-            return if ("Listener:" in prompt) "It was built in the 11th century." else "Ort Castle stands on Lake Traun and is almost a thousand years old."
+            val ru = "in Russian" in prompt
+            return when {
+                "Listener:" in prompt -> if (ru) "Его построили в одиннадцатом веке." else "It was built in the 11th century."
+                ru -> "Замок Орт стоит на озере Траун, и ему почти тысяча лет."
+                else -> "Ort Castle stands on Lake Traun and is almost a thousand years old."
+            }
         }
     }
 
@@ -169,7 +174,7 @@ class ProviderChoiceTest {
             assertTrue(!status.needsKey, "no 'add a key' error while the phone's model tells the stories")
             val story = s.state.value.nowPlaying!!.text
             assertTrue(story.startsWith("Небольшое объявление: закончился кредит OpenAI"), story)
-            assertTrue(story.endsWith("Ort Castle stands on Lake Traun and is almost a thousand years old."), story)
+            assertTrue(story.endsWith("Замок Орт стоит на озере Траун, и ему почти тысяча лет."), story)
             // Questions go to the phone's model too, not to an "add a key" refusal.
             s.ask("Сколько ему лет?"); runCurrent()
             advanceTimeBy(30_000); runCurrent()

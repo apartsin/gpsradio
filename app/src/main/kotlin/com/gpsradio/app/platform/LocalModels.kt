@@ -42,6 +42,36 @@ object LocalModelCatalog {
     fun byId(id: String?) = all.firstOrNull { it.id == id }
 }
 
+/** The phone's chip as Android reports it (Android 12+), with the Snapdragon name for common Qualcomm codes. */
+fun chipName(): String? {
+    if (android.os.Build.VERSION.SDK_INT < 31) return null
+    val model = android.os.Build.SOC_MODEL?.takeIf { it.isNotBlank() && it != android.os.Build.UNKNOWN } ?: return null
+    val maker = android.os.Build.SOC_MANUFACTURER?.takeIf { it.isNotBlank() && it != android.os.Build.UNKNOWN }
+    val snapdragon = SNAPDRAGON[model.uppercase()]
+    return listOfNotNull(maker, model).joinToString(" ") + (snapdragon?.let { " ($it)" } ?: "")
+}
+
+private val SNAPDRAGON = mapOf(
+    "SM8850" to "Snapdragon 8 Elite Gen 5",
+    "SM8750" to "Snapdragon 8 Elite",
+    "SM8735" to "Snapdragon 8s Gen 4",
+    "SM8650" to "Snapdragon 8 Gen 3",
+    "SM8635" to "Snapdragon 8s Gen 3",
+    "SM8550" to "Snapdragon 8 Gen 2",
+    "SM8475" to "Snapdragon 8+ Gen 1",
+    "SM8450" to "Snapdragon 8 Gen 1",
+    "SM8350" to "Snapdragon 888",
+    "SM7750" to "Snapdragon 7 Gen 4",
+    "SM7675" to "Snapdragon 7+ Gen 3",
+    "SM7635" to "Snapdragon 7s Gen 3",
+    "SM7550" to "Snapdragon 7 Gen 3",
+    "SM7475" to "Snapdragon 7+ Gen 2",
+    "SM7435" to "Snapdragon 7s Gen 2",
+    "SM6450" to "Snapdragon 6 Gen 1",
+    "SM6375" to "Snapdragon 695",
+    "SM4450" to "Snapdragon 4 Gen 2",
+)
+
 /** The biggest model that runs comfortably: the model takes about its file size in memory besides Android and apps. */
 fun recommendedFor(ramGb: Double): LocalModelSpec = when {
     ramGb >= 11 -> LocalModelCatalog.byId("gemma4-e4b")!!
@@ -53,7 +83,15 @@ fun recommendedFor(ramGb: Double): LocalModelSpec = when {
 enum class NanoState { UNKNOWN, UNAVAILABLE, DOWNLOADABLE, DOWNLOADING, AVAILABLE }
 
 /** What this phone offers for on-device AI, shown in Settings → Free & offline (spec A §70). */
-data class DeviceInfo(val android: String, val ramGb: Double, val freeGb: Double, val aiCore: Boolean, val recommended: LocalModelSpec)
+data class DeviceInfo(
+    val android: String,
+    val ramGb: Double,
+    val freeGb: Double,
+    val aiCore: Boolean,
+    val recommended: LocalModelSpec,
+    /** The chip, e.g. "Qualcomm SM8750 (Snapdragon 8 Elite)"; null before Android 12. */
+    val chip: String? = null,
+)
 
 /** Why a queued download isn't moving. */
 enum class DownloadWait { WIFI, NETWORK, RETRY }
@@ -130,6 +168,7 @@ class LocalModels(
             freeGb = dir.usableSpace / 1e9,
             aiCore = aiCore,
             recommended = recommendedFor(ramGb),
+            chip = chipName(),
         )
     }
 
@@ -147,31 +186,120 @@ class LocalModels(
         return _nano.value
     }
 
-    /** The writer for [choice]; it answers "not available" until its model is ready. */
+    /**
+     * The models to try for [choice], best first (spec A §73): the chosen one, then (as fallbacks) Gemini Nano
+     * if ready, then the downloaded open models, the one that fits this phone first. "off" means none.
+     */
+    private suspend fun candidates(choice: String): List<LocalWriter> {
+        if (choice == "off") return emptyList()
+        val nanoReady = refreshNano() == NanoState.AVAILABLE
+        val installed = LocalModelCatalog.all.filter { it.id in _installed.value }
+        val fit = runCatching { recommendedFor(deviceInfo().ramGb) }.getOrNull()
+        val open = installed.sortedBy { if (it == fit) 0 else 1 }.map { liteRtFor(it) }
+        val chosen: List<LocalWriter> = when (choice) {
+            NANO -> listOfNotNull(nanoWriter.takeIf { nanoReady })
+            "auto" -> emptyList()
+            else -> LocalModelCatalog.byId(choice)?.takeIf { it.id in _installed.value }?.let { listOf(liteRtFor(it)) }.orEmpty()
+        }
+        return (chosen + listOfNotNull(nanoWriter.takeIf { nanoReady }) + open).distinct()
+    }
+
+    /**
+     * The writer for [choice]: each call goes down [candidates] until one model loads and gives an acceptable
+     * reply; a model that fails to load is skipped for the rest of the session.
+     */
     fun writer(choice: () -> String): LocalWriter = object : LocalWriter {
-        override val name: String get() = current()?.name ?: "none"
+        override val name: String get() = lastUsed?.name ?: "none"
+        @Volatile private var lastUsed: LocalWriter? = null
 
-        private suspend fun resolve(): LocalWriter? = when (val c = choice()) {
-            "off" -> null
-            "nano" -> nanoWriter
-            "auto" -> if (refreshNano() == NanoState.AVAILABLE) nanoWriter
-                else LocalModelCatalog.all.firstOrNull { it.id in _installed.value }?.let { liteRtFor(it) }
-            else -> LocalModelCatalog.byId(c)?.takeIf { it.id in _installed.value }?.let { liteRtFor(it) }
+        override suspend fun available(): Boolean = candidates(choice()).any { it !in broken && it.available() }
+
+        override suspend fun prepare(): Boolean {
+            for (w in candidates(choice())) {
+                if (w in broken || !w.available()) continue
+                if (runCatching { w.prepare() }.getOrDefault(false)) { lastUsed = w; return true }
+                broken += w
+            }
+            return false
         }
 
-        private fun current(): LocalWriter? = when (val c = choice()) {
-            "off" -> null
-            "nano" -> nanoWriter
-            else -> LocalModelCatalog.byId(c)?.let { liteRtFor(it) } ?: nanoWriter
+        override suspend fun write(prompt: String): String? = writeChecked(prompt) { true }
+
+        override suspend fun writeChecked(prompt: String, accept: (String) -> Boolean): String? {
+            for (w in candidates(choice())) {
+                if (w in broken || !w.available()) continue
+                if (!runCatching { w.prepare() }.getOrDefault(false)) { broken += w; continue }
+                val reply = runCatching { w.write(prompt) }.onFailure { Log.w(TAG, "${w.name} failed", it) }.getOrNull()
+                if (reply != null && accept(reply)) { lastUsed = w; return reply }
+            }
+            return null
         }
+    }
 
-        override suspend fun available(): Boolean = resolve()?.available() == true
+    /** Models that failed to load this session (e.g. not enough memory): not tried again until restart. */
+    private val broken: MutableSet<LocalWriter> = java.util.Collections.synchronizedSet(HashSet())
 
-        override suspend fun write(prompt: String): String? = resolve()?.write(prompt)
+    /** What "Test model" reports: which model and engine answered, how long loading and writing took. */
+    data class TestResult(
+        val model: String?,
+        val backend: String?,
+        val loadMs: Long,
+        val writeMs: Long,
+        val text: String?,
+        val inLanguage: Boolean,
+        val error: String?,
+    )
+
+    /**
+     * Settings → "Test model": loads the model for [choice] and has it retell a few facts about the Eiffel Tower
+     * in [language], the way stories are told on air.
+     */
+    suspend fun test(choice: String, language: String): TestResult {
+        val facts = "The Eiffel Tower is a wrought-iron lattice tower in Paris, built by Gustave Eiffel's company for " +
+            "the 1889 World's Fair. It is 330 metres tall and was the tallest structure in the world until 1930. " +
+            "Critics first called it an eyesore; today it is the most visited paid monument in the world."
+        val prompt = com.gpsradio.core.ai.LocalNarrator.prompt("Eiffel Tower", facts, language)
+        for (w in candidates(choice)) {
+            if (!w.available()) continue
+            val t0 = System.currentTimeMillis()
+            val loaded = runCatching { w.prepare() }
+            val loadMs = System.currentTimeMillis() - t0
+            if (loaded.getOrDefault(false) != true) {
+                return TestResult(w.name, backendOf(w), loadMs, 0, null, false, loaded.exceptionOrNull()?.message ?: "The model didn't load")
+            }
+            broken -= w
+            val t1 = System.currentTimeMillis()
+            val reply = runCatching { w.write(prompt) }
+            val writeMs = System.currentTimeMillis() - t1
+            val text = reply.getOrNull()?.let { com.gpsradio.core.ai.LocalNarrator.clean(it, minChars = 1) }
+            return TestResult(
+                w.name, backendOf(w), loadMs, writeMs, text,
+                text != null && com.gpsradio.core.ai.LocalNarrator.fitsLanguage(text, language),
+                reply.exceptionOrNull()?.let { it.message ?: it.javaClass.simpleName } ?: if (text == null) "Empty reply" else null,
+            )
+        }
+        return TestResult(null, null, 0, 0, null, false, "No model is ready: download one first")
+    }
+
+    private fun backendOf(w: LocalWriter): String? = (w as? LiteRtWriter)?.backend ?: if (w === nanoWriter) "AICore" else null
+
+    /** Loads the model in the background so the first free story doesn't wait for it. */
+    fun warmUp(choice: String) {
+        scope.launch { runCatching { candidates(choice).firstOrNull { it.available() }?.prepare() } }
     }
 
     private fun liteRtFor(spec: LocalModelSpec) = synchronized(liteRt) {
-        liteRt.getOrPut(spec.id) { LiteRtWriter(spec.label, fileOf(spec), engineCache) }
+        liteRt.getOrPut(spec.id) { LiteRtWriter(spec.label, fileOf(spec), engineCache, gpuGuard) }
+    }
+
+    /**
+     * Remembers a GPU load that never finished (the app died in the driver): after that, this phone uses the CPU.
+     */
+    private val gpuGuard = object : GpuGuard {
+        private val p = context.getSharedPreferences("litert_gpu", Context.MODE_PRIVATE)
+        override fun gpuAllowed() = !p.getBoolean("broken", false) && !p.getBoolean("pending", false)
+        override fun starting() { p.edit().putBoolean("pending", true).commit() }
+        override fun finished(ok: Boolean) { p.edit().putBoolean("pending", false).putBoolean("broken", !ok).commit() }
     }
 
     /** Starts the download of [id] ("nano" asks AICore to fetch Gemini Nano). */
@@ -357,17 +485,50 @@ private class NanoWriter : LocalWriter {
         model()?.generateContent(prompt)?.candidates?.firstOrNull()?.text
 }
 
-/** An open model file run by LiteRT-LM on the phone's CPU; loaded on first use and kept. */
-private class LiteRtWriter(override val name: String, private val file: File, private val cacheDir: File) : LocalWriter {
+interface GpuGuard {
+    fun gpuAllowed(): Boolean
+    fun starting()
+    fun finished(ok: Boolean)
+}
+
+/**
+ * An open model file run by LiteRT-LM: on the GPU when the phone allows (much faster on Snapdragon's Adreno),
+ * else on the CPU. Loaded once and kept.
+ */
+private class LiteRtWriter(
+    override val name: String,
+    private val file: File,
+    private val cacheDir: File,
+    private val gpu: GpuGuard,
+) : LocalWriter {
     private val lock = Mutex()
     private var engine: Engine? = null
+    /** "GPU" or "CPU" once loaded. */
+    @Volatile var backend: String? = null
 
     override suspend fun available() = file.isFile
 
+    override suspend fun prepare(): Boolean = lock.withLock { withContext(Dispatchers.Default) { load() != null } }
+
+    private fun load(): Engine? {
+        engine?.let { return it }
+        if (!file.isFile) return null
+        if (gpu.gpuAllowed()) {
+            gpu.starting()
+            val onGpu = runCatching {
+                Engine(EngineConfig(modelPath = file.path, backend = Backend.GPU(), cacheDir = cacheDir.path)).also { it.initialize() }
+            }
+            gpu.finished(onGpu.isSuccess)
+            onGpu.onFailure { Log.w("LiteRtWriter", "GPU load failed, using the CPU", it) }
+            onGpu.getOrNull()?.let { engine = it; backend = "GPU"; return it }
+        }
+        return Engine(EngineConfig(modelPath = file.path, backend = Backend.CPU(), cacheDir = cacheDir.path))
+            .also { it.initialize(); engine = it; backend = "CPU" }
+    }
+
     override suspend fun write(prompt: String): String? = lock.withLock {
         withContext(Dispatchers.Default) {
-            val e = engine ?: Engine(EngineConfig(modelPath = file.path, backend = Backend.CPU(), cacheDir = cacheDir.path))
-                .also { it.initialize(); engine = it }
+            val e = load() ?: return@withContext null
             e.createConversation(ConversationConfig()).use { conversation ->
                 conversation.sendMessage(Contents.of(prompt)).contents.contents
                     .filterIsInstance<Content.Text>().joinToString("") { it.text }
@@ -378,5 +539,6 @@ private class LiteRtWriter(override val name: String, private val file: File, pr
     fun close() {
         runCatching { engine?.close() }
         engine = null
+        backend = null
     }
 }

@@ -2882,7 +2882,7 @@ class RadioSession(
     /** The station sting plays before a story's words start. */
     private val STING_LEAD_MS = 700L
     /** The on-device model is slower than OpenAI, especially while it loads: give its answer this long. */
-    private val LOCAL_ANSWER_MS = 60_000L
+    private val LOCAL_ANSWER_MS = 120_000L
 
     /** Shown the moment "next" is heard, until the next story starts, in the session language. */
     private val NEXT_STATUS: String get() = Notices.text(Notice.NEXT_STORY, sessionLanguage)
