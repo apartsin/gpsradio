@@ -394,6 +394,8 @@ class RadioSession(
         schedulerJob?.cancel()
         discoveryJob?.cancel()
         speechJob?.cancel()
+        // A "just a moment" still queued must not play after Stop.
+        cueJob?.cancel()
         prefetchJob?.cancel()
         schedulerJob = null
         prefetched = null
@@ -637,6 +639,11 @@ class RadioSession(
         // The live host still talking (or its answer still coming out of the speaker) counts as speaking.
         val speaking = speechJob?.isActive == true || live?.isAudible == true
         val now = clock()
+        // "Next story…" was shown but nothing could air within the window: don't leave it on screen forever.
+        if (nextNowUntilMs != 0L && now >= nextNowUntilMs) {
+            nextNowUntilMs = 0
+            if (s.status?.text == NEXT_STATUS) setStatus(null)
+        }
         if (s.radioState == RadioState.CONVERSING && !speaking && now >= engagedUntilMs) {
             // No answer to an offer means "not now": keep the story for later, just less novel.
             clearOffer()
@@ -764,7 +771,7 @@ class RadioSession(
         speechJob = scope.launch {
             pendingId = c.place.id
             val lang = sessionLanguage
-            val ready = takePrefetched(c, lang, loc)
+            val ready = takePrefetched(c, lang, loc) ?: awaitPrefetch(c, lang, loc)
             val format = if (ready == null && allowTeaser && shouldTease(c)) SegmentFormat.TEASER else SegmentFormat.STORY
             if (ready == null) setRadioState(RadioState.RESEARCHING)
             try {
@@ -779,8 +786,12 @@ class RadioSession(
                 }
                 activeId = c.place.id
                 lastAudio = bytes
+                // A story airs again: a later dry spell is worth explaining again.
+                if (noNotesAnnounced) { noNotesAnnounced = false; clearNotes(NO_NOTES_IN_LANGUAGE) }
                 addTranscript(TranscriptEntry(Speaker.RADIO, segment.text, clock(), c.place.id, segment.sources))
                 lastStory = segment
+                // On air: this ends the wait ("Next story…" on screen, a queued "just a moment", the first-story wait).
+                setRadioState(RadioState.NARRATING)
                 _state.update { it.copy(radioState = RadioState.NARRATING, nowPlaying = segment, nowPlayingReason = reasonFor(c), focus = FocusPlace.of(c.place)) }
                 // Always listening: the host knows which story is on, so "tell me more about that" works.
                 live?.takeIf { it.persistent && !it.inConversation }?.updateInstructions()
@@ -833,6 +844,7 @@ class RadioSession(
                 deviceSkipped += c.place.id
                 setRadioState(RadioState.RADIO)
                 rerank()
+                maybeSayNoNotesInLanguage()
             } catch (e: Exception) {
                 pendingId = null
                 lastSpeechEndMs = clock()
@@ -877,9 +889,10 @@ class RadioSession(
             }
             degradedAnnounced = false
             deviceSkipped.clear()
+            noNotesAnnounced = false
             clearQuota()
             prepLatencyMs = prepLatencyMs * 0.7 + (clock() - started) * 0.3
-            clearNotes(DEGRADED_NOTE, OFFLINE_NOTE)
+            clearNotes(DEGRADED_NOTE, OFFLINE_NOTE, NO_NOTES_IN_LANGUAGE)
             s to bytes
         } catch (e: Exception) {
             if (isQuota(e)) noteQuota()
@@ -889,7 +902,8 @@ class RadioSession(
                 _state.update { it.copy(status = Status(KEY_REJECTED, StatusLevel.ERROR, needsKey = true)) }
             }
             // OpenAI unavailable: read the source notes on the device instead of going silent.
-            if (!hasFallback || !FallbackGate.isOutage(e)) throw e
+            // Out of credit is an outage too, however it's reported (else the place would be blacklisted as broken).
+            if (!hasFallback || !(FallbackGate.isOutage(e) || (e !is CancellationException && isQuota(e)))) throw e
             fallbackGate.onPrimaryFailure()
             prepareOnDevice(request, spoken = segment)
         }
@@ -929,9 +943,22 @@ class RadioSession(
     private fun onDeviceNow(): Boolean =
         hasFallback && (config().storiesOnDevice || openAiUnusable())
 
-    /** OpenAI can't be used right now (not a choice): preview, over the limit, offline or resting after an outage. */
+    /**
+     * OpenAI can't be used right now (not a choice): preview, over the limit, offline, resting after an outage, or out
+     * of credit between two probes (see [quotaResting]).
+     */
     private fun openAiUnusable(): Boolean =
-        config().previewMode || config().budgetReached || !isOnline() || fallbackGate.primaryResting()
+        config().previewMode || config().budgetReached || !isOnline() || fallbackGate.primaryResting() || quotaResting()
+
+    /**
+     * Out of credit: every OpenAI call fails until the listener tops up, so stories, fillers and prefetches stay on the
+     * phone instead of each trying OpenAI first (a wasted round trip, and a place skipped when the phone can't tell
+     * it). One story every [QUOTA_PROBE_MS] still tries OpenAI, so a top-up is noticed without a key change.
+     */
+    private fun quotaResting(): Boolean = _state.value.quotaExhausted && clock() < quotaProbeAtMs
+
+    /** When the next out-of-credit probe of OpenAI is due (see [quotaResting]). */
+    private var quotaProbeAtMs = 0L
 
     /**
      * The voice for on-device stories and answers: the chosen voice (the speech port, which the app routes to
@@ -987,6 +1014,28 @@ class RadioSession(
         return segment to bytes
     }
 
+    /** The "nothing nearby in your language on the phone" notice was said this episode. */
+    private var noNotesAnnounced = false
+
+    /**
+     * On the phone without a model that can translate, every place nearby has notes only in other languages: each was
+     * skipped, and nothing else can air (fillers need OpenAI). Rather than leave the listener in silence (and "Next
+     * story…" on screen forever), say once, in their language, why it's quiet and what brings the stories back. The
+     * radio keeps checking: back online, credit topped up (the next probe) or new places in their language.
+     */
+    private fun maybeSayNoNotesInLanguage() {
+        if (noNotesAnnounced || !onDeviceNow()) return
+        if (ranked.any { it.breakdown.novelty > 0.0 }) return // more places to try first
+        noNotesAnnounced = true
+        nextNowUntilMs = 0
+        // (An "Add key" note for the credit stays: it's the fix.)
+        if (_state.value.status?.needsKey != true) setStatus(NO_NOTES_IN_LANGUAGE)
+        addTranscript(TranscriptEntry(Speaker.SYSTEM, NO_NOTES_IN_LANGUAGE, clock()))
+        // Out of credit and no story aired to carry the credit notice: say that first, it's the reason.
+        val credit = if (_state.value.quotaExhausted && !quotaAnnounced) quotaNotice(sessionLanguage).also { quotaAnnounced = true } + " " else ""
+        announceText(credit + noNotesSpoken(sessionLanguage))
+    }
+
     private fun clearNotes(vararg notes: String) {
         if (_state.value.status?.text in notes) setStatus(null)
     }
@@ -1021,12 +1070,29 @@ class RadioSession(
         } ?: return
         if (prefetched?.placeId == next.place.id) return
         val lang = sessionLanguage
+        prefetchingId = next.place.id
         prefetchJob = scope.launch {
             val result = runCatching { prepare(next, loc, lang, extraLeadMs = leadMs) }.getOrNull() ?: return@launch
             // Where the listener should be when it airs (checked again when it's taken).
             val expected = if (moving) projectForPlayback(next, loc, leadMs + prepLatencyMs.toLong()).first.point else loc.point
             prefetched = Prepared(next.place.id, lang, result.first, result.second, expected, clock())
         }
+    }
+
+    /** The place [prefetchJob] is preparing. */
+    private var prefetchingId: String? = null
+
+    /**
+     * The story about to air is still being prepared ahead (typically when "next" is pressed while the phone's model is
+     * writing it): wait for that instead of writing it a second time. The phone's model runs one prompt at a time and
+     * can't be interrupted, so a second request would queue behind the first, take twice as long, and could time out,
+     * leaving the listener with silence and the place skipped.
+     */
+    private suspend fun awaitPrefetch(c: RankedCandidate, lang: String, loc: LocationContext): Pair<Segment, ByteArray>? {
+        val job = prefetchJob?.takeIf { it.isActive && prefetchingId == c.place.id } ?: return null
+        setRadioState(RadioState.RESEARCHING)
+        job.join()
+        return takePrefetched(c, lang, loc)
     }
 
     /** Non-stop also airs weaker ("relaxed") places, so it prepares those ahead too. */
@@ -1928,6 +1994,7 @@ class RadioSession(
         closeLive()
         if (speechJob?.isActive == true) lastSpeechEndMs = clock()
         speechJob?.cancel()
+        cueJob?.cancel()
         // An interrupted story is not marked heard, so it stays a candidate and can air again.
         pendingId = null
         if (_state.value.radioState != RadioState.IDLE) setRadioState(RadioState.PAUSED)
@@ -1994,6 +2061,8 @@ class RadioSession(
             firstStoryPending = false
             nextNowUntilMs = 0
             if (_state.value.status?.text == NEXT_STATUS) setStatus(null)
+            // Something is on air: stop the "searching" animation now, not at the next tick.
+            if (_state.value.waiting) _state.update { it.copy(waiting = false) }
         }
         val before = _state.value.radioState
         _state.update { it.copy(radioState = s) }
@@ -2062,6 +2131,7 @@ class RadioSession(
      * back to back), and [RadioUiState.quotaExhausted] for the app's notification.
      */
     private fun noteQuota() {
+        quotaProbeAtMs = clock() + QUOTA_PROBE_MS
         val status = quotaStatus()
         _state.update { it.copy(quotaExhausted = true, status = status) }
         if (_state.value.transcript.lastOrNull()?.text != status.text) addTranscript(TranscriptEntry(Speaker.SYSTEM, status.text, clock()))
@@ -2304,6 +2374,7 @@ class RadioSession(
                 return@launch
             }
             addTranscript(TranscriptEntry(Speaker.RADIO, line, clock()))
+            setRadioState(RadioState.NARRATING) // ends any wait (see speakStory)
             _state.update { it.copy(radioState = RadioState.NARRATING, nowPlaying = Segment(line, null, "Walking tour", emptyList())) }
             try {
                 val bytes = timed(timeouts.speechMs, "Speech") { speech.synthesize(line, lang, cfg.style) }
@@ -2362,6 +2433,7 @@ class RadioSession(
                     lastAudio = bytes
                     addTranscript(TranscriptEntry(Speaker.RADIO, segment.text, clock(), c.place.id, segment.sources))
                     lastStory = segment
+                    setRadioState(RadioState.NARRATING) // ends any wait (see speakStory)
                     _state.update { it.copy(radioState = RadioState.NARRATING, nowPlaying = segment, focus = FocusPlace.of(c.place)) }
                     loadGallery(c.place)
                     illustrateOrSlides(c.place.id, segment, STING_LEAD_MS)
@@ -2552,9 +2624,12 @@ class RadioSession(
                 // A quiz question whose answer couldn't be parsed would never be resolved: drop it.
                 if (plan.format == SegmentFormat.QUIZ && segment.quizAnswer.isNullOrBlank()) throw IllegalStateException("quiz without an answer")
                 val bytes = ready?.second ?: timed(timeouts.speechMs, "Speech") { speech.synthesize(segment.text, lang, cfg.style) }
+                // Written by OpenAI (fillers never run on the phone): the credit is back, if it had run out.
+                clearQuota()
                 lastAudio = bytes
                 addTranscript(TranscriptEntry(Speaker.RADIO, segment.text, clock(), segment.entityId, segment.sources))
                 lastStory = segment
+                setRadioState(RadioState.NARRATING) // ends any wait (see speakStory)
                 _state.update { s ->
                     s.copy(radioState = RadioState.NARRATING, nowPlaying = segment, focus = c?.let { FocusPlace.of(it.place) } ?: s.focus)
                 }
@@ -2599,6 +2674,8 @@ class RadioSession(
                 programme.onFillerFailed(plan.format, c?.place?.id, clock(), dayKey(day), plan.areaFacet?.id)
                 throw e
             } catch (e: Exception) {
+                // Out of credit (e.g. this filler took the credit probe): back on the phone until the next probe.
+                if (isQuota(e)) noteQuota()
                 // Fillers are optional: no error on air, just don't retry this one straight away.
                 programme.onFillerFailed(plan.format, c?.place?.id, clock(), dayKey(day), plan.areaFacet?.id)
                 setRadioState(RadioState.RADIO)
@@ -2846,7 +2923,8 @@ class RadioSession(
         val waiting = quiet && (
             (preparing && nextNow()) ||
                 (!speaking && s.radioState == RadioState.CONVERSING && steerJob?.isActive == true) ||
-                (firstStoryPending && (s.discovering || s.radioState == RadioState.RESEARCHING))
+                // (Not while paused: the first discovery may still be running, but nobody is waiting on air.)
+                (firstStoryPending && s.radioState != RadioState.PAUSED && (s.discovering || s.radioState == RadioState.RESEARCHING))
             )
         // The animated "searching" also shows while the radio prepares its own next story (nobody waits on that,
         // so no spoken cue).
@@ -2977,6 +3055,9 @@ class RadioSession(
         /** Events are announced when they start within this time (or are running). */
         const val EVENTS_ANNOUNCE_AHEAD_MS = 3 * 3_600_000L
 
+        /** Out of credit: how often a story still tries OpenAI, to notice a top-up (see quotaResting). */
+        const val QUOTA_PROBE_MS = 3 * 60_000L
+
         /** On start, a fix older than this is dropped rather than narrated from. */
         const val STALE_FIX_ON_START_MS = 2 * 60_000L
 
@@ -2990,6 +3071,24 @@ class RadioSession(
         const val BUDGET_NOTE = "Today's spending limit is reached: quick notes with the on-device voice until tomorrow (Settings → limit)."
         const val OFFLINE_NOTE = "You're offline, so I'm reading quick notes with the on-device voice."
         const val OFFLINE_NO_PLACES = "You're offline and no places around here are saved yet. Stories resume when you're back online."
+        const val NO_NOTES_IN_LANGUAGE = "The places nearby only have notes in other languages, and without OpenAI or a model on the phone " +
+            "I can't translate them. Stories resume when OpenAI is back, or with a model on the phone (Settings)."
+
+        /** Spoken once when every place nearby was skipped for want of notes in the listener's language. */
+        fun noNotesSpoken(language: String): String = when (langBase(language)) {
+            "ru" -> "Небольшое объявление: о местах поблизости есть заметки только на других языках, а перевести их без OpenAI " +
+                "или модели на телефоне я не могу. Истории продолжатся, когда вернётся OpenAI, или скачайте модель в настройках."
+            "de" -> "Kurze Durchsage: Über die Orte hier gibt es nur Notizen in anderen Sprachen, und ohne OpenAI oder ein Modell " +
+                "auf dem Telefon kann ich sie nicht übersetzen. Es geht weiter, sobald OpenAI wieder da ist, oder mit einem Modell aus den Einstellungen."
+            "es" -> "Un aviso: de los lugares cercanos solo hay notas en otros idiomas y sin OpenAI ni un modelo en el teléfono no puedo " +
+                "traducirlas. Las historias vuelven cuando vuelva OpenAI, o descarga un modelo en Ajustes."
+            "fr" -> "Petite annonce : les lieux proches n'ont des notes que dans d'autres langues, et sans OpenAI ni modèle sur le " +
+                "téléphone je ne peux pas les traduire. Les histoires reprennent au retour d'OpenAI, ou avec un modèle dans les réglages."
+            "he" -> "הודעה קצרה: על המקומות בסביבה יש הערות רק בשפות אחרות, ובלי OpenAI או מודל בטלפון אני לא יכול לתרגם אותן. " +
+                "הסיפורים יחזרו כש-OpenAI יחזור, או עם מודל מההגדרות."
+            else -> "Quick note: the places nearby only have notes in other languages, and without OpenAI or a model on the phone " +
+                "I can't translate them. The stories resume when OpenAI is back, or download a model in Settings."
+        }
 
         private val yes = setOf("yes", "yeah", "yep", "sure", "ok", "okay", "go on", "go ahead", "tell me", "please", "yes please", "да", "давай", "конечно", "ja", "oui", "sí", "si", "כן")
         private val no = setOf("no", "nope", "not now", "no thanks", "skip", "нет", "не надо", "nein", "non", "לא")
