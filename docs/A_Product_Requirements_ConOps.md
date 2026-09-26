@@ -1139,3 +1139,11 @@ New tests (`BasicFlowsTest`) run each flow with OpenAI working and on the phone:
 - A question is answered: by OpenAI, by the phone's model, or with the "no credit" or "offline" notice. Then the radio carries on.
 - The credit runs out mid-session: the stories go on on the phone, the notice is said once, and OpenAI stories resume after a top-up.
 - English-only places, a Russian listener and no model: no English is read, the notice is said once, and the stories resume when OpenAI is back.
+
+## 75. A Faster First Story on the Phone
+
+Reported: the first story after starting took too long. The OpenAI credit was out, and on a mid-range chip (Dimensity 7300) the phone's model has to load (2.6 GB) before it can write anything. During all that time the radio was silent.
+
+- **Talks while it waits:** the "just a moment" cues ("Секунду…") now also play while the phone's model loads or writes, in the phone's voice. Before, they were switched off on the phone, which meant up to a minute of silence.
+- **The first story doesn't wait for a cold model:** if the model isn't loaded yet and the facts can be read as they are (a source in the listener's language, e.g. Russian Wikipedia), that story is read at once and the model loads in the background for the next one. With only English sources, the model is still needed, and the cues fill the wait.
+- **Credit-out remembered:** the app remembers for 24 h that the OpenAI credit ran out. The next start goes straight to the phone, without a failed OpenAI call first, and starts loading the model as soon as the app opens. A top-up is still noticed at the next credit check (every 3 minutes).

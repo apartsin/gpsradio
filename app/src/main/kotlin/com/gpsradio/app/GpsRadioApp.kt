@@ -27,6 +27,9 @@ import com.gpsradio.core.ai.RealtimeClient
 import com.gpsradio.core.session.LiveConversation
 import com.gpsradio.core.session.LiveHost
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import com.gpsradio.core.discovery.AreaDiskCache
 import com.gpsradio.core.discovery.AreaInfoSource
 import com.gpsradio.core.discovery.DiscoveryService
@@ -141,6 +144,24 @@ open class GpsRadioApp : Application(), coil.ImageLoaderFactory {
     /** On-device voice for the keyless preview and when OpenAI is unreachable. */
     /** The on-device model that retells stories when OpenAI can't; null = plain notes only. */
     protected open fun localWriter(): com.gpsradio.core.ai.LocalWriter? = localModels.writer { settings.current.localModel }
+
+    /**
+     * The OpenAI credit being out is remembered across restarts (spec A §75): the next start goes straight to the
+     * phone's model, which starts loading at once, instead of first learning it from a failed OpenAI call.
+     */
+    private fun rememberCredit() {
+        val prefs = getSharedPreferences("credit", MODE_PRIVATE)
+        val outAt = prefs.getLong("out_at", 0L)
+        if (outAt > 0 && System.currentTimeMillis() - outAt < 24 * 3_600_000L) {
+            session.assumeQuotaExhausted()
+            settings.current.let { if (localModelsOn && localModels.readyNow(it.localModel)) localModels.warmUp(it.localModel) }
+        }
+        CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default).launch {
+            session.state.map { it.quotaExhausted }.distinctUntilChanged().collect { out ->
+                prefs.edit().putLong("out_at", if (out) System.currentTimeMillis() else 0L).apply()
+            }
+        }
+    }
 
     /** This build uses on-device models at all (the emulator test app doesn't). */
     private val localModelsOn: Boolean by lazy { localWriter() != null }
@@ -292,6 +313,7 @@ open class GpsRadioApp : Application(), coil.ImageLoaderFactory {
             angleResearch = angleResearch(openAi, models),
             pictureFinder = pictureFinder(openAi, models),
         )
+        rememberCredit()
     }
 
     /** Navigation handoff (spec A PR-10): let the user's maps app do the routing. */

@@ -23,6 +23,12 @@ interface LocalWriter {
      */
     suspend fun prepare(): Boolean = available()
 
+    /** The model is loaded and answers at full speed (a cold one first spends a while loading). */
+    val isLoaded: Boolean get() = true
+
+    /** Starts loading the model in the background, without waiting. */
+    fun warmUp() {}
+
     /** One completion for [prompt]; null when the model declined or failed. */
     suspend fun write(prompt: String): String?
 
@@ -49,6 +55,15 @@ class LocalNarrator(
 ) : Narrator {
 
     override suspend fun narrate(req: NarrationRequest): Segment {
+        // A cold model can take a minute or more to load: if the facts can be read as they are (they're in the
+        // listener's language), read them now and let the model load for the next story (spec A §75).
+        if (!writer.isLoaded && runCatching { writer.available() }.getOrDefault(false)) {
+            val quick = runCatching { notes.narrate(req) }.getOrNull()
+            if (quick != null) {
+                writer.warmUp()
+                return quick
+            }
+        }
         val story = runCatching { if (writer.available()) retell(req) else null }.getOrNull()
         return story ?: notes.narrate(req)
     }

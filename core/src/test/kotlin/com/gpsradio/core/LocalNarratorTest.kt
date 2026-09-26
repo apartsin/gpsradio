@@ -105,4 +105,23 @@ class LocalNarratorTest {
         val long = LocalNarrator.clean("A fine castle stands here. ".repeat(60))!!
         assertTrue(long.length <= 900 && long.endsWith("."))
     }
+
+    @Test
+    fun aColdModelDoesNotHoldUpAStoryThatCanBeReadAsItIs() = runTest {
+        var warmed = false
+        val cold = object : LocalWriter {
+            override val name = "cold"
+            override val isLoaded = false
+            override suspend fun available() = true
+            override fun warmUp() { warmed = true }
+            override suspend fun write(prompt: String): String? = error("must not wait for a cold model")
+        }
+        // English facts for an English listener: read now, the model loads meanwhile.
+        val seg = LocalNarrator(cold).narrate(request("en-US"))
+        assertTrue(seg.text.startsWith("Quick note about Ort Castle"))
+        assertTrue(warmed)
+        // Russian listener, English facts: only the model can tell it, so it's asked (and fails here → notes throw).
+        warmed = false
+        assertFailsWith<NotInListenerLanguageException> { LocalNarrator(cold).narrate(request("ru-RU")) }
+    }
 }

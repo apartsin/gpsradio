@@ -2137,6 +2137,15 @@ class RadioSession(
         if (_state.value.transcript.lastOrNull()?.text != status.text) addTranscript(TranscriptEntry(Speaker.SYSTEM, status.text, clock()))
     }
 
+    /**
+     * The credit was already out when the app was last used (the app remembers it): go straight to the phone for
+     * stories instead of learning it again from a failed OpenAI call; a top-up is still noticed at the next probe.
+     */
+    fun assumeQuotaExhausted() = scope.launch {
+        if (_state.value.quotaExhausted) return@launch
+        noteQuota()
+    }
+
     private fun clearQuota() {
         if (!_state.value.quotaExhausted) return
         quotaAnnounced = false
@@ -2936,7 +2945,7 @@ class RadioSession(
             return
         }
         val since = waitingSinceMs ?: now.also { waitingSinceMs = it }
-        if (onDeviceNow() && !config().previewMode) return
+        // On the phone too: loading its model is the longest wait of all, and the cues use the phone's voice then.
         if (waitCues >= 3 || now - since < WAIT_CUE_FIRST_MS || now - lastWaitCueMs < WAIT_CUE_EVERY_MS) return
         val notice = listOf(Notice.WAIT_1, Notice.WAIT_2, Notice.WAIT_3)[waitCues]
         waitCues++

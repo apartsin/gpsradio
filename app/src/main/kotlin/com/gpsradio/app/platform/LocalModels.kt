@@ -250,6 +250,12 @@ class LocalModels(
 
         override suspend fun write(prompt: String): String? = writeChecked(prompt) { true }
 
+        /** Gemini Nano is always ready; an open model once its engine is loaded. */
+        override val isLoaded: Boolean
+            get() = _nano.value == NanoState.AVAILABLE || synchronized(liteRt) { liteRt.values.any { it.loaded } }
+
+        override fun warmUp() = warmUp(choice())
+
         override suspend fun writeChecked(prompt: String, accept: (String) -> Boolean): String? {
             for (w in candidates(choice())) {
                 if (w in broken || !w.available()) continue
@@ -530,6 +536,8 @@ private class LiteRtWriter(
     private var engine: Engine? = null
     /** "GPU" or "CPU" once loaded. */
     @Volatile var backend: String? = null
+
+    val loaded: Boolean get() = backend != null
 
     /**
      * Loading and writing run here, apart from the caller: the native calls can't be interrupted, so a caller's
