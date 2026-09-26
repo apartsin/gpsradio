@@ -106,6 +106,9 @@ class AppUpdater(
         if (job?.isActive == true) return
         job = scope.launch {
             val apk = File(context.cacheDir, "updates/gpsradio-${info.version}.apk")
+            // Keep only this version: an update downloaded before is reused (checked by its checksum), and a
+            // download cut short resumes; files of older versions go.
+            File(context.cacheDir, "updates").listFiles()?.filter { !it.name.startsWith(apk.name) }?.forEach { it.delete() }
             try {
                 _state.value = UpdateState.Downloading(info, 0f)
                 c.download(info, apk) { done, total ->

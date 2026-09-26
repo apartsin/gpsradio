@@ -834,3 +834,7 @@ The download id is stored in the `model_downloads` preferences under the model i
 - **FAILED:** a reason text; the download is removed.
 
 `reconcile()` runs from `init`, from a 2 s poller while a download is active, and from `ModelDownloadReceiver` (a manifest receiver for `DOWNLOAD_COMPLETE`, which also works with the app closed). `fileOf()` prefers the legacy `noBackupFilesDir/models` file if present.
+
+## Update Downloads Reused and Resumed
+
+`UpdateClient.download(info, dest)` returns at once when `dest` already holds this update. It checks the file's size and SHA-256 (`isComplete`), so tapping Update again or retrying after a cancelled or failed install doesn't download 70 MB again. Otherwise it writes to `dest.part`. A partial `.part` is resumed with `Range: bytes=N-`; the checksum covers the bytes already there plus the new ones. A 416 response drops the stale part. After verification the file is renamed to `dest`. `AppUpdater.install` keeps only the current version's files in `cache/updates`.

@@ -108,4 +108,49 @@ class UpdatesTest {
             runCatching { server.shutdown() }
         }
     }
+
+    @Test
+    fun anUpdateAlreadyDownloadedIsNotDownloadedAgain() = runBlocking {
+        val server = MockWebServer()
+        server.start()
+        try {
+            val info = UpdateInfo("0.5.150", 150, server.url("/a.apk").toString(), sha, apk.size.toLong())
+            server.enqueue(MockResponse().setBody(Buffer().write(apk)))
+            val client = UpdateClient(OkHttpClient(), server.url("/latest/update.json").toString())
+            val dest = File(Files.createTempDirectory("upd").toFile(), "update.apk")
+            client.download(info, dest)
+            assertEquals(1, server.requestCount)
+            // Tapping Update again (or after a cancelled install): the verified file is used as it is.
+            var progress = 0L
+            client.download(info, dest) { done, _ -> progress = done }
+            assertEquals(1, server.requestCount, "no second download")
+            assertEquals(apk.size.toLong(), progress)
+            assertContentEquals(apk, dest.readBytes())
+        } finally {
+            runCatching { server.shutdown() }
+        }
+    }
+
+    @Test
+    fun aDownloadCutShortContinuesWhereItStopped() = runBlocking {
+        val server = MockWebServer()
+        server.start()
+        try {
+            val info = UpdateInfo("0.5.150", 150, server.url("/a.apk").toString(), sha, apk.size.toLong())
+            val dest = File(Files.createTempDirectory("upd").toFile(), "update.apk")
+            val half = apk.size / 2
+            File(dest.path + ".part").writeBytes(apk.copyOfRange(0, half))
+            server.enqueue(
+                MockResponse().setResponseCode(206)
+                    .setHeader("Content-Range", "bytes $half-${apk.size - 1}/${apk.size}")
+                    .setBody(Buffer().write(apk.copyOfRange(half, apk.size))),
+            )
+            UpdateClient(OkHttpClient(), server.url("/latest/update.json").toString()).download(info, dest)
+            assertEquals("bytes=$half-", server.takeRequest().getHeader("Range"))
+            assertContentEquals(apk, dest.readBytes())
+            assertFalse(File(dest.path + ".part").exists())
+        } finally {
+            runCatching { server.shutdown() }
+        }
+    }
 }

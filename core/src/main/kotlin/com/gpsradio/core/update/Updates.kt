@@ -85,18 +85,36 @@ class UpdateClient(private val http: OkHttpClient, private val manifestUrl: Stri
      * [UpdateChecksumException] and deletes the file if the SHA-256 doesn't match.
      */
     suspend fun download(info: UpdateInfo, dest: File, onProgress: (Long, Long) -> Unit = { _, _ -> }) {
-        val resp = http.newCall(Request.Builder().url(info.apk).build()).await()
+        // Downloaded before (an install that was cancelled or failed, or "Update" tapped again): use it as it is.
+        if (isComplete(info, dest)) {
+            onProgress(dest.length(), dest.length())
+            return
+        }
+        dest.delete()
+        // A download cut short continues where it stopped (the server supports ranges).
+        val part = File(dest.path + ".part")
+        val have = part.length().takeIf { part.isFile } ?: 0L
+        val request = Request.Builder().url(info.apk).apply { if (have > 0) header("Range", "bytes=$have-") }.build()
+        val resp = http.newCall(request).await()
         resp.use {
+            if (it.code == 416) {
+                part.delete() // the partial file doesn't fit this update: start over next time
+                throw IOException("The partial update download was stale. Please try again.")
+            }
             if (!it.isSuccessful) throw HttpException(it.code, "HTTP ${it.code} downloading the update")
             val body = it.body ?: throw IOException("empty update download")
-            val total = body.contentLength().takeIf { n -> n > 0 } ?: info.size
+            val append = it.code == 206 && have > 0
+            val start = if (append) have else 0L
+            val total = body.contentLength().takeIf { n -> n > 0 }?.let { n -> n + start } ?: info.size
             val digest = MessageDigest.getInstance("SHA-256")
             withContext(Dispatchers.IO) {
                 dest.parentFile?.mkdirs()
+                // The bytes already there count toward the checksum too.
+                if (append) part.inputStream().use { input -> hash(input, digest) }
                 body.byteStream().use { input ->
-                    dest.outputStream().use { out ->
+                    java.io.FileOutputStream(part, append).use { out ->
                         val buf = ByteArray(64 * 1024)
-                        var done = 0L
+                        var done = start
                         while (true) {
                             coroutineContext.ensureActive()
                             val n = input.read(buf)
@@ -111,9 +129,27 @@ class UpdateClient(private val http: OkHttpClient, private val manifestUrl: Stri
             }
             val actual = with(Updates) { digest.digest().toHex() }
             if (!actual.equals(info.sha256, ignoreCase = true)) {
-                dest.delete()
+                part.delete()
                 throw UpdateChecksumException("The downloaded update is damaged (checksum mismatch). Please try again.")
             }
+            if (!part.renameTo(dest)) throw IOException("Could not save the update")
+        }
+    }
+
+    /** [dest] already holds exactly this update (same size and SHA-256). */
+    suspend fun isComplete(info: UpdateInfo, dest: File): Boolean = withContext(Dispatchers.IO) {
+        if (!dest.isFile || (info.size > 0 && dest.length() != info.size)) return@withContext false
+        val digest = MessageDigest.getInstance("SHA-256")
+        dest.inputStream().use { hash(it, digest) }
+        with(Updates) { digest.digest().toHex() }.equals(info.sha256, ignoreCase = true)
+    }
+
+    private fun hash(input: java.io.InputStream, digest: MessageDigest) {
+        val buf = ByteArray(64 * 1024)
+        while (true) {
+            val n = input.read(buf)
+            if (n < 0) break
+            digest.update(buf, 0, n)
         }
     }
 }
